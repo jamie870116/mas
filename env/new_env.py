@@ -8,6 +8,11 @@ import pickle
 import numpy as np
 from heapq import heappush, heappop
 import time
+# import sys
+# sys.path.append("/Users/apple/Desktop/UCSB/master_project/mas/thortils")
+# from thortils.thortils.navigation import get_shortest_path_to_object
+# from thortils.thortils.utils import closest, closest_angles
+
 
 class BaseEnv:
     """Base class for AI2THOR environment utilities."""
@@ -35,7 +40,7 @@ class BaseEnv:
     
     def create_save_dirs(self, test_case_id: str = None):
         """Create directories for saving images under a task-specific folder with test case subfolder."""
-        self.base_path = Path(self.task.replace(" ", "_"))
+        self.base_path = Path("logs/" + self.task.replace(" ", "_"))
         if test_case_id:
             self.base_path = self.base_path / f"test_{test_case_id}"
         for agent_name in self.agent_names:
@@ -228,6 +233,7 @@ class AI2ThorEnv(BaseEnv):
         self.open_subtasks = "None" if self.use_plan else None
         self.closed_subtasks = "None" if self.use_plan else None
         self.step_num = [0] * self.num_agents
+        self.simulation_step_num = 1
         self.action_history = {name: [] for name in self.agent_names}
         self.action_success_history = {name: [] for name in self.agent_names}
         self.agent_failure_acts = {name: [] for name in self.agent_names}
@@ -256,6 +262,7 @@ class AI2ThorEnv(BaseEnv):
         )
         self.object_dict = {}
         self.step_num = [0] * self.num_agents
+        self.simulation_step_num = 1
         self.inventory = ["nothing"] * self.num_agents
         self.subtasks = ["Initial subtask"] if self.use_shared_subtask else ["Initial subtask"] * self.num_agents
         self.memory = ["Nothing"] if self.use_shared_memory else ["Nothing"] * self.num_agents
@@ -340,7 +347,7 @@ class AI2ThorEnv(BaseEnv):
         """Placeholder for observation summarization."""
         return obs_list
     
-    def step(self, actions: List[str]) -> Tuple[str, List[bool]]:
+    # def step(self, actions: List[str]) -> Tuple[str, List[bool]]:
         """Execute actions for all agents and return observations and success flags."""
         act_successes, act_texts = [], []
         for agent_id, action in enumerate(actions):
@@ -399,6 +406,68 @@ class AI2ThorEnv(BaseEnv):
         self.update_current_state(act_texts)
         return self.get_observations(), act_successes
     
+    def step(self, actions: List[str]) -> Tuple[str, List[bool]]:
+        """Execute actions for all agents and return observations and success flags."""
+        act_successes, act_texts = [], []
+        for agent_id, action in enumerate(actions):
+            error_type = None
+            if action.startswith("NavigateTo"):
+                act_success, error_type = self.navigation_step(action, agent_id)
+            elif action in ["Done", "Idle"]:
+                act_success = True
+            elif action.startswith(tuple(self.object_interaction_actions)):
+                object_id = action.split("(")[1].rstrip(")")
+                obj_id = self.convert_readable_object_to_id(object_id)
+                nav_action = f"NavigateTo({object_id})"
+                nav_success, nav_error = self.navigation_step(nav_action, agent_id)
+                if not nav_success:
+                    act_success = False
+                    error_type = nav_error
+                else:
+                    action_dict = self.parse_action(action, agent_id)
+                    self.event = self.controller.step(action_dict)
+                    act_success = self.event.events[agent_id].metadata["lastActionSuccess"]
+                    if not act_success:
+                        error_type = "interaction-failed"
+                        if obj_id not in self.get_object_in_view(agent_id):
+                            error_type += ": object-not-in-view"
+                        else:
+                            agent_pos = self.get_agent_position_dict(agent_id)
+                            obj_metadata = next(obj for obj in self.event.metadata["objects"] if obj["objectId"] == obj_id)
+                            obj_pos = obj_metadata["position"]
+                            dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
+                            if dist > 1.5:
+                                error_type += f": distance-too-far ({dist:.2f}m)"
+            else:
+                action_dict = self.parse_action(action, agent_id)
+                self.event = self.controller.step(action_dict)
+                act_success = self.event.events[agent_id].metadata["lastActionSuccess"]
+            
+            self.step_num[agent_id] += 1
+            if act_success:
+                self.agent_failure_acts[self.agent_names[agent_id]] = []
+                if action.startswith("PickupObject"):
+                    self.inventory[agent_id] = self.get_agent_object_held(agent_id)
+                elif action.startswith("PutObject") or action.startswith("DropHandObject"):
+                    self.inventory[agent_id] = "nothing"
+            else:
+                self.agent_failure_acts[self.agent_names[agent_id]].append(action)
+            
+            self.action_history[self.agent_names[agent_id]].append(action)
+            self.action_success_history[self.agent_names[agent_id]].append(act_success)
+            act_texts.append(self.get_act_text(action, act_success, agent_id, error_type))
+            act_successes.append(act_success)
+        
+        if not self.skip_save_dir:
+            for agent_id in range(self.num_agents):
+                self.save_last_frame(agent_id=agent_id, view="pov", filename=f"frame_{self.step_num[agent_id]}.png")
+            if self.overhead:
+                self.save_last_frame(view="overhead", filename=f"frame_{self.step_num[0]}.png")
+
+        self.update_current_state(act_texts)
+        return self.get_observations(), act_successes
+
+
     def navigation_step(self, action: str, agent_id: int) -> Tuple[bool, str]:
         """Execute navigation actions by finding a step-by-step path to the front of the target object."""
         object_id = action.split("(")[1].rstrip(")")
@@ -644,18 +713,35 @@ class AI2ThorEnv(BaseEnv):
         """Write an image to the specified path."""
         cv2.imwrite(str(pth), img)
     
-    def save_frame(self):
-        """Save POV images for each agent and a single overhead image with timestamp."""
-        current_time = self.total_elapsed_time
+
+
+    def save_frame(self, simulation: bool = False):
+        """Save POV images for each agent and a single overhead image."""
+        if simulation:
+            frame_num = "_" + str(self.simulation_step_num)
+        else:
+            frame_num = ""
+        
         for agent_id in range(self.num_agents):
             img = self.event.events[agent_id].cv2img
-            pth = self.base_path / self.agent_names[agent_id] / "pov" / f"frame_{current_time:.2f}.png"
+            pth = self.base_path / self.agent_names[agent_id] / "pov" / f"frame_{str(self.step_num[agent_id]) + frame_num}.png"
             self._write_image(pth, img)
         
         if self.overhead:
             img = self._get_ceiling_image()
-            pth = self.base_path / "overhead" / f"frame_{current_time:.2f}.png"
+            pth = self.base_path / "overhead" / f"frame_{str(self.step_num[0]) + frame_num}.png"
             self._write_image(pth, img)
+        # current_time = self.total_elapsed_time
+        # for agent_id in range(self.num_agents):
+        #     img = self.event.events[agent_id].cv2img
+        #     pth = self.base_path / self.agent_names[agent_id] / "pov" / f"frame_{current_time:.2f}.png"
+        #     self._write_image(pth, img)
+        
+        # if self.overhead:
+        #     img = self._get_ceiling_image()
+        #     pth = self.base_path / "overhead" / f"frame_{current_time:.2f}.png"
+        #     self._write_image(pth, img)
+
     
     def save_last_frame(self, agent_id: int = None, view: str = "pov", filename: str = "last_frame.png"):
         """Save the frame from the last event for a specific agent or overhead view."""
@@ -673,17 +759,24 @@ class AI2ThorEnv(BaseEnv):
     
     def get_frame(self, agent_id: int = None, view: str = "pov") -> Path:
         """Get the path to the latest frame for the agent or overhead view."""
-        current_time = self.total_elapsed_time
-        if view == "pov":
-            image_path = (
-                self.base_path
-                / self.agent_names[agent_id]
-                / "pov"
-                / f"frame_{current_time:.2f}.png"
-            )
+        if view == "pov" and agent_id is not None:
+            image_path = self.base_path / self.agent_names[agent_id] / "pov" / f"frame_{self.step_num[agent_id]}.png"
+        elif view == "overhead":
+            image_path = self.base_path / "overhead" / f"frame_{self.step_num[0]}.png"
         else:
-            image_path = self.base_path / "overhead" / f"frame_{current_time:.2f}.png"
+            raise ValueError("Invalid view or agent_id. Use 'pov' with a valid agent_id or 'overhead'.")
         return image_path
+        # current_time = self.total_elapsed_time
+        # if view == "pov":
+        #     image_path = (
+        #         self.base_path
+        #         / self.agent_names[agent_id]
+        #         / "pov"
+        #         / f"frame_{current_time:.2f}.png"
+        #     )
+        # else:
+        #     image_path = self.base_path / "overhead" / f"frame_{current_time:.2f}.png"
+        # return image_path
     
     def set_overhead(self, enable: bool):
         """Toggle overhead image capture."""
@@ -765,8 +858,10 @@ class AI2ThorEnv(BaseEnv):
             return False, f"Unexpected error during event simulation: {str(e)}"
         finally:
             self.total_elapsed_time = time.time() - self.start_time
+            self.simulation_step_num += 1
             if not self.skip_save_dir:
-                self.save_frame()
+                self.save_frame(simulation=True)
+            self.simulation_step_num += 1
 
 if __name__ == "__main__":
     config_path = "config/config.json"

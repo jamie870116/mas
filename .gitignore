@@ -2,7 +2,9 @@ api_key.txt
 
 # log data
 prev_bring_a_tomato,_lettuce,_and_bread_to_the_countertop_to_make_a_sandwich/*
+bring_a_tomato,_lettuce,_and_bread_to_the_countertop_to_make_a_sandwich/*
 move_ahead/*
 task1/*
+logs/*
 
 test_env.py

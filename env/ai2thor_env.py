@@ -34,7 +34,7 @@ class BaseEnv:
     
     def create_save_dirs(self, test_case_id: str = None):
         """Create directories for saving images under a task-specific folder with test case subfolder."""
-        self.base_path = Path(self.task.replace(" ", "_"))  # Replace spaces with underscores for folder name
+        self.base_path = Path("logs/" + self.task.replace(" ", "_"))  # Replace spaces with underscores for folder name
         if test_case_id:
             self.base_path = self.base_path / f"test_{test_case_id}"
         for agent_name in self.agent_names:
