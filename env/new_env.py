@@ -8,11 +8,15 @@ import pickle
 import numpy as np
 from heapq import heappush, heappop
 import time
-# import sys
-# sys.path.append("/Users/apple/Desktop/UCSB/master_project/mas/thortils")
-# from thortils.thortils.navigation import get_shortest_path_to_object
-# from thortils.thortils.utils import closest, closest_angles
-
+from thortils.navigation import get_shortest_path_to_object
+# from thortils.utils import closest, closest_angles
+import traceback
+import math
+def closest_angles(values, query):
+    """Returns the entry in `values` that is
+    closest to `query` in unit circle angles"""
+    values.append(360)
+    return min(values, key=lambda v: abs(v-query)) % 360
 
 class BaseEnv:
     """Base class for AI2THOR environment utilities."""
@@ -223,7 +227,7 @@ class AI2ThorEnv(BaseEnv):
         self.force_action = self.config["force_action"]
         self.overhead = self.config["overhead"]
         
-        self.controller = ai2thor.controller.Controller(width=1000, height=1000)
+        self.controller = ai2thor.controller.Controller(width=1000, height=1000, gridSize=0.25)
         self.controller.reset(self.scene)
         
         self.agent_names = ["Alice", "Bob", "Charlie", "David", "Emma"][:self.num_agents]
@@ -420,6 +424,7 @@ class AI2ThorEnv(BaseEnv):
                 obj_id = self.convert_readable_object_to_id(object_id)
                 nav_action = f"NavigateTo({object_id})"
                 nav_success, nav_error = self.navigation_step(nav_action, agent_id)
+                print('nav_success: ', nav_success, nav_error)
                 if not nav_success:
                     act_success = False
                     error_type = nav_error
@@ -467,8 +472,8 @@ class AI2ThorEnv(BaseEnv):
         self.update_current_state(act_texts)
         return self.get_observations(), act_successes
 
-
-    def navigation_step(self, action: str, agent_id: int) -> Tuple[bool, str]:
+    # prev
+    # def navigation_step(self, action: str, agent_id: int) -> Tuple[bool, str]:
         """Execute navigation actions by finding a step-by-step path to the front of the target object."""
         object_id = action.split("(")[1].rstrip(")")
         try:
@@ -628,7 +633,185 @@ class AI2ThorEnv(BaseEnv):
             return False, "object-not-found"
         except Exception as e:
             return False, f"unexpected-error: {str(e)}"
+    # useing thortils
+    # def navigation_step(self, action: str, agent_id: int) -> Tuple[bool, str]:
+    #     """
+    #     Use thortils.get_shortest_path_to_object to move the agent near the target object.
+    #     """
+    #     print(f"Agent {agent_id} performing NavigateTo: {action}")
+    #     object_name = action.split("(")[1].rstrip(")")
+    #     try:
+    #         obj_id = self.convert_readable_object_to_id(object_name)
+    #         print('navigate to ', obj_id)
+    #         other_agents = [
+    #             self.event.events[i].metadata["agent"]["position"]
+    #             for i in range(self.num_agents)
+    #             if i != agent_id
+    #         ]
+    #         # current pose
+    #         cur_pos = self.get_agent_position_dict(agent_id)
+    #         cur_rot = self.event.events[agent_id].metadata["agent"]["rotation"]
+    #         cur_rot_tuple = (cur_rot["x"], cur_rot["y"], cur_rot["z"])
+    #         cur_pos_tuple = (cur_pos["x"], cur_pos["y"], cur_pos["z"])
+    #         print('cur_pos: ', cur_pos)
+    #         # run thortils planner
+    #         # _, action_plan = get_shortest_path_to_object(
+    #         #     self.controller, other_agents, obj_id,
+    #         #     cur_pos_tuple, cur_rot_tuple, return_plan=True
+    #         # )
+    #         other_agents = [
+    #             self.event.events[i].metadata["agent"]["position"]
+    #             for i in range(self.args.num_agents)
+    #             if i != agent_id
+    #         ]
+    #         cameraHorizon = self.event.events[agent_id].metadata["agent"]["cameraHorizon"]
+    #         from thortils.constants import H_ANGLES, V_ANGLES
+    #         cameraHorizon = closest_angles(V_ANGLES, cameraHorizon)
+
+    #         def pitch_act(cameraHorizon, act=True):
+    #             pitch_action = None
+    #             if cameraHorizon > 0:
+    #                 pitch_action = f"LookUp({cameraHorizon})"
+    #             elif cameraHorizon < 0:
+    #                 pitch_action = f"LookDown({cameraHorizon})"
+    #             # act now - before we try to find path (will not work otherwise)
+    #             if pitch_action is not None and act:
+    #                 # TODO: will this be added to the list for the env (bad)
+    #                 action_dict = self.parse_action(pitch_action, agent_id)
+    #                 self.event = self.controller.step(action_dict)
+
+    #         # conditionally choose the pitch action - fix navigation issues
+    #         pitch_act(cameraHorizon)
+
+    #         poses, action_plan = get_shortest_path_to_object(
+    #             self.controller, other_agents, obj_id,
+    #             cur_pos_tuple, cur_rot_tuple, return_plan=True
+    #         )
+    #         print('action_plan: ', action_plan)
+    #         print('poses: ', poses)
+    #         if action_plan is None:
+    #             return False, "no-path"
+
+    #         # convert to env actions
+    #         for thortils_action in action_plan:
+    #             # act_str = self.convert_thortils_action(thortils_action)
+    #             # action_dict = self.parse_action(act_str, agent_id)
+    #             action_name, params = thortils_action
+    #             if action_name in ["LookUp", "LookDown"]:
+    #                 action_dict = {"action": action_name, "agentId": agent_id, "degrees": abs(params[2])}
+    #             elif action_name in ["RotateLeft", "RotateRight"]:
+    #                 action_dict = {"action": action_name, "agentId": agent_id, "degrees": abs(params[1])}
+    #             else:  # MoveAhead
+    #                 action_dict = {"action": action_name, "agentId": agent_id}
+
+    #             self.event = self.controller.step(action_dict)
+    #             self.step_num[agent_id] += 1
+
+    #             if not self.event.events[agent_id].metadata["lastActionSuccess"]:
+    #                 return False, f"failed-at: {action_name}"
+
+    #             if not self.skip_save_dir:
+    #                 self.save_frame()
+            
+    #         self.correct_agent_pose_to_object(agent_id, obj_id)
+            
+            
+    #         return True, None
+    #     except Exception as e:
+    #         print("[EXCEPTION] navigation_step error:")
+    #         print(traceback.format_exc())
+    #         return False, f"exception: {str(e)}"
+    def navigation_step(self, action: str, agent_id: int) -> Tuple[bool, str]:
+        print(f"Agent {agent_id} performing NavigateTo: {action}")
+        object_name = action.split("(")[1].rstrip(")")
+        try:
+            from thortils.constants import H_ANGLES, V_ANGLES
+            # from thortils.utils import closest_angles
+
+            obj_id = self.convert_readable_object_to_id(object_name)
+            other_agents = [
+                self.event.events[i].metadata["agent"]["position"]
+                for i in range(self.num_agents) if i != agent_id
+            ]
+            cur_pos = self.get_agent_position_dict(agent_id)
+            cur_rot = self.event.events[agent_id].metadata["agent"]["rotation"]
+            cur_pos_tuple = (cur_pos["x"], cur_pos["y"], cur_pos["z"])
+            cur_rot_tuple = (
+                closest_angles(V_ANGLES, cur_rot["x"]),
+                closest_angles(H_ANGLES, cur_rot["y"]),
+                cur_rot["z"]
+            )
+
+            # 預先校正 pitch
+            pitch = self.event.events[agent_id].metadata["agent"]["cameraHorizon"]
+            pitch = closest_angles(V_ANGLES, pitch)
+            if pitch != 0:
+                self.event = self.controller.step({
+                    "action": "LookUp" if pitch > 0 else "LookDown",
+                    "agentId": agent_id,
+                    "degrees": abs(pitch)
+                })
+                self.save_frame()
+
+            # 規劃並執行路徑
+            poses, plan = get_shortest_path_to_object(
+                self.controller, obj_id,
+                cur_pos_tuple, cur_rot_tuple, return_plan=True
+            )
+            print('action plan', plan)
+            if plan is None:
+                return False, "no-path"
+
+            for name, param in plan:
+                if name in ["LookUp", "LookDown"]:
+                    action_dict = {"action": name, "agentId": agent_id, "degrees": abs(param[2])}
+                elif name in ["RotateLeft", "RotateRight"]:
+                    action_dict = {"action": name, "agentId": agent_id, "degrees": abs(param[1])}
+                else:
+                    action_dict = {"action": name, "agentId": agent_id}
+                self.event = self.controller.step(action_dict)
+                self.step_num[agent_id] += 1
+                self.save_frame()
+                if not self.event.events[agent_id].metadata["lastActionSuccess"]:
+                    return False, f"failed-at: {name}"
+
+            # 最後根據 poses 補校正 yaw/pitch
+            final_rot = poses[-1][1]
+            cur_rot = self.event.events[agent_id].metadata["agent"]["rotation"]
+            yaw_diff = ((final_rot["y"] - cur_rot["y"] + 180) % 360) - 180
+            pitch_diff = final_rot["x"] - cur_rot["x"]
+
+            while abs(yaw_diff) > 1:
+                step = min(45, abs(yaw_diff))
+                self.event = self.controller.step({
+                    "action": "RotateRight" if yaw_diff > 0 else "RotateLeft",
+                    "agentId": agent_id,
+                    "degrees": step
+                })
+                yaw_diff -= step if yaw_diff > 0 else -step
+                self.step_num[agent_id] += 1
+                self.save_frame()
+
+            while abs(pitch_diff) > 1:
+                step = min(30, abs(pitch_diff))
+                self.event = self.controller.step({
+                    "action": "LookUp" if pitch_diff > 0 else "LookDown",
+                    "agentId": agent_id,
+                    "degrees": step
+                })
+                pitch_diff -= step if pitch_diff > 0 else -step
+                self.step_num[agent_id] += 1
+                self.save_frame()
+
+            return True, None
+
+        except Exception as e:
+            print("[EXCEPTION] navigation_step error:")
+            print(traceback.format_exc())
+            return False, f"exception: {str(e)}"
+
     
+
     def a_star(self, start: Tuple[int, int], goal: Tuple[int, int], reachable_grid: set, agent_id: int) -> List[Tuple[int, int]]:
         """A* pathfinding algorithm to find a step-by-step path."""
         def heuristic(pos: Tuple[int, int]) -> float:
@@ -663,6 +846,38 @@ class AI2ThorEnv(BaseEnv):
         
         return []
     
+    def convert_thortils_action(self, action: Tuple[str, Tuple]) -> str:
+        """
+        Convert thortils-style action to env action string, e.g. ('MoveAhead', ()) → "MoveAhead"
+        or ('LookUp', (0,0,-30)) → "LookDown(30)"
+        """
+        act = action[0]
+        params = action[1]
+
+        if act == "MoveAhead":
+            return "MoveAhead"
+        elif act == "MoveRight":
+            return "MoveRight"
+        elif act == "MoveLeft":
+            return "MoveLeft"
+        elif act == "MoveBack":
+            return "MoveBack"
+        elif act == "RotateRight":
+            return "RotateRight"
+        elif act == "RotateLeft":
+            return "RotateLeft"
+        elif act == "LookUp":
+            angle = params[2]
+            return f"LookUp({abs(angle)})" if angle > 0 else f"LookDown({abs(angle)})"
+        elif act == "LookDown":
+            angle = params[2]
+            return f"LookDown({abs(angle)})" if angle > 0 else f"LookUp({abs(angle)})"
+        elif act == "AlignOrientation":
+            pitch, yaw, z_flag = params
+            return f"AlignOrientation({pitch},{yaw},{z_flag})"
+        else:
+            raise ValueError(f"Unknown thortils action: {action}")
+
     def update_subtask(self, subtask: str, agent_id: int = 0):
         """Update subtask for shared or per-agent usage."""
         if self.use_shared_subtask:
@@ -868,65 +1083,19 @@ if __name__ == "__main__":
     env = AI2ThorEnv(config_path)
     obs = env.reset()
     print("Initial Observations:\n", obs)
-    print("All objects in scene:", env.get_all_objects())
+    # print("All objects in scene:", env.get_all_objects())
     
-    success, message = env.simulate_environment_event("break", "Mug_1")
-    print(f"Break Event: {message}")
-    # env.save_last_frame(agent_id=0, view="pov", filename="last_break_frame.png")
+    # success, message = env.simulate_environment_event("break", "Mug_1")
+    # print(f"Break Event: {message}")
+    # # env.save_last_frame(agent_id=0, view="pov", filename="last_break_frame.png")
     
-    target_pos = {"x": 2.0, "y": 0.9, "z": -1.0}
-    success, message = env.simulate_environment_event("move", "Bowl_1", target_pos)
-    print(f"Move Event: {message}")
+    # target_pos = {"x": 2.0, "y": 0.9, "z": -1.0}
+    # success, message = env.simulate_environment_event("move", "Bowl_1", target_pos)
+    # print(f"Move Event: {message}")
     
     actions = ["MoveAhead", "MoveAhead"]
     obs, successes = env.step(actions)
     print("Step Observations:\n", obs)
     print("Action Successes:", successes)
     
-    env.close()
-
-# if __name__ == "__main__":
-#     config_path = "config/config.json"
-#     env = AI2ThorEnv(config_path)
-#     obs = env.reset()
-#     print("Initial Observations:\n", obs)
-#     print('object in view of agent 1', env.get_object_in_view(0))
-#     print("All objects in scene:", env.get_all_objects())
-#     print("Before breaking: Status of Mug_1:", env.get_object_status("Mug_1"))
-#     print("Before breaking: Status of Lettuce_1:", env.get_object_status("Lettuce_1"))
-
-#     # Simulate breaking an object
-#     success, message = env.simulate_environment_event("break", "Mug_1")
-#     print(f"Break Event: {message}")
-#     print("After breaking: Status of Mug_1:", env.get_object_status("Mug_1"))
-#     print("After breaking: Status of Lettuce_1:", env.get_object_status("Lettuce_1"))
-
-#     time.sleep(10)
-#     # Simulate moving an object
-#     target_pos = {"x": 2.0, "y": 0.9, "z": -1.0}
-#     print("Before moving: Status of Bowl_1:", env.get_object_status("Bowl_1"))
-#     success, message = env.simulate_environment_event("move", "Bowl_1", target_pos)
-#     print(f"Move Event: {message}")
-#     print("After moving: Status of Bowl_1:", env.get_object_status("Bowl_1"))
-
-#     actions = ["MoveAhead", "MoveAhead"]
-#     obs, successes = env.step(actions)
-#     print("Step Observations:\n", obs)
-#     print("Action Successes:", successes)
-    
-#     env.close()
-
-    '''
-Before breaking: Status of Mug_1: {'object_id': 'Mug|-01.76|+00.90|-00.62', 'name': 'Mug_e7fad100', 'position': {'x': -1.7607921361923218, 'y': 0.9000000357627869, 'z': -0.6206092834472656}, 'rotation': {'x': 2.6733881895779632e-05, 'y': 0.000685526872985065, 'z': -1.5666983017581515e-05}, 'is_open': False, 'is_on': False, 'is_picked_up': False, 'isSliced': False, 'isToggled': False, 'isBroken': False, 'isFilledWithLiquid': False, 'contains': []}
-Before breaking: Status of Lettuce_1: {'object_id': 'Lettuce|-01.81|+00.97|-00.94', 'name': 'Lettuce_2d8f3ab9', 'position': {'x': -1.8069753646850586, 'y': 0.9737617373466492, 'z': -0.9429945945739746}, 'rotation': {'x': 359.9818115234375, 'y': 256.7711181640625, 'z': 0.001349071622826159}, 'is_open': False, 'is_on': False, 'is_picked_up': False, 'isSliced': False, 'isToggled': False, 'isBroken': False, 'isFilledWithLiquid': False, 'contains': None}
-
-Break Event: Object Mug_1 has been broken.
-
-After breaking: Status of Mug_1: {'object_id': 'Mug|-01.76|+00.90|-00.62', 'name': 'Mug_e7fad100', 'position': {'x': -1.7607921361923218, 'y': 0.9000000357627869, 'z': -0.6206092834472656}, 'rotation': {'x': 2.6733881895779632e-05, 'y': 0.000685526872985065, 'z': -1.5666983017581515e-05}, 'is_open': False, 'is_on': False, 'is_picked_up': False, 'isSliced': False, 'isToggled': False, 'isBroken': True, 'isFilledWithLiquid': False, 'contains': []}
-After breaking: Status of Lettuce_1: {'object_id': 'Lettuce|-01.81|+00.97|-00.94', 'name': 'Lettuce_2d8f3ab9', 'position': {'x': -1.798709511756897, 'y': 0.973779559135437, 'z': -0.9976263046264648}, 'rotation': {'x': 359.9550476074219, 'y': 262.6057434082031, 'z': 46.579410552978516}, 'is_open': False, 'is_on': False, 'is_picked_up': False, 'isSliced': False, 'isToggled': False, 'isBroken': False, 'isFilledWithLiquid': False, 'contains': None}
-
-Before moving: Status of Bowl_1: {'object_id': 'Bowl|+00.27|+01.10|-00.75', 'name': 'Bowl_208f368b', 'position': {'x': 0.2731873691082001, 'y': 1.1010208129882812, 'z': -0.7532863616943359}, 'rotation': {'x': -0.002493660431355238, 'y': 0.00026333334972150624, 'z': -0.0018902190495282412}, 'is_open': False, 'is_on': False, 'is_picked_up': False, 'isSliced': False, 'isToggled': False, 'isBroken': False, 'isFilledWithLiquid': False, 'contains': []}
-Move Event: Object Bowl_1 has been moved to {'x': 2.0, 'y': 0.9, 'z': -1.0}.
-After moving: Status of Bowl_1: {'object_id': 'Bowl|+00.27|+01.10|-00.75', 'name': 'Bowl_208f368b', 'position': {'x': 2.0, 'y': 0.0010198839008808136, 'z': -1.000000238418579}, 'rotation': {'x': 3.404549352126196e-05, 'y': 0.0002766225952655077, 'z': -0.00011428898142185062}, 'is_open': False, 'is_on': False, 'is_picked_up': False, 'isSliced': False, 'isToggled': False, 'isBroken': False, 'isFilledWithLiquid': False, 'contains': []}
-    
-    '''
+    env.close()    
