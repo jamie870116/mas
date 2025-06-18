@@ -1,4 +1,3 @@
-# second version
 import json
 import os
 from pathlib import Path
@@ -9,10 +8,14 @@ import pickle
 import numpy as np
 from heapq import heappush, heappop
 import time
+from collections import deque, defaultdict
 from thortils.navigation import get_shortest_path_to_object
 # from thortils.utils import closest, closest_angles
+from thortils.constants import H_ANGLES, V_ANGLES
+
 import traceback
 import math
+
 def closest_angles(values, query):
     """Returns the entry in `values` that is
     closest to `query` in unit circle angles"""
@@ -29,7 +32,9 @@ class BaseEnv:
         self.move_actions = ["MoveAhead", "MoveBack", "MoveRight", "MoveLeft"]
         self.rotate_actions = ["RotateRight", "RotateLeft"]
         self.look_actions = ["LookUp", "LookDown"]
-        self.object_interaction_actions = ["PickupObject", "PutObject", "OpenObject", "CloseObject", "ToggleObjectOn", "ToggleObjectOff"]
+        self.idle_actions = ["Done", "Idle"]
+        self.object_interaction_actions = ["PickupObject", "PutObject", "OpenObject", "CloseObject", "ToggleObjectOn", "ToggleObjectOff", "BreakObject", "CookObject", "SliceObject", "DirtyObject", "CleanObject", "FillObjectWithLiquid", "EmptyLiquidFromObject", "UseUpObject"]
+        self.object_interaction_without_navigation  = ["DropHandObject", "ThrowObject"]
     
     def random_spawn(self, seed: int = 0):
         """Randomly spawn objects in the environment."""
@@ -212,7 +217,7 @@ class AI2ThorEnv(BaseEnv):
         super().__init__()
         with open(config_path, "r") as f:
             self.config = json.load(f)
-        self.num_agents = self.config["num_agents"]
+        self.num_agents = self.config["num_agents"] # curr max 5 agents
         self.scene = self.config["scene"]
         self.task = self.config["task"]
         self.timeout = self.config["timeout"]
@@ -239,6 +244,11 @@ class AI2ThorEnv(BaseEnv):
         self.closed_subtasks = "None" if self.use_plan else None
         self.step_num = [0] * self.num_agents
         self.simulation_step_num = 1
+
+        self.pending_high_level = defaultdict(deque)
+        self.action_queue = defaultdict(deque) # {agent_id: [queue] }for breaking down navigation steps or so
+        self.action_step_num = 0
+
         self.action_history = {name: [] for name in self.agent_names}
         self.action_success_history = {name: [] for name in self.agent_names}
         self.agent_failure_acts = {name: [] for name in self.agent_names}
@@ -294,6 +304,7 @@ class AI2ThorEnv(BaseEnv):
                     agentId=agent_id
                 )
             )
+
         
         if not self.skip_save_dir:
             self.save_frame()
@@ -349,68 +360,209 @@ class AI2ThorEnv(BaseEnv):
         return obs_text, obs_list
     
     def summarise_obs(self, obs_list: List[str]) -> List[str]:
-        """Placeholder for observation summarization."""
+        """Placeholder for observation summarization. (LLM) """
         return obs_list
     
-    # def step(self, actions: List[str]) -> Tuple[str, List[bool]]:
-        """Execute actions for all agents and return observations and success flags."""
-        act_successes, act_texts = [], []
-        for agent_id, action in enumerate(actions):
-            error_type = None
-            if action.startswith("NavigateTo"):
-                act_success, error_type = self.navigation_step(action, agent_id)
-            elif action in ["Done", "Idle"]:
-                act_success = True
-            elif action.startswith(tuple(self.object_interaction_actions)):
-                object_id = action.split("(")[1].rstrip(")")
-                obj_id = self.convert_readable_object_to_id(object_id)
-                nav_action = f"NavigateTo({object_id})"
-                nav_success, nav_error = self.navigation_step(nav_action, agent_id)
-                if not nav_success:
-                    act_success = False
-                    error_type = nav_error
-                else:
-                    action_dict = self.parse_action(action, agent_id)
-                    self.event = self.controller.step(action_dict)
-                    act_success = self.event.events[agent_id].metadata["lastActionSuccess"]
-                    if not act_success:
-                        error_type = "interaction-failed"
-                        if obj_id not in self.get_object_in_view(agent_id):
-                            error_type += ": object-not-in-view"
-                        else:
-                            agent_pos = self.get_agent_position_dict(agent_id)
-                            obj_metadata = next(obj for obj in self.event.metadata["objects"] if obj["objectId"] == obj_id)
-                            obj_pos = obj_metadata["position"]
-                            dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
-                            if dist > 1.5:
-                                error_type += f": distance-too-far ({dist:.2f}m)"
-            else:
-                action_dict = self.parse_action(action, agent_id)
-                self.event = self.controller.step(action_dict)
-                act_success = self.event.events[agent_id].metadata["lastActionSuccess"]
-            
-            self.step_num[agent_id] += 1
-            if act_success:
-                self.agent_failure_acts[self.agent_names[agent_id]] = []
-                if action.startswith("PickupObject"):
-                    self.inventory[agent_id] = self.get_agent_object_held(agent_id)
-                elif action.startswith("PutObject") or action.startswith("DropHandObject"):
-                    self.inventory[agent_id] = "nothing"
-            else:
-                self.agent_failure_acts[self.agent_names[agent_id]].append(action)
-            
-            self.action_history[self.agent_names[agent_id]].append(action)
-            self.action_success_history[self.agent_names[agent_id]].append(act_success)
-            act_texts.append(self.get_act_text(action, act_success, agent_id, error_type))
-            act_successes.append(act_success)
-        
-        self.total_elapsed_time = time.time() - self.start_time
-        if not self.skip_save_dir:
-            self.save_frame()
-        
-        self.update_current_state(act_texts)
-        return self.get_observations(), act_successes
     
+    """
+    FYI:
+    self.move_actions = ["MoveAhead", "MoveBack", "MoveRight", "MoveLeft"]
+    self.rotate_actions = ["RotateRight", "RotateLeft"]
+    self.look_actions = ["LookUp", "LookDown"]
+    self.idle_actions = ["Done", "Idle"]
+    self.object_interaction_actions = ["PickupObject", "PutObject", "OpenObject", "CloseObject", "ToggleObjectOn", "ToggleObjectOff", "BreakObject", "CookObject", "SliceObject", "DirtyObject", "CleanObject", "FillObjectWithLiquid", "EmptyLiquidFromObject", "UseUpObject"]
+    self.object_interaction_without_navigation  = ["DropHandObject", "ThrowObject"]
+    """
+    def step_decomp(self, actions: List[str]):
+        """break down the step into unit as define in Ai2Thor (MoveAhead, RotateRight etc.)"""
+        for agent_id, action in enumerate(actions):
+            if action.startswith("NavigateTo"):
+                nav_steps = self.get_navigation_step(action, agent_id)
+                self.action_queue[agent_id].extend(nav_steps)
+
+            elif action.startswith(tuple(self.object_interaction_actions)):
+                obj = action.split("(")[1].rstrip(")")
+                nav = f"NavigateTo({obj})"
+                self.action_queue[agent_id].extend(self.get_navigation_step(nav, agent_id))
+                self.action_queue[agent_id].append(action)
+
+            elif action in self.object_interaction_without_navigation:
+                self.action_queue[agent_id].append(action)
+
+            elif action in self.idle_actions:
+                self.action_queue[agent_id].append("Idle")
+
+            else:
+                self.action_queue[agent_id].append(action)
+
+    # def get_navigation_step(self, action: str, agent_id: int) -> List[str]:
+    #     """get the plan from get_shortest_path_to_object"""
+        
+    #     object_name = action.split("(")[1].rstrip(")")
+    #     obj_id = self.convert_readable_object_to_id(object_name)
+
+    #     try:
+    #         cur_pos = self.get_agent_position_dict(agent_id)
+    #         rot_meta = self.event.events[agent_id].metadata["agent"]["rotation"]
+    #         cur_rot = (
+    #             closest_angles(V_ANGLES, rot_meta["x"]),
+    #             closest_angles(H_ANGLES, rot_meta["y"]),
+    #             rot_meta["z"]
+    #         )
+    #         cur_pos_tuple = (cur_pos["x"], cur_pos["y"], cur_pos["z"])
+
+    #         poses, plan = get_shortest_path_to_object(
+    #             self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True
+    #         )
+    #         if not plan:
+    #             return []
+
+            
+    #         micro_actions: List[str] = []
+    #         for name, param in plan:
+    #             if name in ["LookUp", "LookDown"]:
+    #                 action_dict = {"action": name, "agentId": agent_id, "degrees": abs(param[2])}
+    #             elif name in ["RotateLeft", "RotateRight"]:
+    #                 action_dict = {"action": name, "agentId": agent_id, "degrees": abs(param[1])}
+    #             else:
+    #                 action_dict = {"action": name, "agentId": agent_id}
+    #             micro_actions.append(micro_actions)
+    #             # self.event = self.controller.step(action_dict)
+    #             # self.step_num[agent_id] += 1
+    #             # self.save_frame()
+    #             # if not self.event.events[agent_id].metadata["lastActionSuccess"]:
+    #             #     return False, f"failed-at: {name}"
+                
+    #         # for act_tuple in plan:
+    #         #     micro_actions.append(self.convert_thortils_action(act_tuple))
+    #         print(f"micro_actions: {micro_actions}")
+
+    #         return micro_actions
+        
+    #     except Exception as e:
+    #         print("[EXCEPTION] navigation_step error:")
+    #         print(traceback.format_exc())
+    #         return False, f"exception: {str(e)}"
+
+    def get_navigation_step(self, action: str, agent_id: int) -> List[str]:
+        object_name = action.split("(")[1].rstrip(")")
+        obj_id = self.convert_readable_object_to_id(object_name)
+
+        # 取得當前位置與朝向
+        cur_pos = self.get_agent_position_dict(agent_id)
+        rot_meta = self.event.events[agent_id].metadata["agent"]["rotation"]
+        cur_rot = (
+            closest_angles(V_ANGLES, rot_meta["x"]),
+            closest_angles(H_ANGLES, rot_meta["y"]),
+            rot_meta["z"]
+        )
+        cur_pos_tuple = (cur_pos["x"], cur_pos["y"], cur_pos["z"])
+
+        # 拿路徑規劃，不直接執行
+        _, plan = get_shortest_path_to_object(
+            self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True
+        )
+        if not plan:
+            return []
+
+        micro_actions: List[str] = []
+        for act_name, params in plan:
+            # 轉字串並加入清單
+            action_str = self.convert_thortils_action((act_name, params))
+            micro_actions.append(action_str)
+        print(f"micro_actions: {micro_actions}")
+        return micro_actions
+
+
+    def exe_step(self, actions:List[str]):
+        """execute one step, each agent per step (can be IDLE)"""
+        print("curr action queue: ", self.action_queue)
+        
+        # 先把 actions 裡的新高階指令拆進 queue
+        self.step_decomp(actions)
+        
+        act_texts, act_successes = [], []
+        for agent_id in range(self.num_agents):
+            act = self.action_queue[agent_id].popleft() if self.action_queue[agent_id] else "Idle"
+            action_dict = self.parse_action(act, agent_id)
+            self.event = self.controller.step(action_dict)
+            success = self.event.events[agent_id].metadata["lastActionSuccess"]
+
+            # 更新歷史
+            self.step_num[agent_id] += 1
+            if not success:
+                self.agent_failure_acts[self.agent_names[agent_id]].append(act)
+            else:
+                self.agent_failure_acts[self.agent_names[agent_id]] = []
+                if act.startswith("PickupObject"):
+                    self.inventory[agent_id] = self.get_agent_object_held(agent_id)
+                elif act.startswith(("PutObject","DropHandObject")):
+                    self.inventory[agent_id] = "nothing"
+
+            self.action_history[self.agent_names[agent_id]].append(act)
+            self.action_success_history[self.agent_names[agent_id]].append(success)
+            act_texts.append(self.get_act_text(act, success, agent_id))
+            act_successes.append(success)
+
+            if not self.skip_save_dir:
+                self.save_last_frame(agent_id=agent_id, view="pov",
+                                     filename=f"frame_{self.step_num[agent_id]}.png")
+
+        if self.overhead and not self.skip_save_dir:
+            self.save_last_frame(view="overhead",
+                                 filename=f"frame_{self.step_num[0]}.png")
+
+        # self.update_current_state(act_texts)
+        return self.get_observations(), act_successes
+
+    
+    def action_loop(self, high_level_tasks: List[str]):
+        """execute the actions from high level, set placeholder for LLM planning
+
+        high_level_tasks: e.g.
+          [
+            ["PickupObject(Tomato_1)", "Idle"],
+            ["PutObject(CounterTop_1)", "Idle"]
+          ]
+        回傳每一步的 (observations, successes) 歷程。
+        """
+        # 1. 初次載入所有高階任務
+        for agent_id, tasks in enumerate(high_level_tasks):
+            self.pending_high_level[agent_id] = deque(tasks)
+        print(f"pending high level subtask for each agent: {self.pending_high_level}")
+        history = []
+        # 2. 只要還有高階任務或微動作，就繼續迴圈
+        while True:
+            # (a) 若某 agent 的 action_queue 已空，且還有 pending 高階指令，就取出下一筆拆解
+            refill = []
+            for agent_id in range(self.num_agents):
+                if not self.action_queue[agent_id] and self.pending_high_level[agent_id]:
+                    next_hl = self.pending_high_level[agent_id].popleft()
+                    refill.append((agent_id, next_hl))
+            # (b) 如果需要，就呼叫 step_decomp 插入新的微動作
+            if refill:
+                # 建立一個 agents × 1 長度的 list，只有剛取出的那個 agent 有高階指令，其它為 Idle
+                actions = ["Idle"] * self.num_agents
+                for aid, hl in refill:
+                    actions[aid] = hl
+                # 拆解進 action_queue
+                self.step_decomp(actions)
+
+            # 若既無 pending 高階指令，也無微動作，結束
+            if (not any(self.pending_high_level[aid] for aid in range(self.num_agents))
+                and not any(self.action_queue[aid] for aid in range(self.num_agents))):
+                break
+
+            # 執行一個微動作步
+            obs, succ = self.exe_step([])
+            history.append((obs, succ))
+            # ← 這裡可插入 LLM replanning Hook
+
+        return history
+
+        
+    
+    # unit of action: Pickup (include NavigateTo Object and pickup Object)
     def step(self, actions: List[str]) -> Tuple[str, List[bool]]:
         """Execute actions for all agents and return observations and success flags."""
         act_successes, act_texts = [], []
@@ -564,40 +716,7 @@ class AI2ThorEnv(BaseEnv):
 
     
 
-    def a_star(self, start: Tuple[int, int], goal: Tuple[int, int], reachable_grid: set, agent_id: int) -> List[Tuple[int, int]]:
-        """A* pathfinding algorithm to find a step-by-step path."""
-        def heuristic(pos: Tuple[int, int]) -> float:
-            return abs(pos[0] - goal[0]) + abs(pos[1] - goal[1])
-        
-        open_set = [(0, start)]
-        came_from = {}
-        g_score = {start: 0}
-        f_score = {start: heuristic(start)}
-        
-        while open_set:
-            current = heappop(open_set)[1]
-            if current == goal:
-                path = []
-                while current in came_from:
-                    path.append(current)
-                    current = came_from[current]
-                path.append(start)
-                return path[::-1]
-            
-            for dx, dz in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-                neighbor = (current[0] + dx, current[1] + dz)
-                if neighbor not in reachable_grid:
-                    continue
-                
-                tentative_g_score = g_score[current] + 1
-                if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
-                    came_from[neighbor] = current
-                    g_score[neighbor] = tentative_g_score
-                    f_score[neighbor] = tentative_g_score + heuristic(neighbor)
-                    heappush(open_set, (f_score[neighbor], neighbor))
-        
-        return []
-    
+   
     def convert_thortils_action(self, action: Tuple[str, Tuple]) -> str:
         """
         Convert thortils-style action to env action string, e.g. ('MoveAhead', ()) → "MoveAhead"

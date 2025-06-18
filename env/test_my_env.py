@@ -1,7 +1,65 @@
 import json
-from new_env import AI2ThorEnv
+from env_b import AI2ThorEnv
+import time
+from typing import List
+
+# test env_b.py
+def run_test_new(
+    env: AI2ThorEnv,
+    composite_actions: List[List[str]],
+    test_name: str,
+    test_id: str,
+    timeout_seconds: float = 60.0
+):
+    """
+    Run a test case with timeout.
+
+    composite_actions: 每个 agent 的复合动作列表
+    timeout_seconds: 最长运行秒数，超时后自动退出
+    """
+    print(f"\n=== {test_name} (Test ID: {test_id}) ===")
+    obs = env.reset(test_case_id=test_id)
+
+    num_agents = env.num_agents
+    done = [False] * num_agents
+    start_time = time.time()
+
+    step_count = 0
+    while not all(done):
+        # 超时检测
+        elapsed = time.time() - start_time
+        if elapsed > timeout_seconds:
+            print(f"⚠️ Timeout reached ({elapsed:.1f}s), aborting test.")
+            break
+
+        # 构造本次 step 的动作
+        actions = []
+        for agent_id in range(num_agents):
+            if not done[agent_id] and composite_actions[agent_id]:
+                actions.append(composite_actions[agent_id][0])
+            else:
+                actions.append("Idle")
+
+        # 执行一步
+        step_count += 1
+        print(f"\n--> Step {step_count}, elapsed {elapsed:.1f}s, actions: {actions}")
+        obs, successes = env.step(actions)
+        print("Observations:\n", obs)
+        print("Success flags:", successes)
+
+        # 更新完成标志：只有真正执行 PickupObject 成功才视为 done
+        for agent_id, act in enumerate(actions):
+            if act.startswith("PickupObject") and successes[agent_id]:
+                done[agent_id] = True
+
+    # 测试结束，输出最终帧路径
+    for agent_id, name in enumerate(env.agent_names):
+        print(f"{name} final POV:", env.get_frame(agent_id, "pov"))
+    print("Overhead view:", env.get_frame(view="overhead"))
+
 
 def run_test(env, actions, test_name, test_id):
+    # test new_env.py
     """Run a test case with multiple steps and print results."""
     print(f"\n=== {test_name} (Test ID: {test_id}) ===")
     obs = env.reset(test_case_id=test_id)
@@ -24,7 +82,16 @@ def run_test(env, actions, test_name, test_id):
 if __name__ == "__main__":
     config_path = "config/config.json"
     env = AI2ThorEnv(config_path)
-    
+    # # Test env_b.py
+    # obs = env.reset(test_case_id="12")
+    # objects = env.get_readable_object_list(env.get_object_in_view(0))
+    # tomato = next((o for o in objects if "Tomato" in o), "Tomato_1")
+    # composite = [[f"PickupObject({tomato})"], []]
+
+    # # 设定超时 30 秒
+    # run_test_new(env, composite, "Test 4 with Timeout", "4", timeout_seconds=30.0)
+
+
     # Test 1: Movement Actions (Multi-step)
     # run_test(env, [["MoveAhead", "MoveBack"], ["MoveRight", "MoveLeft"]], 
     #          "Test 1: Movement Actions (Alice: MoveAhead + MoveBack, Bob: MoveRight + MoveLeft)", "1")
@@ -46,9 +113,9 @@ if __name__ == "__main__":
              f"Test 4: Object Interaction (Alice: PickupObject({tomato}) + MoveAhead + PutObject({counter}), Bob: Idle)", "4")
     
     # Test 5: DropHandObject
-    obs = env.reset(test_case_id="5")
-    run_test(env, [[f"PickupObject({tomato})", "Idle"], ["DropHandObject", "Idle"]], 
-             f"Test 5: DropHandObject (Alice: PickupObject({tomato}) + DropHandObject, Bob: Idle)", "5")
+    # obs = env.reset(test_case_id="5")
+    # run_test(env, [[f"PickupObject({tomato})", "Idle"], ["DropHandObject", "Idle"]], 
+    #          f"Test 5: DropHandObject (Alice: PickupObject({tomato}) + DropHandObject, Bob: Idle)", "5")
     
     # # Test 6: OpenObject and CloseObject
     # obs = env.reset(test_case_id="6")
