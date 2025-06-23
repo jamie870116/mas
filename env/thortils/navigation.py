@@ -373,12 +373,43 @@ def get_shortest_path_to_object(controller, object_id,
     positions_only = kwargs.get("positions_only", False)
     return_plan = kwargs.get("return_plan", False)
     as_tuples = kwargs.get("as_tuples", False)
+    other_agent_position = kwargs.get("other_agent_position", None)
 
     # reachable positions; must round them to grids otherwise ai2thor has a bug.
     grid_size = controller.initialization_parameters["gridSize"]
     reachable_positions = [
         tuple(map(lambda x: roundany(x, grid_size), pos))
         for pos in thor_reachable_positions(controller)]
+
+    # if other agent exist, remove the position of other_agent from reachable positions
+    if other_agent_position:
+        tuplize=lambda p : (p['x'], p['y'], p['z'])
+        tuplize_xz=lambda p : (p['x'], p['z'])
+        # do xz
+        non_reachable_positions = [
+            tuple(map(lambda x: roundany(x, grid_size), tuplize_xz(pos))) for pos in other_agent_position
+        ]
+        # add enclosure around these positions (agents are bigger than 1 grid position!)
+        add=lambda p,delta: (p[0]+delta[0],p[1]+delta[1])
+        sweep=[-1,0,1]
+        for p in non_reachable_positions.copy():
+            for deltax in sweep:
+                for deltaz in sweep:
+                    # @cc - don't block diagonals
+                    # @tt - block diagonals now (hypothesis: agent is getting stuck?)
+                    # if abs(deltax)+abs(deltaz)>1:
+                    #   continue
+                    non_reachable_positions.append(add(p, (deltax*grid_size,deltaz*grid_size)))
+
+        # @tt - subtlety, cannot remove the position of the agent (even if it lies inside the other's grid!)
+        agent_position_formatted=(tuple(map(lambda x: roundany(x, grid_size), start_position)))
+        agent_position_formatted=(agent_position_formatted[0],agent_position_formatted[2])
+        non_reachable_positions=list(set(non_reachable_positions) - set([agent_position_formatted]))
+
+        # @tt - add agent's own position into reachable positions!
+        reachable_positions=list(set(reachable_positions+[agent_position_formatted]))
+        # filter out
+        reachable_positions=list(filter(lambda p : p not in non_reachable_positions, reachable_positions))
 
     # Compute plan; Actually need to call the A* twice.
     # The first time determines the position the robot will end

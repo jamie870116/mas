@@ -245,8 +245,9 @@ class AI2ThorEnv(BaseEnv):
         self.step_num = [0] * self.num_agents
         self.simulation_step_num = 1
 
-        self.pending_high_level = defaultdict(deque)
+        self.pending_high_level = defaultdict(deque) # {agent_id: [queue]} 
         self.action_queue = defaultdict(deque) # {agent_id: [queue] }for breaking down navigation steps or so
+        self.current_hl = {}
         self.action_step_num = 0
 
         self.action_history = {name: [] for name in self.agent_names}
@@ -365,7 +366,7 @@ class AI2ThorEnv(BaseEnv):
     
     
     """
-    FYI:
+    available actions
     self.move_actions = ["MoveAhead", "MoveBack", "MoveRight", "MoveLeft"]
     self.rotate_actions = ["RotateRight", "RotateLeft"]
     self.look_actions = ["LookUp", "LookDown"]
@@ -409,9 +410,20 @@ class AI2ThorEnv(BaseEnv):
         )
         cur_pos_tuple = (cur_pos["x"], cur_pos["y"], cur_pos["z"])
 
-        _, plan = get_shortest_path_to_object(
-            self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True
-        )
+        other_agents = [
+            self.event.events[i].metadata["agent"]["position"]
+            for i in range(self.num_agents)
+            if i != agent_id
+        ]
+        if other_agents:
+            _, plan = get_shortest_path_to_object(
+                self.controller, obj_id, cur_pos_tuple, cur_rot, other_agent_position=other_agents, return_plan=True
+            )
+        else:
+            _, plan = get_shortest_path_to_object(
+                self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True
+            )
+
         if not plan:
             return []
 
@@ -425,46 +437,58 @@ class AI2ThorEnv(BaseEnv):
 
     def exe_step(self, actions:List[str]):
         """execute one step, each agent per step (can be IDLE)"""
-        print("curr action queue: ", self.action_queue)
         
-        # 先把 actions 裡的新高階指令拆進 queue
         self.step_decomp(actions)
-        
+        print("curr action queue: ", self.action_queue)
         act_texts, act_successes = [], []
-        for agent_id in range(self.num_agents):
-            act = self.action_queue[agent_id].popleft() if self.action_queue[agent_id] else "Idle"
-            action_dict = self.parse_action(act, agent_id)
-            if act == 'Idle': continue
+        for aid in range(self.num_agents):
+            act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
 
-            self.event = self.controller.step(action_dict)
-            success = self.event.events[agent_id].metadata["lastActionSuccess"]
-
-            # 更新歷史
-            self.step_num[agent_id] += 1
-            if not success:
-                self.agent_failure_acts[self.agent_names[agent_id]].append(act)
+            if act != "Idle":
+                action_dict = self.parse_action(act, aid)
+                self.event = self.controller.step(action_dict)
+                success = self.event.events[aid].metadata["lastActionSuccess"]
             else:
-                self.agent_failure_acts[self.agent_names[agent_id]] = []
-                if act.startswith("PickupObject"):
-                    self.inventory[agent_id] = self.get_agent_object_held(agent_id)
-                elif act.startswith(("PutObject","DropHandObject")):
-                    self.inventory[agent_id] = "nothing"
+                success = True
 
-            self.action_history[self.agent_names[agent_id]].append(act)
-            self.action_success_history[self.agent_names[agent_id]].append(success)
-            act_texts.append(self.get_act_text(act, success, agent_id))
+            if act != "Idle":
+                self.step_num[aid] += 1
+            if not success:
+                self.agent_failure_acts[self.agent_names[aid]].append(act)
+            else:
+                self.agent_failure_acts[self.agent_names[aid]] = []
+                if act.startswith("PickupObject"):
+                    self.inventory[aid] = self.get_agent_object_held(aid)
+                elif act.startswith(("PutObject","DropHandObject")):
+                    self.inventory[aid] = "nothing"
+
+            self.action_history[self.agent_names[aid]].append(act)
+            self.action_success_history[self.agent_names[aid]].append(success)
+            act_texts.append(self.get_act_text(act, success, aid))
             act_successes.append(success)
 
-            if not self.skip_save_dir:
-                self.save_last_frame(agent_id=agent_id, view="pov",
-                                     filename=f"frame_{self.step_num[agent_id]}.png")
+            sub = self.current_hl.get(aid)
+            if sub:
+                if self.is_subtask_done(sub, aid):
+                    self.current_hl[aid] = None
+                    self.action_queue[aid].clear()
+                elif not success:
+                    self.action_queue[aid].clear()
+                    # replan
+                    self.step_decomp([ sub if i==aid else "Idle"
+                                       for i in range(self.num_agents) ])
+
+
+            if not self.skip_save_dir and act!="Idle":
+                self.save_last_frame(agent_id=aid, view="pov",
+                                     filename=f"frame_{self.step_num[aid]}.png")
 
         if self.overhead and not self.skip_save_dir:
             self.save_last_frame(view="overhead",
                                  filename=f"frame_{self.step_num[0]}.png")
 
-        # self.update_current_state(act_texts)
         return self.get_observations(), act_successes
+    
 
     
     def action_loop(self, high_level_tasks: List[str]):
@@ -474,41 +498,95 @@ class AI2ThorEnv(BaseEnv):
             [subtasks for agent_0],
             [subtasks for agent_2]
           ]
-        
         """
-        # 1. 初次載入所有高階任務
-        for agent_id, tasks in enumerate(high_level_tasks):
-            self.pending_high_level[agent_id] = deque(tasks)
-        print(f"pending high level subtask for each agent: {self.pending_high_level}")
+        # init.
+        for aid, tasks in enumerate(high_level_tasks):
+            self.pending_high_level[aid] = deque(tasks)
+            self.current_hl[aid] = None
+            self.action_queue[aid].clear()
+
         history = []
-        # 2. 只要還有高階任務或微動作，就繼續迴圈
         while True:
-            # (a) 若某 agent 的 action_queue 已空，且還有 pending 高階指令，就取出下一筆拆解
             refill = []
-            for agent_id in range(self.num_agents):
-                if not self.action_queue[agent_id] and self.pending_high_level[agent_id]:
-                    next_hl = self.pending_high_level[agent_id].popleft()
-                    refill.append((agent_id, next_hl))
-            # (b) 如果需要，就呼叫 step_decomp 插入新的微動作
+            for aid in range(self.num_agents):
+                if not self.current_hl[aid] and self.pending_high_level[aid]:
+                    nxt = self.pending_high_level[aid].popleft()
+                    self.current_hl[aid] = nxt
+                    refill.append((aid, nxt))
+
+            
             if refill:
-                # 建立一個 agents × 1 長度的 list，只有剛取出的那個 agent 有高階指令，其它為 Idle
                 actions = ["Idle"] * self.num_agents
-                for aid, hl in refill:
-                    actions[aid] = hl
-                # 拆解進 action_queue
+                for aid, sub in refill:
+                    actions[aid] = sub
                 self.step_decomp(actions)
 
-            # 若既無 pending 高階指令，也無微動作，結束
-            if (not any(self.pending_high_level[aid] for aid in range(self.num_agents))
-                and not any(self.action_queue[aid] for aid in range(self.num_agents))):
+            
+            if all(not self.pending_high_level[aid] for aid in range(self.num_agents)) \
+               and all(self.current_hl[aid] is None for aid in range(self.num_agents)) \
+               and all(not self.action_queue[aid] for aid in range(self.num_agents)):
                 break
 
-            # 執行一個微動作步
+            
             obs, succ = self.exe_step([])
             history.append((obs, succ))
-            # ← 這裡可插入 LLM replanning Hook
+            # TBD: LLM
 
         return history
+
+    def is_subtask_done(self, subtask: str, agent_id: int) -> bool:
+        """
+        check if asubtask is completed based on env.state
+        - PickupObject(obj)
+        - PutObject(obj)
+        - OpenObject(obj)
+        - CloseObject(obj)
+        - ToggleObjectOn(obj)
+        - ToggleObjectOff(obj)
+        - BreakObject(obj)
+        - SliceObject(obj)
+        - FillObjectWithLiquid(obj)
+        - EmptyLiquidFromObject(obj)
+        """
+        if subtask == 'Idle': return True
+
+        # subtask  "PickupObject(Tomato_1)"
+        name, obj = subtask[:-1].split("(", 1)
+        print(f'checking action: {name} with obj: {obj}')
+
+        if name == "PickupObject":
+            return self.inventory[agent_id] == obj
+
+        elif name == "PutObject":
+            if self.inventory[agent_id] != "nothing":
+                return False
+            else: # TBD
+                return True
+            status = self.get_object_status(obj)
+            contains = status.get("contains") or []
+            return obj in contains
+
+        elif name == "OpenObject":
+            return self.get_object_status(obj).get("is_open", False)
+        elif name == "CloseObject":
+            return not self.get_object_status(obj).get("is_open", False)
+
+        elif name == "ToggleObjectOn":
+            return self.get_object_status(obj).get("is_on", False)
+        elif name == "ToggleObjectOff":
+            return not self.get_object_status(obj).get("is_on", False)
+
+        elif name == "BreakObject":
+            return self.get_object_status(obj).get("isBroken", False)
+        elif name == "SliceObject":
+            return self.get_object_status(obj).get("isSliced", False)
+
+        elif name == "FillObjectWithLiquid":
+            return self.get_object_status(obj).get("isFilledWithLiquid", False)
+        elif name == "EmptyLiquidFromObject":
+            return not self.get_object_status(obj).get("isFilledWithLiquid", True)
+
+        return True
 
         
     

@@ -56,16 +56,28 @@ if __name__ == "__main__":
     #     test_id="3"
     # )
 
-    # Test 4: Object Interaction (Pickup -> Put)
-    obs = env.reset(test_case_id="13")
-    # 擷取當前可見的 Tomato / CounterTop
+    # # Test 14: Object Interaction (Pickup -> Put)
+    # obs = env.reset(test_case_id="14")
+    # # 擷取當前可見的 Tomato / CounterTop
+    # objs = env.get_readable_object_list(env.get_object_in_view(0))
+    # tomato = next((o for o in objs if "Tomato" in o), "Tomato_1")
+    # counter = next((o for o in objs if "CounterTop" in o), "CounterTop_1")
+
+    # run_test(
+    #     env,
+    #     high_level_tasks=[[f"PickupObject({tomato})", f"PutObject({counter})"], ["Idle"]], # [[subtasks for agent_i], [...]]
+    #     test_name=f"Test 4: Object Interaction ({tomato} → {counter})",
+    #     test_id="14"
+    # )
+
+    obs = env.reset(test_case_id="15")
     objs = env.get_readable_object_list(env.get_object_in_view(0))
     tomato = next((o for o in objs if "Tomato" in o), "Tomato_1")
     counter = next((o for o in objs if "CounterTop" in o), "CounterTop_1")
-
+    bread = next((o for o in objs if "Bread" in o), "Bread_1")
     run_test(
         env,
-        high_level_tasks=[[f"PickupObject({tomato})", f"PutObject({counter})"], ["Idle"]], # [[subtasks for agent_i], [...]]
-        test_name=f"Test 4: Object Interaction ({tomato} → {counter})",
-        test_id="13"
+        high_level_tasks=[[f"PickupObject({tomato})", f"PutObject({counter})"], [f"PickupObject({bread})"]], # [[subtasks for agent_i], [...]]
+        test_name="Test 15",
+        test_id="15"
     )
