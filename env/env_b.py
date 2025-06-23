@@ -395,60 +395,11 @@ class AI2ThorEnv(BaseEnv):
             else:
                 self.action_queue[agent_id].append(action)
 
-    # def get_navigation_step(self, action: str, agent_id: int) -> List[str]:
-    #     """get the plan from get_shortest_path_to_object"""
-        
-    #     object_name = action.split("(")[1].rstrip(")")
-    #     obj_id = self.convert_readable_object_to_id(object_name)
-
-    #     try:
-    #         cur_pos = self.get_agent_position_dict(agent_id)
-    #         rot_meta = self.event.events[agent_id].metadata["agent"]["rotation"]
-    #         cur_rot = (
-    #             closest_angles(V_ANGLES, rot_meta["x"]),
-    #             closest_angles(H_ANGLES, rot_meta["y"]),
-    #             rot_meta["z"]
-    #         )
-    #         cur_pos_tuple = (cur_pos["x"], cur_pos["y"], cur_pos["z"])
-
-    #         poses, plan = get_shortest_path_to_object(
-    #             self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True
-    #         )
-    #         if not plan:
-    #             return []
-
-            
-    #         micro_actions: List[str] = []
-    #         for name, param in plan:
-    #             if name in ["LookUp", "LookDown"]:
-    #                 action_dict = {"action": name, "agentId": agent_id, "degrees": abs(param[2])}
-    #             elif name in ["RotateLeft", "RotateRight"]:
-    #                 action_dict = {"action": name, "agentId": agent_id, "degrees": abs(param[1])}
-    #             else:
-    #                 action_dict = {"action": name, "agentId": agent_id}
-    #             micro_actions.append(micro_actions)
-    #             # self.event = self.controller.step(action_dict)
-    #             # self.step_num[agent_id] += 1
-    #             # self.save_frame()
-    #             # if not self.event.events[agent_id].metadata["lastActionSuccess"]:
-    #             #     return False, f"failed-at: {name}"
-                
-    #         # for act_tuple in plan:
-    #         #     micro_actions.append(self.convert_thortils_action(act_tuple))
-    #         print(f"micro_actions: {micro_actions}")
-
-    #         return micro_actions
-        
-    #     except Exception as e:
-    #         print("[EXCEPTION] navigation_step error:")
-    #         print(traceback.format_exc())
-    #         return False, f"exception: {str(e)}"
-
+    
     def get_navigation_step(self, action: str, agent_id: int) -> List[str]:
         object_name = action.split("(")[1].rstrip(")")
         obj_id = self.convert_readable_object_to_id(object_name)
 
-        # 取得當前位置與朝向
         cur_pos = self.get_agent_position_dict(agent_id)
         rot_meta = self.event.events[agent_id].metadata["agent"]["rotation"]
         cur_rot = (
@@ -458,7 +409,6 @@ class AI2ThorEnv(BaseEnv):
         )
         cur_pos_tuple = (cur_pos["x"], cur_pos["y"], cur_pos["z"])
 
-        # 拿路徑規劃，不直接執行
         _, plan = get_shortest_path_to_object(
             self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True
         )
@@ -467,7 +417,6 @@ class AI2ThorEnv(BaseEnv):
 
         micro_actions: List[str] = []
         for act_name, params in plan:
-            # 轉字串並加入清單
             action_str = self.convert_thortils_action((act_name, params))
             micro_actions.append(action_str)
         print(f"micro_actions: {micro_actions}")
@@ -485,6 +434,8 @@ class AI2ThorEnv(BaseEnv):
         for agent_id in range(self.num_agents):
             act = self.action_queue[agent_id].popleft() if self.action_queue[agent_id] else "Idle"
             action_dict = self.parse_action(act, agent_id)
+            if act == 'Idle': continue
+
             self.event = self.controller.step(action_dict)
             success = self.event.events[agent_id].metadata["lastActionSuccess"]
 
@@ -517,14 +468,13 @@ class AI2ThorEnv(BaseEnv):
 
     
     def action_loop(self, high_level_tasks: List[str]):
-        """execute the actions from high level, set placeholder for LLM planning
-
+        """execute the actions from high level
         high_level_tasks: e.g.
           [
-            ["PickupObject(Tomato_1)", "Idle"],
-            ["PutObject(CounterTop_1)", "Idle"]
+            [subtasks for agent_0],
+            [subtasks for agent_2]
           ]
-        回傳每一步的 (observations, successes) 歷程。
+        
         """
         # 1. 初次載入所有高階任務
         for agent_id, tasks in enumerate(high_level_tasks):

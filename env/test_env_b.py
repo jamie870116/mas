@@ -5,8 +5,8 @@ from env_b import AI2ThorEnv
 def run_test(env, high_level_tasks, test_name, test_id):
     """
     Run a test case with multiple steps and print results.
-      - high_level_tasks: List[List[str]]，每個 agent 的 high-level 動作序列
-      - test_name: 測試名稱
+      - high_level_tasks: List[List[str]]，每個 agent 的 high-level 
+      - test_name: 
       - test_id:  測試識別字串，會傳給 reset()
     """
     print(f"\n=== {test_name} (Test ID: {test_id}) ===")
@@ -18,8 +18,8 @@ def run_test(env, high_level_tasks, test_name, test_id):
     history = env.action_loop(high_level_tasks)
     for step_idx, (obs, succ) in enumerate(history, start=1):
         print(f"\n--- Step {step_idx} ---")
-        print("Observations:", obs)
-        print("Success flags:", succ)
+        # print("Observations:", obs)
+        # print("Success flags:", succ)
 
     # 最後顯示各 agent 最新影格路徑
     for agent_id, name in enumerate(env.agent_names):
@@ -65,7 +65,7 @@ if __name__ == "__main__":
 
     run_test(
         env,
-        high_level_tasks=[[f"PickupObject({tomato})", "Idle"], [f"PutObject({counter})", "Idle"]],
+        high_level_tasks=[[f"PickupObject({tomato})", f"PutObject({counter})"], ["Idle"]], # [[subtasks for agent_i], [...]]
         test_name=f"Test 4: Object Interaction ({tomato} → {counter})",
-        test_id="4"
+        test_id="13"
     )
