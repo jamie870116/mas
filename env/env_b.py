@@ -243,7 +243,7 @@ class AI2ThorEnv(BaseEnv):
         self.open_subtasks = "None" if self.use_plan else None
         self.closed_subtasks = "None" if self.use_plan else None
         self.step_num = [0] * self.num_agents
-        self.simulation_step_num = 1
+        
 
         self.pending_high_level = defaultdict(deque) # {agent_id: [queue]} 
         self.action_queue = defaultdict(deque) # {agent_id: [queue] }for breaking down navigation steps or so
@@ -278,7 +278,6 @@ class AI2ThorEnv(BaseEnv):
         )
         self.object_dict = {}
         self.step_num = [0] * self.num_agents
-        self.simulation_step_num = 1
         self.inventory = ["nothing"] * self.num_agents
         self.subtasks = ["Initial subtask"] if self.use_shared_subtask else ["Initial subtask"] * self.num_agents
         self.memory = ["Nothing"] if self.use_shared_memory else ["Nothing"] * self.num_agents
@@ -451,8 +450,8 @@ class AI2ThorEnv(BaseEnv):
             else:
                 success = True
 
-            if act != "Idle":
-                self.step_num[aid] += 1
+            # if act != "Idle":
+            self.step_num[aid] += 1
             if not success:
                 self.agent_failure_acts[self.agent_names[aid]].append(act)
             else:
@@ -479,7 +478,7 @@ class AI2ThorEnv(BaseEnv):
                                        for i in range(self.num_agents) ])
 
 
-            if not self.skip_save_dir and act!="Idle":
+            if not self.skip_save_dir:
                 self.save_last_frame(agent_id=aid, view="pov",
                                      filename=f"frame_{self.step_num[aid]}.png")
 
@@ -506,6 +505,7 @@ class AI2ThorEnv(BaseEnv):
             self.action_queue[aid].clear()
 
         history = []
+        start_time = time.time()
         while True:
             refill = []
             for aid in range(self.num_agents):
@@ -513,6 +513,10 @@ class AI2ThorEnv(BaseEnv):
                     nxt = self.pending_high_level[aid].popleft()
                     self.current_hl[aid] = nxt
                     refill.append((aid, nxt))
+
+                # add event manually
+                if self.step_num[aid] == 6:
+                    success, message = self.simulate_environment_event("break", "Mug_1")
 
             
             if refill:
@@ -527,9 +531,13 @@ class AI2ThorEnv(BaseEnv):
                and all(not self.action_queue[aid] for aid in range(self.num_agents)):
                 break
 
-            
+            elapsed = time.time() - start_time
+            if self.timeout and elapsed > self.timeout:
+                break
+
             obs, succ = self.exe_step([])
             history.append((obs, succ))
+            
             # TBD: LLM
 
         return history
@@ -829,32 +837,23 @@ class AI2ThorEnv(BaseEnv):
     
 
 
-    def save_frame(self, simulation: bool = False):
+    def save_frame(self):
         """Save POV images for each agent and a single overhead image."""
-        if simulation:
-            frame_num = "_" + str(self.simulation_step_num)
-        else:
-            frame_num = ""
+        # if simulation:
+        #     frame_num = "_" + str(self.simulation_step_num)
+        # else:
+        #     frame_num = ""
         
         for agent_id in range(self.num_agents):
             img = self.event.events[agent_id].cv2img
-            pth = self.base_path / self.agent_names[agent_id] / "pov" / f"frame_{str(self.step_num[agent_id]) + frame_num}.png"
+            pth = self.base_path / self.agent_names[agent_id] / "pov" / f"frame_{str(self.step_num[agent_id])}.png"
             self._write_image(pth, img)
         
         if self.overhead:
             img = self._get_ceiling_image()
-            pth = self.base_path / "overhead" / f"frame_{str(self.step_num[0]) + frame_num}.png"
+            pth = self.base_path / "overhead" / f"frame_{str(self.step_num[0])}.png"
             self._write_image(pth, img)
-        # current_time = self.total_elapsed_time
-        # for agent_id in range(self.num_agents):
-        #     img = self.event.events[agent_id].cv2img
-        #     pth = self.base_path / self.agent_names[agent_id] / "pov" / f"frame_{current_time:.2f}.png"
-        #     self._write_image(pth, img)
         
-        # if self.overhead:
-        #     img = self._get_ceiling_image()
-        #     pth = self.base_path / "overhead" / f"frame_{current_time:.2f}.png"
-        #     self._write_image(pth, img)
 
     
     def save_last_frame(self, agent_id: int = None, view: str = "pov", filename: str = "last_frame.png"):
@@ -880,17 +879,7 @@ class AI2ThorEnv(BaseEnv):
         else:
             raise ValueError("Invalid view or agent_id. Use 'pov' with a valid agent_id or 'overhead'.")
         return image_path
-        # current_time = self.total_elapsed_time
-        # if view == "pov":
-        #     image_path = (
-        #         self.base_path
-        #         / self.agent_names[agent_id]
-        #         / "pov"
-        #         / f"frame_{current_time:.2f}.png"
-        #     )
-        # else:
-        #     image_path = self.base_path / "overhead" / f"frame_{current_time:.2f}.png"
-        # return image_path
+        
     
     def set_overhead(self, enable: bool):
         """Toggle overhead image capture."""
@@ -972,10 +961,10 @@ class AI2ThorEnv(BaseEnv):
             return False, f"Unexpected error during event simulation: {str(e)}"
         finally:
             self.total_elapsed_time = time.time() - self.start_time
-            self.simulation_step_num += 1
             if not self.skip_save_dir:
-                self.save_frame(simulation=True)
-            self.simulation_step_num += 1
+                self.save_frame()
+                for aid in range(self.num_agents):
+                    self.step_num[aid] += 1
 
 if __name__ == "__main__":
     config_path = "config/config.json"

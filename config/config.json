@@ -2,7 +2,7 @@
     "num_agents": 2,
     "scene": "FloorPlan1",
     "task": "bring a tomato, lettuce, and bread to the countertop to make a sandwich",
-    "timeout": 100,
+    "timeout": 30,
     "model": "gpt-4o-mini",
     "use_obs_summariser": false,
     "use_act_summariser": false,
