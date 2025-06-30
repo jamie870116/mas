@@ -1,8 +1,13 @@
 # test_env_b_script.py
 
 from env_b import AI2ThorEnv
+import os
+import sys
+import json
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.helpers import save_to_video
 
-def run_test(env, high_level_tasks, test_name, test_id):
+def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
     """
     Run a test case with multiple steps and print results.
       - high_level_tasks: List[List[str]]，每個 agent 的 high-level 
@@ -26,12 +31,17 @@ def run_test(env, high_level_tasks, test_name, test_id):
         print(f"{name} POV path:", env.get_frame(agent_id, "pov"))
     if env.overhead:
         print("Shared overhead path:", env.get_frame(view="overhead"))
-
+    if task_name:
+        print('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
+        save_to_video('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
+        
 
 if __name__ == "__main__":
     # 初始化環境
     env = AI2ThorEnv("config/config.json")
-
+    with open("config/config.json", "r") as f:
+            config = json.load(f)
+            task_name = config["task"]
     # # Test 1: Movement Actions
     # run_test(
     #     env,
@@ -90,5 +100,6 @@ if __name__ == "__main__":
         env,
         high_level_tasks=[[f"PickupObject({tomato})", f"PutObject({counter})"], ["Idle"]], # [[subtasks for agent_i], [...]]
         test_name="Test 16",
-        test_id="16"
+        test_id="16",
+        task_name=task_name
     )
