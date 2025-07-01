@@ -8,3 +8,4 @@ task1/*
 logs/*
 version_log.txt
 test_env.py
+debugs/*

@@ -416,11 +416,11 @@ class AI2ThorEnv(BaseEnv):
         ]
         if other_agents:
             _, plan = get_shortest_path_to_object(
-                self.controller, obj_id, cur_pos_tuple, cur_rot, other_agent_position=other_agents, return_plan=True
+                self.controller, obj_id, cur_pos_tuple, cur_rot, other_agent_position=other_agents, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=False
             )
         else:
             _, plan = get_shortest_path_to_object(
-                self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True
+                self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=False
             )
 
         if not plan:
@@ -473,7 +473,7 @@ class AI2ThorEnv(BaseEnv):
                     self.action_queue[aid].clear()
                 elif not success:
                     self.action_queue[aid].clear()
-                    # replan
+                    # replan TBD
                     self.step_decomp([ sub if i==aid else "Idle"
                                        for i in range(self.num_agents) ])
 
@@ -515,8 +515,8 @@ class AI2ThorEnv(BaseEnv):
                     refill.append((aid, nxt))
 
                 # add event manually
-                if self.step_num[aid] == 6:
-                    success, message = self.simulate_environment_event("break", "Mug_1")
+                # if self.step_num[aid] == 6:
+                #     success, message = self.simulate_environment_event("break", "Mug_1")
 
             
             if refill:
@@ -525,12 +525,13 @@ class AI2ThorEnv(BaseEnv):
                     actions[aid] = sub
                 self.step_decomp(actions)
 
-            
+            # break if not pending tasks
             if all(not self.pending_high_level[aid] for aid in range(self.num_agents)) \
                and all(self.current_hl[aid] is None for aid in range(self.num_agents)) \
                and all(not self.action_queue[aid] for aid in range(self.num_agents)):
                 break
-
+            
+            # break if timeout
             elapsed = time.time() - start_time
             if self.timeout and elapsed > self.timeout:
                 break
@@ -560,7 +561,7 @@ class AI2ThorEnv(BaseEnv):
 
         # subtask  "PickupObject(Tomato_1)"
         name, obj = subtask[:-1].split("(", 1)
-        print(f'checking action: {name} with obj: {obj}')
+        # print(f'checking action: {name} with obj: {obj}')
 
         if name == "PickupObject":
             return self.inventory[agent_id] == obj
@@ -696,7 +697,7 @@ class AI2ThorEnv(BaseEnv):
             # 規劃並執行路徑
             poses, plan = get_shortest_path_to_object(
                 self.controller, obj_id,
-                cur_pos_tuple, cur_rot_tuple, return_plan=True
+                cur_pos_tuple, cur_rot_tuple, return_plan=True, cur_step=self.step_num[agent_id],
             )
             print('action plan', plan)
             if plan is None:
@@ -960,7 +961,7 @@ class AI2ThorEnv(BaseEnv):
         except Exception as e:
             return False, f"Unexpected error during event simulation: {str(e)}"
         finally:
-            self.total_elapsed_time = time.time() - self.start_time
+            # self.total_elapsed_time = time.time() - self.start_time
             if not self.skip_save_dir:
                 self.save_frame()
                 for aid in range(self.num_agents):

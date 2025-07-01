@@ -37,6 +37,8 @@ from .constants import (MOVEMENTS, MOVEMENT_PARAMS,
                         GOAL_DISTANCE)
 from .object import thor_object_pose, thor_closest_object_of_type
 from .agent import thor_reachable_positions
+import matplotlib.pyplot as plt
+from typing import List, Tuple, Optional
 
 def convert_movement_to_action(movement, movement_params=MOVEMENT_PARAMS):
     """movement (str), a key in the constants.MOVEMENT_PARAMS dictionary
@@ -374,13 +376,15 @@ def get_shortest_path_to_object(controller, object_id,
     return_plan = kwargs.get("return_plan", False)
     as_tuples = kwargs.get("as_tuples", False)
     other_agent_position = kwargs.get("other_agent_position", None)
+    cur_step = kwargs.get("cur_step", None)
+    isVisualize = kwargs.get("isVisualize", False)
 
     # reachable positions; must round them to grids otherwise ai2thor has a bug.
     grid_size = controller.initialization_parameters["gridSize"]
     reachable_positions = [
         tuple(map(lambda x: roundany(x, grid_size), pos))
         for pos in thor_reachable_positions(controller)]
-
+    
     # if other agent exist, remove the position of other_agent from reachable positions
     if other_agent_position:
         tuplize=lambda p : (p['x'], p['y'], p['z'])
@@ -410,7 +414,8 @@ def get_shortest_path_to_object(controller, object_id,
         reachable_positions=list(set(reachable_positions+[agent_position_formatted]))
         # filter out
         reachable_positions=list(filter(lambda p : p not in non_reachable_positions, reachable_positions))
-
+        if isVisualize:
+            visualize_positions(reachable_positions, non_reachable_positions, save_path='debugs/reachable_positions.png', cur_step=cur_step, is_filtered=True)
     # Compute plan; Actually need to call the A* twice.
     # The first time determines the position the robot will end
     # up, if the target position is the one to reach,
@@ -494,201 +499,56 @@ def get_shortest_path_to_object(controller, object_id,
     else:
         return poses
 
-# def get_shortest_path_to_object(
-#     controller, other_agents, object_id, start_position, start_rotation, **kwargs
-# ):
-#     """
-#     Per this issue: https://github.com/allenai/ai2thor/issues/825
-#     Ai2thor's own method to compute shortest path is not desirable.
-#     I'm therefore writing my own using the algorithm above.
-#     It has almost identical call signature as the function of the same name
-#     under ai2thor.util.metric.
 
-#     Returns:
-#        If positions_only is True, returns a list of dict(x=,y=,z=) positions
-#        If return_plan is True, returns plan
+def visualize_positions(
+    all_positions: List[Tuple[float, float]],
+    filtered_positions: List[Tuple[float, float]],
+    figsize: Tuple[int, int] = (10, 10),
+    title: str = "Reachable Positions Visualization",
+    save_path: Optional[str] = None,  # e.g., "outputs/positions_plot.png",
+    cur_step: Optional[int] = None,
+    is_filtered: bool = True
+):
+    """
+    視覺化 reachable 與 filtered 位置，並可選擇儲存圖檔。
 
-#         plan: List of (action_name, params) tuples representing actions.
-#             The params are specific to the action; For movements, it's
-#             (forward, pitch, yaw). For opening, it is an object id.
-#         poses: List of (dict(x=,y=,z=), dict(x=,y=,z=)) (position, rotation) tuples.
-#             where each pose at index i corresponds to the pose resulting from taking
-#             action i.
-#     """
-#     # Parameters
-#     v_angles = kwargs.get("v_angles", V_ANGLES)
-#     h_angles = kwargs.get("h_angles", H_ANGLES)
-#     movement_params = kwargs.get("movement_params", MOVEMENT_PARAMS)
-#     goal_distance = kwargs.get("goal_distance", GOAL_DISTANCE)
-#     diagonal_ok = kwargs.get("diagonal_ok", False)
-#     positions_only = kwargs.get("positions_only", False)
-#     return_plan = kwargs.get("return_plan", False)
-#     as_tuples = kwargs.get("as_tuples", False)
+    參數：
+        all_positions: 原始座標列表 (x, y)
+        filtered_positions: 篩選後座標列表 (x, y)
+        figsize: 圖片尺寸 (預設 (10, 10))
+        title: 圖表標題
+        save_path: 若提供，圖表將存至此路徑（含檔名與副檔名）
+    """
+    if not all_positions or not filtered_positions:
+        print("Empty position list.")
+        return
 
-#     # @tt - positions only is true
-#     # positions_only = True
+    x_all, y_all = zip(*all_positions)
+    x_filtered, y_filtered = zip(*filtered_positions)
 
-#     # @nav - change goal distance to be 0 (exact closest position)
-#     # goal_distance=controller.initialization_parameters["visibilityDistance"]
-#     goal_distance=0
+    plt.figure(figsize=figsize)
+    plt.scatter(x_all, y_all, color='blue', label='All Reachable', s=20)
+    plt.scatter(x_filtered, y_filtered, color='red', label='Filtered', s=30)
 
-#     # reachable positions; must round them to grids otherwise ai2thor has a bug.
-#     grid_size = controller.initialization_parameters["gridSize"]
-#     reachable_positions = [
-#         tuple(map(lambda x: roundany(x, grid_size), pos))
-#         for pos in thor_reachable_positions(controller)
-#     ]
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title(title)
+    plt.legend()
+    plt.grid(True)
+    plt.axis('equal')
 
-#     # @multiagent - manually remove location of other agents from the list
-#     tuplize=lambda p : (p['x'], p['y'], p['z'])
-#     tuplize_xz=lambda p : (p['x'], p['z'])
-#     # do xz
-#     non_reachable_positions = [
-#         tuple(map(lambda x: roundany(x, grid_size), tuplize_xz(pos))) for pos in other_agents
-#     ]
-#     # add enclosure around these positions (agents are bigger than 1 grid position!)
-#     add=lambda p,delta: (p[0]+delta[0],p[1]+delta[1])
-#     sweep=[-1,0,1]
-#     for p in non_reachable_positions.copy():
-#         for deltax in sweep:
-#             for deltaz in sweep:
-#                 # @cc - don't block diagonals
-#                 # @tt - block diagonals now (hypothesis: agent is getting stuck?)
-#                 # if abs(deltax)+abs(deltaz)>1:
-#                 #   continue
-#                 non_reachable_positions.append(add(p, (deltax*grid_size,deltaz*grid_size)))
+    if save_path:
+        if cur_step:
+            save_path = save_path.replace(".png", f"_{cur_step}.png")
+        
+        if is_filtered:
+            save_path = save_path.replace(".png", "_filtered.png")
 
-#     # @tt - subtlety, cannot remove the position of the agent (even if it lies inside the other's grid!)
-#     agent_position_formatted=(tuple(map(lambda x: roundany(x, grid_size), start_position)))
-#     agent_position_formatted=(agent_position_formatted[0],agent_position_formatted[2])
-#     non_reachable_positions=list(set(non_reachable_positions) - set([agent_position_formatted]))
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Plot saved to: {save_path}")
+    else:
+        plt.show()
 
-#     # @tt - add agent's own position into reachable positions!
-#     reachable_positions=list(set(reachable_positions+[agent_position_formatted]))
-#     # filter out
-#     reachable_positions=list(filter(lambda p : p not in non_reachable_positions, reachable_positions))
-
-#     # # added by @nsidn98 AI2Thor BUG: sometimes ai2thor doesn't consider agents' current
-#     # # position as reachable so we add it to the reachable positions
-#     # reachable_positions = reachable_positions + [
-#     #     tuple(map(lambda x: roundany(x, grid_size), start_position))
-#     # ]
-
-#     # Compute plan; Actually need to call the A* twice.
-#     # The first time determines the position the robot will end
-#     # up, if the target position is the one to reach,
-#     # which is then used to compute the pitch and yaw.
-#     # The second time then finds a complete plan that includes
-#     # reaching the pitch and yaw.
-#     #
-#     # Note that you can't just compute goal pitch and yaw some other
-#     # way, for example, using the closest position, because that
-#     # position may not be the end point on the shortest path.  Closest
-#     # reachable position to the target is not necessarily on the
-#     # Shortest path!!!!
-#     #
-#     # The algorithm is pretty fast so calling twice won't be an issue
-    
-#     #@nav - note that it is not necessary to call A* twice as the assumption of indeterminacy of final position is nill 
-#     # yet, we call it anyways for now (avoid future bugs & breaking)
-#     # (remember) tolerance is 0 for the A* search
-#     target_position = thor_object_pose(controller, object_id, as_tuple=True)
-#     start_pose = (start_position, start_rotation)
-#     navigation_actions = get_navigation_actions(movement_params)
-
-#     params = dict(
-#         goal_distance=goal_distance,
-#         grid_size=grid_size,
-#         diagonal_ok=diagonal_ok,
-#         return_pose=True,
-#     )
-
-#     tentative_plan, expanded_poses = find_navigation_plan(
-#         start_pose,
-#         (target_position, start_rotation),
-#         navigation_actions,
-#         reachable_positions,
-#         debug=True,
-#         **params
-#     )
-#     # print('tentative_plan', str(tentative_plan), len(tentative_plan))
-#     # # For debugging purposes
-#     # plot_navigation_search_result(start_pose,
-#     #                               (target_position, start_rotation),
-#     #                               tentative_plan,
-#     #                               expanded_poses,
-#     #                               reachable_positions, grid_size, ax=None)
-#     #plt.show()
-
-#     if tentative_plan is None:
-#         return None, None
-#         # raise ValueError(
-#         #     "Plan not found from {} to {}".format(
-#         #         (start_position, start_rotation), object_id
-#         #     )
-#         # )
-
-#     # @bug - yaw, pitch calculations
-#     all_angles=[i for i in range(360)]
-#     _yaw,_pitch=None,None
-#     _yaw=_yaw_facing(start_position, target_position, all_angles)
-#     _pitch=_pitch_facing(start_position, target_position, v_angles)
-
-#     if len(tentative_plan) == 0:
-#         final_plan = []  # it appears that the robot is at where it should be
-#         # @bug - if robot is where it should be, it still should face position of the object
-#         #       have pitch be null
-
-#     else:
-#         # Get the last position
-#         last_pose = tentative_plan[-1]["next_pose"]
-#         last_position = (last_pose[0], start_position[1], last_pose[1])  # x,y,z
-
-#         # Get the true goal pose, with correct pitch and yaw
-#         goal_pitch = _pitch_facing(last_position, target_position, v_angles)
-#         goal_yaw = _yaw_facing(last_position, target_position, h_angles)
-#         goal_pose = (
-#             target_position,
-#             (goal_pitch, goal_yaw, start_rotation[2]),
-#         )  # roll is 0.0
-#         final_plan = find_navigation_plan(
-#             start_pose, goal_pose, navigation_actions, reachable_positions, **params
-#         )
-
-#         # @bug - calculations for the *precise* pitch and yaw
-#         _yaw=_yaw_facing(last_position, target_position, all_angles)
-#         _pitch=_pitch_facing(last_position, target_position, v_angles)
-
-#         # final_plan=tentative_plan
-
-#     poses = []
-#     actions = []
-#     # print(final_plan, tentative_plan)
-#     for step in final_plan:
-#         actions.append(step["action"])
-#         x, z, pitch, yaw = step["next_pose"]
-#         if positions_only:
-#             y = start_position[1]
-#             if as_tuples:
-#                 poses.append((x, y, z))
-#             else:
-#                 poses.append(dict(x=x, y=y, z=z))
-#         else:
-#             roll = start_rotation[2]
-#             if as_tuples:
-#                 poses.append(((x, y, z), (pitch, yaw, roll)))
-#             else:
-#                 poses.append(
-#                     (dict(x=x, y=start_position[1], z=z), dict(x=pitch, y=yaw, z=roll))
-#                 )
-
-#     # @bug - some output hacking to pass information about the goal pitch & yaw into the function above this one
-#     if return_plan:
-#         _pitch=0 if _pitch is not None else _pitch
-#         poses.append((_pitch, _yaw))
-#         return poses, actions
-#     else:
-#         return poses
 
 def get_shortest_path_to_object_type(controller, object_type, *args, **kwargs):
     """Similar to get_shortest_path_to_object except
