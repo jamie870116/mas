@@ -7,7 +7,7 @@
 GRID_SIZE = 0.25
 MOVE_STEP_SIZE = GRID_SIZE
 
-H_ROTATION = 45   # Yaw; body rotation. Only 90 won't stuck
+H_ROTATION = 90   # Yaw; body rotation. Only 90 won't stuck
 V_ROTATION = 30   # Pitch; camera up and down
 
 H_ANGLES = [i*H_ROTATION for i in range(int(360/H_ROTATION))]

@@ -145,6 +145,11 @@ class BaseEnv:
             action_dict["action"] = "DropHandObject"
         elif action.startswith("NavigateTo"):
             action_dict["action"] = "Pass"
+        elif action.startswith("Look"):
+            action_name = action.split("(")[0]
+            action_dict["action"] = action_name
+            degrees = action.split("(")[1].rstrip(")")
+            action_dict["degrees"] = int(degrees)
         else:
             raise ValueError(f"Unsupported action: {action}")
         return action_dict
@@ -373,9 +378,10 @@ class AI2ThorEnv(BaseEnv):
     self.object_interaction_actions = ["PickupObject", "PutObject", "OpenObject", "CloseObject", "ToggleObjectOn", "ToggleObjectOff", "BreakObject", "CookObject", "SliceObject", "DirtyObject", "CleanObject", "FillObjectWithLiquid", "EmptyLiquidFromObject", "UseUpObject"]
     self.object_interaction_without_navigation  = ["DropHandObject", "ThrowObject"]
     """
-    def step_decomp(self, actions: List[str]):
+    def step_decomp(self, actions: List[str], agent_id: int = None):
         """break down the step into unit as define in Ai2Thor (MoveAhead, RotateRight etc.)"""
-        for agent_id, action in enumerate(actions):
+        if agent_id is not None:
+            action = actions[agent_id]
             if action.startswith("NavigateTo"):
                 nav_steps = self.get_navigation_step(action, agent_id)
                 self.action_queue[agent_id].extend(nav_steps)
@@ -394,8 +400,28 @@ class AI2ThorEnv(BaseEnv):
 
             else:
                 self.action_queue[agent_id].append(action)
+        else:
+            for agent_id, action in enumerate(actions):
+                if action.startswith("NavigateTo"):
+                    nav_steps = self.get_navigation_step(action, agent_id)
+                    self.action_queue[agent_id].extend(nav_steps)
 
-    
+                elif action.startswith(tuple(self.object_interaction_actions)):
+                    obj = action.split("(")[1].rstrip(")")
+                    nav = f"NavigateTo({obj})"
+                    self.action_queue[agent_id].extend(self.get_navigation_step(nav, agent_id))
+                    self.action_queue[agent_id].append(action)
+
+                elif action in self.object_interaction_without_navigation:
+                    self.action_queue[agent_id].append(action)
+
+                elif action in self.idle_actions:
+                    self.action_queue[agent_id].append("Idle")
+
+                else:
+                    self.action_queue[agent_id].append(action)
+
+        
     def get_navigation_step(self, action: str, agent_id: int) -> List[str]:
         object_name = action.split("(")[1].rstrip(")")
         obj_id = self.convert_readable_object_to_id(object_name)
@@ -416,11 +442,11 @@ class AI2ThorEnv(BaseEnv):
         ]
         if other_agents:
             _, plan = get_shortest_path_to_object(
-                self.controller, obj_id, cur_pos_tuple, cur_rot, other_agent_position=other_agents, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=False
+                self.controller, obj_id, cur_pos_tuple, cur_rot, other_agent_position=other_agents, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=False, agent_id=agent_id
             )
         else:
             _, plan = get_shortest_path_to_object(
-                self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=False
+                self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=False, agent_id=agent_id
             )
 
         if not plan:
@@ -437,14 +463,26 @@ class AI2ThorEnv(BaseEnv):
     def exe_step(self, actions:List[str]):
         """execute one step, each agent per step (can be IDLE)"""
         
-        self.step_decomp(actions)
-        print("curr action queue: ", self.action_queue)
+        # self.step_decomp(actions)
+        # print("curr action queue: ", self.action_queue)
         act_texts, act_successes = [], []
+        print("Executing actions:", actions)
         for aid in range(self.num_agents):
-            act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
+            
 
+            if self.current_hl[aid]:
+                actions = ["Idle"] * self.num_agents
+                actions[aid] = self.current_hl[aid]
+                self.step_decomp(actions, agent_id=aid)
+
+            print("******")
+            print(f"before exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
+            act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
+            print(f"After exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
+            print("******")
             if act != "Idle":
                 action_dict = self.parse_action(act, aid)
+                print(f"Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
                 self.event = self.controller.step(action_dict)
                 success = self.event.events[aid].metadata["lastActionSuccess"]
             else:
@@ -469,14 +507,17 @@ class AI2ThorEnv(BaseEnv):
             sub = self.current_hl.get(aid)
             if sub:
                 if self.is_subtask_done(sub, aid):
+                    print(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
                     self.current_hl[aid] = None
                     self.action_queue[aid].clear()
-                elif not success:
-                    self.action_queue[aid].clear()
-                    # replan TBD
-                    self.step_decomp([ sub if i==aid else "Idle"
-                                       for i in range(self.num_agents) ])
+                # elif not success:
+                #     self.action_queue[aid].clear()
+                #     # replan TBD
+                #     self.step_decomp([ sub if i==aid else "Idle"
+                #                        for i in range(self.num_agents) ])
 
+            # if self.action_queue[aid] and len(self.action_queue[aid]) >= 2 and (self.action_queue[aid][1] not in self.object_interaction_actions or self.action_queue[aid][1] in self.object_interaction_without_navigation):
+            self.action_queue[aid].clear()
 
             if not self.skip_save_dir:
                 self.save_last_frame(agent_id=aid, view="pov",
@@ -503,7 +544,11 @@ class AI2ThorEnv(BaseEnv):
             self.pending_high_level[aid] = deque(tasks)
             self.current_hl[aid] = None
             self.action_queue[aid].clear()
-
+        print("Initializing action loop with high level tasks:")
+        print(f"pending high level tasks: {self.pending_high_level}")
+        print(f"nxt task: {self.current_hl}")
+        print(f"current action queue: {self.action_queue}")
+        print("-------------------------")
         history = []
         start_time = time.time()
         while True:
@@ -512,18 +557,24 @@ class AI2ThorEnv(BaseEnv):
                 if not self.current_hl[aid] and self.pending_high_level[aid]:
                     nxt = self.pending_high_level[aid].popleft()
                     self.current_hl[aid] = nxt
-                    refill.append((aid, nxt))
-
+                    # refill.append((aid, nxt))
                 # add event manually
                 # if self.step_num[aid] == 6:
                 #     success, message = self.simulate_environment_event("break", "Mug_1")
 
-            
-            if refill:
-                actions = ["Idle"] * self.num_agents
-                for aid, sub in refill:
-                    actions[aid] = sub
-                self.step_decomp(actions)
+                # if self.action_queue[aid] and self.action_queue[aid][0].startswith("Rotate"):
+                #     continue
+                # self.action_queue[aid].clear()
+                # if self.current_hl[aid]:
+                #     actions = ["Idle"] * self.num_agents
+                #     actions[aid] = self.current_hl[aid]
+                #     self.step_decomp(actions)
+
+            # if refill:
+            #     actions = ["Idle"] * self.num_agents
+            #     for aid, sub in refill:
+            #         actions[aid] = sub
+            #     self.step_decomp(actions)
 
             # break if not pending tasks
             if all(not self.pending_high_level[aid] for aid in range(self.num_agents)) \
@@ -535,10 +586,20 @@ class AI2ThorEnv(BaseEnv):
             elapsed = time.time() - start_time
             if self.timeout and elapsed > self.timeout:
                 break
+            print(f"pending high level tasks: {self.pending_high_level}")
+            print(f"nxt task: {self.current_hl}")
+            print(f"current action queue: {self.action_queue}")
+            # print(f"refill: {refill}")
+            
 
             obs, succ = self.exe_step([])
             history.append((obs, succ))
-            
+            print(f"----------Before {self.step_num[0]}------------")
+            print(f"pending high level tasks: {self.pending_high_level}")
+            print(f"nxt task: {self.current_hl}")
+            print(f"current action queue: {self.action_queue}")
+            print(f"----------After {self.step_num[0]}------------")
+
             # TBD: LLM
 
         return history

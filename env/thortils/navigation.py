@@ -38,7 +38,7 @@ from .constants import (MOVEMENTS, MOVEMENT_PARAMS,
 from .object import thor_object_pose, thor_closest_object_of_type
 from .agent import thor_reachable_positions
 import matplotlib.pyplot as plt
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any
 
 def convert_movement_to_action(movement, movement_params=MOVEMENT_PARAMS):
     """movement (str), a key in the constants.MOVEMENT_PARAMS dictionary
@@ -245,14 +245,118 @@ def _round_pose(full_pose):
     return ((round(x, 4), round(y, 4), round(z, 4)),\
             (round(pitch, 4), round(yaw, 4), round(roll, 4)))
 
-def find_navigation_plan(start, goal, navigation_actions,
-                         reachable_positions,
-                         goal_distance=0.0,
-                         grid_size=None,
-                         angle_tolerance=5,
-                         diagonal_ok=False,
-                         return_pose=False,
-                         debug=False):
+# def find_navigation_plan(start, goal, navigation_actions,
+#                          reachable_positions,
+#                          goal_distance=0.0,
+#                          grid_size=None,
+#                          angle_tolerance=5,
+#                          diagonal_ok=False,
+#                          return_pose=False,
+#                          debug=False):
+#     """Returns a navigation plan as a list of navigation actions. Uses A*
+
+#     Recap of A*: A* selects the path that minimizes
+
+#     f(n)=g(n)+h(n)
+
+#     where n is the next node on the path, g(n) is the cost of the path from the
+#     start node to n, and h(n) is a heuristic function that estimates the cost of
+#     the cheapest path from n to the goal.  If the heuristic function is
+#     admissible, meaning that it never overestimates the actual cost to get to
+#     the goal, A* is guaranteed to return a least-cost path from start to goal.
+
+#     Args:
+#         start (tuple): position, rotation of the start
+#         goal (tuple): position, rotation of the goal n
+#         navigation_actions (list): list of navigation actions,
+#             represented as ("ActionName", (forward, h_angles, v_angles)),
+#         goal_distance (bool): acceptable minimum euclidean distance to the goal
+#         grid_size (float): size of the grid, typically 0.25. Only
+#             necessary if `diagonal_ok` is True
+#         diagonal_ok (bool): True if 'MoveAhead' can move
+#             the robot diagonally.
+#         return_pose (bool): True if return a list of {"action": <action>, "next_pose": <pose>} dicts
+#         debug (bool): If true, returns the expanded poses
+#     Returns:
+#         a list consisting of elements in `navigation_actions`
+#     """
+#     if type(reachable_positions) != set:
+#         reachable_positions = set(reachable_positions)
+
+#     # Map angles in start and goal to be within 0 to 360 (see top comments)
+#     start_rotation = normalize_angles(start[1])
+#     goal_rotation = normalize_angles(goal[1])
+#     start = (start[0], start_rotation)
+#     goal = (goal[0], goal_rotation)
+
+#     # The priority queue
+#     worklist = PriorityQueue()
+#     worklist.push(start, _nav_heuristic(start, goal))
+
+#     # cost[n] is the cost of the cheapest path from start to n currently known
+#     cost = {}
+#     cost[start] = 0
+
+#     # comefrom[n] is the node immediately preceding node n on the cheapeast path
+#     comefrom = {}
+
+#     # keep track of visited poses
+#     visited = set()
+
+#     if debug:
+#         _expanded_poses = []
+
+#     while not worklist.isEmpty():
+#         current_pose = worklist.pop()
+#         if debug:
+#             _expanded_poses.append(current_pose)
+#         if _round_pose(current_pose) in visited:
+#             continue
+#         if _same_pose(current_pose, goal,
+#                       tolerance=goal_distance,
+#                       angle_tolerance=angle_tolerance):
+#             if debug:
+#                 plan = _reconstruct_plan(comefrom,
+#                                          current_pose,
+#                                          return_pose=True)
+#                 return plan, _expanded_poses
+#             else:
+#                 return _reconstruct_plan(comefrom, current_pose,
+#                                          return_pose=return_pose)
+
+#         for action in navigation_actions:
+#             next_pose = transform_pose(current_pose, action,
+#                                        grid_size=grid_size,
+#                                        diagonal_ok=diagonal_ok)
+#             if not _valid_pose(_round_pose(next_pose), reachable_positions):
+#                 continue
+
+#             new_cost = cost[current_pose] + _cost(action)
+#             if new_cost < cost.get(next_pose, float("inf")):
+#                 cost[next_pose] = new_cost
+#                 worklist.push(next_pose, cost[next_pose] + _nav_heuristic(next_pose, goal))
+#                 comefrom[next_pose] = (current_pose, action)
+
+#         visited.add(current_pose)
+
+#     # no path found
+#     if debug:
+#         return None, _expanded_poses
+#     else:
+#         return None
+
+def find_navigation_plan(
+    start,
+    goal,
+    navigation_actions,
+    reachable_positions,
+    goal_distance=0.0,
+    grid_size=None,
+    angle_tolerance=5,
+    diagonal_ok=False,
+    return_pose=False,
+    debug=False,
+):
     """Returns a navigation plan as a list of navigation actions. Uses A*
 
     Recap of A*: A* selects the path that minimizes
@@ -280,18 +384,38 @@ def find_navigation_plan(start, goal, navigation_actions,
     Returns:
         a list consisting of elements in `navigation_actions`
     """
+    #   potential consequences - A* will not necessarily chose shortest path
+    #   potential positive outcomes - (under reasonable assumptions) there exists a point which the agent can access AND interact with target object (that point is at least the closest one)
     if type(reachable_positions) != set:
         reachable_positions = set(reachable_positions)
 
-    # Map angles in start and goal to be within 0 to 360 (see top comments)
-    start_rotation = normalize_angles(start[1])
-    goal_rotation = normalize_angles(goal[1])
-    start = (start[0], start_rotation)
-    goal = (goal[0], goal_rotation)
-
-    # The priority queue
+    # The priority queue - create before conditional
     worklist = PriorityQueue()
-    worklist.push(start, _nav_heuristic(start, goal))
+
+    if debug:
+        _expanded_poses = []
+    
+    # avoid NoneType errors - will return None if goal (or subcomponents) is/are None
+    if goal is not None and not any([t is None for t in tuple(goal)]):
+        # @nav - make target position equivalent to closest reachable position (main crux of problem - avoid ambiguity)
+        goal_pos = _closest_reachable_position_target(reachable_positions, goal[0], tolerance=1e-4)
+        #   add arbitrary z value to make it match dimensions (x,z)->(x,y,z) - shouldn't impact measurement of closeness (measure fn doesn't use y)
+        goal_pos=(goal_pos[0], 0, goal_pos[1])
+        goal = (goal_pos, goal[1])
+
+        # Map angles in start and goal to be within 0 to 360 (see top comments)
+        start_rotation = normalize_angles(start[1])
+        goal_rotation = normalize_angles(goal[1])
+        start = (start[0], start_rotation)
+        goal = (goal[0], goal_rotation)
+
+        worklist.push(start, _nav_heuristic(start, goal))
+    else:
+        # if None, don't add to worklist and return None (no path found)
+        if debug:
+            return None, _expanded_poses
+        return None
+    
 
     # cost[n] is the cost of the cheapest path from start to n currently known
     cost = {}
@@ -303,38 +427,37 @@ def find_navigation_plan(start, goal, navigation_actions,
     # keep track of visited poses
     visited = set()
 
-    if debug:
-        _expanded_poses = []
-
     while not worklist.isEmpty():
         current_pose = worklist.pop()
         if debug:
             _expanded_poses.append(current_pose)
         if _round_pose(current_pose) in visited:
             continue
-        if _same_pose(current_pose, goal,
-                      tolerance=goal_distance,
-                      angle_tolerance=angle_tolerance):
+        # @here - _same_pose hides the tolerancing by goal_distance (breaks everything)
+        # @tt - changed to non-zero - zero now
+        if _same_pose(
+            current_pose, goal, tolerance=1e-5, angle_tolerance=angle_tolerance
+        ):
             if debug:
-                plan = _reconstruct_plan(comefrom,
-                                         current_pose,
-                                         return_pose=True)
+                plan = _reconstruct_plan(comefrom, current_pose, return_pose=True)
                 return plan, _expanded_poses
             else:
-                return _reconstruct_plan(comefrom, current_pose,
-                                         return_pose=return_pose)
+                return _reconstruct_plan(
+                    comefrom, current_pose, return_pose=return_pose
+                )
 
         for action in navigation_actions:
-            next_pose = transform_pose(current_pose, action,
-                                       grid_size=grid_size,
-                                       diagonal_ok=diagonal_ok)
+            next_pose = transform_pose(
+                current_pose, action, grid_size=grid_size, diagonal_ok=diagonal_ok
+            )
             if not _valid_pose(_round_pose(next_pose), reachable_positions):
                 continue
-
             new_cost = cost[current_pose] + _cost(action)
             if new_cost < cost.get(next_pose, float("inf")):
                 cost[next_pose] = new_cost
-                worklist.push(next_pose, cost[next_pose] + _nav_heuristic(next_pose, goal))
+                worklist.push(
+                    next_pose, cost[next_pose] + _nav_heuristic(next_pose, goal)
+                )
                 comefrom[next_pose] = (current_pose, action)
 
         visited.add(current_pose)
@@ -344,6 +467,14 @@ def find_navigation_plan(start, goal, navigation_actions,
         return None, _expanded_poses
     else:
         return None
+
+#@nav - function to find the closest reachable position to target position
+# this would allow the agent to go to exactly the closest rather than (possibly) some approximately close
+def _closest_reachable_position_target(reachable_positions, target_position, tolerance=1e-4):
+    # use L_2 norm
+    xx,zz=target_position[0],target_position[2]
+    r_position, _ = min(list(zip(reachable_positions, [(xx,zz)]*len(reachable_positions))), key=lambda t: euclidean_dist(t[0],t[1]))
+    return r_position
 
 def get_shortest_path_to_object(controller, object_id,
                                 start_position, start_rotation,
@@ -414,8 +545,8 @@ def get_shortest_path_to_object(controller, object_id,
         reachable_positions=list(set(reachable_positions+[agent_position_formatted]))
         # filter out
         reachable_positions=list(filter(lambda p : p not in non_reachable_positions, reachable_positions))
-        if isVisualize:
-            visualize_positions(reachable_positions, non_reachable_positions, save_path='debugs/reachable_positions.png', cur_step=cur_step, is_filtered=True)
+        
+
     # Compute plan; Actually need to call the A* twice.
     # The first time determines the position the robot will end
     # up, if the target position is the one to reach,
@@ -446,19 +577,41 @@ def get_shortest_path_to_object(controller, object_id,
                                                           debug=True,
                                                           **params)
     # # For debugging purposes
-    # plot_navigation_search_result(start_pose,
-    #                               (target_position, start_rotation),
-    #                               tentative_plan,
-    #                               expanded_poses,
-    #                               reachable_positions, grid_size, ax=None)
-    # plt.show()
-
+    if isVisualize:
+        plot_navigation_search_result(start_pose,
+                                    (target_position, start_rotation),
+                                    tentative_plan,
+                                    expanded_poses,
+                                    reachable_positions, grid_size, ax=None)
+        # plt.show()
+        save_path = 'debugs/nav_debug.png'
+        base = save_path.replace('.png', '')
+        if cur_step is not None:
+            base += f'_{cur_step}'
+        out_path = base + '.png'
+        plt.savefig(out_path, dpi=300, bbox_inches="tight")
+        # plt.close(fig)
+        print(f'Plot saved to: {out_path}')
+    
+        
     if tentative_plan is None:
         raise ValueError("Plan not found from {} to {}"\
                          .format((start_position, start_rotation), object_id))
     if len(tentative_plan) == 0:
         final_plan = []   # it appears that the robot is at where it should be
+        # current_rotation = controller.last_event.events[agent_id].metadata["agent"]["rotation"]
+        
+        # start_pose = ( start_position, current_rotation )
+        goal_pitch = _pitch_facing(start_position, target_position, v_angles)
+        goal_yaw   = _yaw_facing (start_position, target_position, h_angles)
+        goal_pose  = (target_position,
+                    (goal_pitch, goal_yaw, start_rotation[2]))
 
+        final_plan = find_navigation_plan(
+            start_pose, goal_pose,
+            navigation_actions, reachable_positions,
+            **params
+        )
     else:
         # Get the last position
         last_pose = tentative_plan[-1]["next_pose"]
@@ -474,7 +627,7 @@ def get_shortest_path_to_object(controller, object_id,
                                           navigation_actions,
                                           reachable_positions,
                                           **params)
-
+    
     poses = []
     actions = []
     for step in final_plan:
@@ -500,54 +653,144 @@ def get_shortest_path_to_object(controller, object_id,
         return poses
 
 
-def visualize_positions(
-    all_positions: List[Tuple[float, float]],
-    filtered_positions: List[Tuple[float, float]],
-    figsize: Tuple[int, int] = (10, 10),
-    title: str = "Reachable Positions Visualization",
-    save_path: Optional[str] = None,  # e.g., "outputs/positions_plot.png",
+# def visualize_positions(
+#     all_positions: List[Tuple[float, float]],
+#     filtered_positions: List[Tuple[float, float]],
+#     figsize: Tuple[int, int] = (10, 10),
+#     title: str = "Reachable Positions Visualization",
+#     save_path: Optional[str] = None,  # e.g., "outputs/positions_plot.png",
+#     cur_step: Optional[int] = None,
+#     is_filtered: bool = True
+# ):
+#     """
+#     視覺化 reachable 與 filtered 位置，並可選擇儲存圖檔。
+
+#     參數：
+#         all_positions: 原始座標列表 (x, y)
+#         filtered_positions: 篩選後座標列表 (x, y)
+#         figsize: 圖片尺寸 (預設 (10, 10))
+#         title: 圖表標題
+#         save_path: 若提供，圖表將存至此路徑（含檔名與副檔名）
+#     """
+#     if not all_positions or not filtered_positions:
+#         print("Empty position list.")
+#         return
+
+#     x_all, y_all = zip(*all_positions)
+#     x_filtered, y_filtered = zip(*filtered_positions)
+
+#     plt.figure(figsize=figsize)
+#     plt.scatter(x_all, y_all, color='blue', label='All Reachable', s=20)
+#     plt.scatter(x_filtered, y_filtered, color='red', label='Filtered', s=30)
+
+#     plt.xlabel('X')
+#     plt.ylabel('Y')
+#     plt.title(title)
+#     plt.legend()
+#     plt.grid(True)
+#     plt.axis('equal')
+
+#     if save_path:
+#         if cur_step:
+#             save_path = save_path.replace(".png", f"_{cur_step}.png")
+        
+#         if is_filtered:
+#             save_path = save_path.replace(".png", "_filtered.png")
+
+#         plt.savefig(save_path, bbox_inches='tight')
+#         print(f"Plot saved to: {save_path}")
+#     else:
+#         plt.show()
+
+
+
+def visualize_navigation_search_result(
+    start: Tuple[Tuple[float, float, float], Tuple[float, float, float]],
+    goal: Tuple[Tuple[float, float, float], Tuple[float, float, float]],
+    plan: Optional[List[Any]],
+    expanded_poses: List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]],
+    reachable_positions: List[Tuple[float, float]],
+    grid_size: float,
+    save_path: Optional[str] = None,
     cur_step: Optional[int] = None,
-    is_filtered: bool = True
+    is_filtered: bool = True,
+    ax: Optional[Any] = None
 ):
     """
-    視覺化 reachable 與 filtered 位置，並可選擇儲存圖檔。
-
-    參數：
-        all_positions: 原始座標列表 (x, y)
-        filtered_positions: 篩選後座標列表 (x, y)
-        figsize: 圖片尺寸 (預設 (10, 10))
-        title: 圖表標題
-        save_path: 若提供，圖表將存至此路徑（含檔名與副檔名）
+    以 plot_navigation_search_result 风格绘制导航搜索过程，并可保存图片。
+    
+    参数：
+      start, goal: ((x,y,z), (pitch,yaw,roll))  
+      plan: 由 find_navigation_plan 返回的动作序列或 None  
+      expanded_poses: 每一步扩展的 (position, rotation) 列表  
+      reachable_positions: 可达网格 (x,z) 列表  
+      grid_size: 网格尺寸，用于设定显示边界  
+      save_path: 若提供，将图保存至此路径  
+      cur_step: 可选步数标记，将嵌入文件名  
+      is_filtered: 用于文件名标记  
+      ax: 可重用的 matplotlib 轴对象
     """
-    if not all_positions or not filtered_positions:
-        print("Empty position list.")
-        return
+    def _plot_map(ax):
+        # 网格
+        xs = [p[0] for p in reachable_positions]
+        zs = [p[1] for p in reachable_positions]
+        ax.scatter(xs, zs, s=30, c='gray', zorder=1)
+        # 起点
+        sx, sy, sz = start[0]
+        ax.scatter([sx], [sz], s=20, c='red',    zorder=4, label='Start')
+        # 目标
+        gx, gy, gz = goal[0]
+        ax.scatter([gx], [gz], s=20, c='green',  zorder=4, label='Goal')
 
-    x_all, y_all = zip(*all_positions)
-    x_filtered, y_filtered = zip(*filtered_positions)
+    # 准备画布
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 8))
+    else:
+        fig = ax.figure
 
-    plt.figure(figsize=figsize)
-    plt.scatter(x_all, y_all, color='blue', label='All Reachable', s=20)
-    plt.scatter(x_filtered, y_filtered, color='red', label='Filtered', s=30)
+    # 绘制地图、起终点
+    _plot_map(ax)
 
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.title(title)
-    plt.legend()
-    plt.grid(True)
-    plt.axis('equal')
+    # 限定可视范围
+    xs = [p[0] for p in reachable_positions]
+    zs = [p[1] for p in reachable_positions]
+    ax.set_xlim(min(xs) - grid_size, max(xs) + grid_size)
+    ax.set_ylim(min(zs) - grid_size, max(zs) + grid_size)
 
+    # 绘制扩展节点，按顺序着色
+    ex = [pose[0][0] for pose in expanded_poses]
+    ez = [pose[0][2] for pose in expanded_poses]
+    colors = list(range(len(expanded_poses)))
+    ax.scatter(ex, ez, s=12, c=colors, cmap='bone', zorder=2, label='Expanded')
+
+    # 绘制最终路径
+    if plan is not None:
+        px = [step["next_pose"][0] for step in plan]
+        pz = [step["next_pose"][2] for step in plan]
+        ax.scatter(px, pz, s=12, c='orange', zorder=3, label='Plan')
+
+    # 美化
+    ax.set_xlabel('X')
+    ax.set_ylabel('Z')
+    ax.set_title('Navigation Search Result')
+    ax.grid(True)
+    ax.axis('equal')
+    ax.legend()
+
+    # 保存或显示
     if save_path:
-        if cur_step:
-            save_path = save_path.replace(".png", f"_{cur_step}.png")
-        
+        base = save_path.replace('.png', '')
+        if cur_step is not None:
+            base += f'_{cur_step}'
         if is_filtered:
-            save_path = save_path.replace(".png", "_filtered.png")
-
-        plt.savefig(save_path, bbox_inches='tight')
-        print(f"Plot saved to: {save_path}")
+            base += '_filtered'
+        out_path = base + '.png'
+        fig.savefig(out_path, bbox_inches='tight')
+        plt.close(fig)
+        print(f'Plot saved to: {out_path}')
     else:
         plt.show()
+
 
 
 def get_shortest_path_to_object_type(controller, object_type, *args, **kwargs):
@@ -580,7 +823,13 @@ def _pitch_facing(robot_position, target_position, angles):
     # remember for pitch in thor, negative is up, positive is down
     pitch = to_degrees(math.atan2(ty - ry, # reverse y axis direction because of ^^
                                   horiz)) % 360
-    return closest(angles, pitch)
+    # pitch = (
+    #     to_degrees(
+    #         math.atan2(ry - ty, tx - rx)  # reverse y axis direction because of ^^
+    #     )
+    #     % 360
+    # )
+    return closest(angles, -pitch)
 
 def _yaw_facing(robot_position, target_position, angles):
     """
@@ -614,13 +863,13 @@ def plot_navigation_search_result(start, goal, plan, expanded_poses,
     def plot_map(ax, reachable_positions, start, goal):
         x = [p[0] for p in reachable_positions]
         z = [p[1] for p in reachable_positions]
-        ax.scatter(x, z, s=300, c='gray', zorder=1)
+        ax.scatter(x, z, s=30, c='gray', zorder=1, label='Reachable')
 
         xs, _, zs = start[0]
-        ax.scatter([xs], [zs], s=200, c='red', zorder=4)
+        ax.scatter([xs], [zs], s=20, c='red', zorder=4, label='Start')
 
         xg, _, zg = goal[0]
-        ax.scatter([xg], [zg], s=200, c='green', zorder=4)
+        ax.scatter([xg], [zg], s=20, c='green', zorder=4, label='Goal')
 
     ###start
     if ax is None:
@@ -636,12 +885,12 @@ def plot_navigation_search_result(start, goal, plan, expanded_poses,
     x = [p[0][0] for p in expanded_poses]
     z = [p[0][2] for p in expanded_poses]
     c = [i for i in range(0, len(expanded_poses))]
-    ax.scatter(x, z, s=120, c=c, zorder=2, cmap="bone")
+    ax.scatter(x, z, s=12, c=c, zorder=2, cmap="bone", label='Expanded')
 
     if plan is not None:
         for step in plan:
             x, z, _, _ = step["next_pose"]
-            ax.scatter([x], [z], s=120, zorder=2, c="orange")
+            ax.scatter([x], [z], s=12, zorder=2, c="orange", label='Plan')
 
 
 #--------- Metrics ------------#
