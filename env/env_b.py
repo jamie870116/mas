@@ -381,6 +381,7 @@ class AI2ThorEnv(BaseEnv):
     def step_decomp(self, actions: List[str], agent_id: int = None):
         """break down the step into unit as define in Ai2Thor (MoveAhead, RotateRight etc.)"""
         if agent_id is not None:
+            # 分解特定agent的动作
             action = actions[agent_id]
             if action.startswith("NavigateTo"):
                 nav_steps = self.get_navigation_step(action, agent_id)
@@ -401,6 +402,7 @@ class AI2ThorEnv(BaseEnv):
             else:
                 self.action_queue[agent_id].append(action)
         else:
+            # 分解所有agent的动作
             for agent_id, action in enumerate(actions):
                 if action.startswith("NavigateTo"):
                     nav_steps = self.get_navigation_step(action, agent_id)
@@ -475,11 +477,11 @@ class AI2ThorEnv(BaseEnv):
                 actions[aid] = self.current_hl[aid]
                 self.step_decomp(actions, agent_id=aid)
 
-            print("******")
-            print(f"before exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
+            # print("******")
+            # print(f"before exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
             act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
-            print(f"After exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
-            print("******")
+            # print(f"After exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
+            # print("******")
             if act != "Idle":
                 action_dict = self.parse_action(act, aid)
                 print(f"Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
@@ -516,7 +518,6 @@ class AI2ThorEnv(BaseEnv):
                 #     self.step_decomp([ sub if i==aid else "Idle"
                 #                        for i in range(self.num_agents) ])
 
-            # if self.action_queue[aid] and len(self.action_queue[aid]) >= 2 and (self.action_queue[aid][1] not in self.object_interaction_actions or self.action_queue[aid][1] in self.object_interaction_without_navigation):
             self.action_queue[aid].clear()
 
             if not self.skip_save_dir:
@@ -544,37 +545,22 @@ class AI2ThorEnv(BaseEnv):
             self.pending_high_level[aid] = deque(tasks)
             self.current_hl[aid] = None
             self.action_queue[aid].clear()
-        print("Initializing action loop with high level tasks:")
-        print(f"pending high level tasks: {self.pending_high_level}")
-        print(f"nxt task: {self.current_hl}")
-        print(f"current action queue: {self.action_queue}")
-        print("-------------------------")
+        # print("Initializing action loop with high level tasks:")
+        # print(f"pending high level tasks: {self.pending_high_level}")
+        # print(f"nxt task: {self.current_hl}")
+        # print(f"current action queue: {self.action_queue}")
+        # print("-------------------------")
         history = []
         start_time = time.time()
         while True:
-            refill = []
             for aid in range(self.num_agents):
                 if not self.current_hl[aid] and self.pending_high_level[aid]:
                     nxt = self.pending_high_level[aid].popleft()
                     self.current_hl[aid] = nxt
-                    # refill.append((aid, nxt))
                 # add event manually
                 # if self.step_num[aid] == 6:
                 #     success, message = self.simulate_environment_event("break", "Mug_1")
 
-                # if self.action_queue[aid] and self.action_queue[aid][0].startswith("Rotate"):
-                #     continue
-                # self.action_queue[aid].clear()
-                # if self.current_hl[aid]:
-                #     actions = ["Idle"] * self.num_agents
-                #     actions[aid] = self.current_hl[aid]
-                #     self.step_decomp(actions)
-
-            # if refill:
-            #     actions = ["Idle"] * self.num_agents
-            #     for aid, sub in refill:
-            #         actions[aid] = sub
-            #     self.step_decomp(actions)
 
             # break if not pending tasks
             if all(not self.pending_high_level[aid] for aid in range(self.num_agents)) \
@@ -586,19 +572,19 @@ class AI2ThorEnv(BaseEnv):
             elapsed = time.time() - start_time
             if self.timeout and elapsed > self.timeout:
                 break
-            print(f"pending high level tasks: {self.pending_high_level}")
-            print(f"nxt task: {self.current_hl}")
-            print(f"current action queue: {self.action_queue}")
-            # print(f"refill: {refill}")
+            # print(f"pending high level tasks: {self.pending_high_level}")
+            # print(f"nxt task: {self.current_hl}")
+            # print(f"current action queue: {self.action_queue}")
             
 
             obs, succ = self.exe_step([])
             history.append((obs, succ))
-            print(f"----------Before {self.step_num[0]}------------")
-            print(f"pending high level tasks: {self.pending_high_level}")
-            print(f"nxt task: {self.current_hl}")
-            print(f"current action queue: {self.action_queue}")
-            print(f"----------After {self.step_num[0]}------------")
+            # debug
+            # print(f"----------Before {self.step_num[0]}------------")
+            # print(f"pending high level tasks: {self.pending_high_level}")
+            # print(f"nxt task: {self.current_hl}")
+            # print(f"current action queue: {self.action_queue}")
+            # print(f"----------After {self.step_num[0]}------------")
 
             # TBD: LLM
 
