@@ -1,9 +1,15 @@
 # MS project
+Aiming to implement a decentralized, LLM-driven multi-robot task planning and coordination system that is tolerant of unexpected events during execution.
 
-Under Development
 
-## Current stage
-- building simulator with ai2thor
+
+## TODO
+- [x] Built env with ai2thor    
+- [-] Setting up LLM workflow
+- [ ] Set up Baselines: SmartLLM, LLaMar
+- [ ] Test cases
+- [ ] Decentualized planning
+- [ ] Experiment
 
 ## Setup
 - config file path: `config/config.json`
