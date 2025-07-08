@@ -1,5 +1,5 @@
 '''
-Baseline: SmartLLM + Previous course project 
+Baseline: SmartLLM + Previous course project - 一次性生成plan, 並執行; 驗證結果+重新生成plan 
 '''
 import json
 import os
@@ -17,8 +17,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 client = OpenAI(api_key=Path('api_key.txt').read_text())
 
-def get_llm_response(env: AI2ThorEnv, prompt: str, model: str = "gpt-4o-mini", temperature: float = 0.7) -> str:
-    pass
+def get_llm_response(env: AI2ThorEnv, prompt: str, model: str = "gpt-4o-mini", temperature: float = 0.7, max_tokens=1000, frequency_penalty=0.0) -> str:
+    response = client.chat.completions.create(model=model, 
+                                            messages=prompt, 
+                                            max_tokens=max_tokens, 
+                                            temperature=temperature, 
+                                            frequency_penalty = frequency_penalty)
+    print(f"LLM response: {response}")
+    return response, response.choices[0].message.content.strip()
 
 def decompose_task(test_tasks, prompt, llm_model, llama_version):
     pass

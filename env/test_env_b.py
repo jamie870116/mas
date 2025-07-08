@@ -66,16 +66,34 @@ if __name__ == "__main__":
     #     task_name=task_name
     # )
 
-    obs = env.reset(test_case_id="18")
-    objs = env.get_readable_object_list(env.get_object_in_view(0))
-    # tomato = next((o for o in objs if "Tomato" in o), "Tomato_1")
-    # counter = next((o for o in objs if "CounterTop" in o), "CounterTop_1")
-    bread = next((o for o in objs if "Bread" in o), "Bread_1")
+    # obs = env.reset(test_case_id="18")
+    # objs = env.get_readable_object_list(env.get_object_in_view(0))
+    # # tomato = next((o for o in objs if "Tomato" in o), "Tomato_1")
+    # # counter = next((o for o in objs if "CounterTop" in o), "CounterTop_1")
+    # bread = next((o for o in objs if "Bread" in o), "Bread_1")
+    # run_test(
+    #     env,
+    #     high_level_tasks=[["Idle"], [f"PickupObject({bread})"]], # [[subtasks for agent_i], [...]]
+    #     test_name="Test 18",
+    #     test_id="18",
+    #     task_name=task_name
+    # )
+
+    obs = env.reset(test_case_id="11")
+    objects_in_view_alice = env.get_readable_object_list(env.get_object_in_view(0))
+    tomato = next((obj for obj in objects_in_view_alice if "Tomato" in obj), "Tomato_1")
+    counter = next((obj for obj in env.get_readable_object_list(env.get_object_in_view(0)) if "CounterTop" in obj), "CounterTop_1")
+    cabinet = next((obj for obj in env.get_readable_object_list(env.get_object_in_view(0)) if "Cabinet" in obj), "Cabinet_1")
+    high_level_tasks = [
+        [f"PickupObject({tomato})"],
+        [f"OpenObject({cabinet})", f"CloseObject({cabinet})", "Idle"]
+    ]
     run_test(
         env,
-        high_level_tasks=[["Idle"], [f"PickupObject({bread})"]], # [[subtasks for agent_i], [...]]
-        test_name="Test 18",
-        test_id="18",
-        task_name=task_name
+        high_level_tasks=high_level_tasks,
+        test_name="Test 11",
+        test_id=11,
+        task_name = task_name,
     )
+
 

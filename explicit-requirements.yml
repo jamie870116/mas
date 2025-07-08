@@ -1,0 +1,10 @@
+name: smartllm_test
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - ffmpeg
+  - ai2thor
+  - open3d
+  - conda-forge::pytest
+prefix: /opt/anaconda3/envs/smartllm_test

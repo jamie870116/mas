@@ -599,9 +599,7 @@ def get_shortest_path_to_object(controller, object_id,
                          .format((start_position, start_rotation), object_id))
     if len(tentative_plan) == 0:
         final_plan = []   # it appears that the robot is at where it should be
-        # current_rotation = controller.last_event.events[agent_id].metadata["agent"]["rotation"]
-        
-        # start_pose = ( start_position, current_rotation )
+
         goal_pitch = _pitch_facing(start_position, target_position, v_angles)
         goal_yaw   = _yaw_facing (start_position, target_position, h_angles)
         goal_pose  = (target_position,
@@ -662,16 +660,7 @@ def get_shortest_path_to_object(controller, object_id,
 #     cur_step: Optional[int] = None,
 #     is_filtered: bool = True
 # ):
-#     """
-#     視覺化 reachable 與 filtered 位置，並可選擇儲存圖檔。
 
-#     參數：
-#         all_positions: 原始座標列表 (x, y)
-#         filtered_positions: 篩選後座標列表 (x, y)
-#         figsize: 圖片尺寸 (預設 (10, 10))
-#         title: 圖表標題
-#         save_path: 若提供，圖表將存至此路徑（含檔名與副檔名）
-#     """
 #     if not all_positions or not filtered_positions:
 #         print("Empty position list.")
 #         return
@@ -716,20 +705,7 @@ def visualize_navigation_search_result(
     is_filtered: bool = True,
     ax: Optional[Any] = None
 ):
-    """
-    以 plot_navigation_search_result 风格绘制导航搜索过程，并可保存图片。
-    
-    参数：
-      start, goal: ((x,y,z), (pitch,yaw,roll))  
-      plan: 由 find_navigation_plan 返回的动作序列或 None  
-      expanded_poses: 每一步扩展的 (position, rotation) 列表  
-      reachable_positions: 可达网格 (x,z) 列表  
-      grid_size: 网格尺寸，用于设定显示边界  
-      save_path: 若提供，将图保存至此路径  
-      cur_step: 可选步数标记，将嵌入文件名  
-      is_filtered: 用于文件名标记  
-      ax: 可重用的 matplotlib 轴对象
-    """
+
     def _plot_map(ax):
         # 网格
         xs = [p[0] for p in reachable_positions]
@@ -823,12 +799,7 @@ def _pitch_facing(robot_position, target_position, angles):
     # remember for pitch in thor, negative is up, positive is down
     pitch = to_degrees(math.atan2(ty - ry, # reverse y axis direction because of ^^
                                   horiz)) % 360
-    # pitch = (
-    #     to_degrees(
-    #         math.atan2(ry - ty, tx - rx)  # reverse y axis direction because of ^^
-    #     )
-    #     % 360
-    # )
+
     return closest(angles, -pitch)
 
 def _yaw_facing(robot_position, target_position, angles):

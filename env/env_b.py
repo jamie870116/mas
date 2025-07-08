@@ -296,7 +296,9 @@ class AI2ThorEnv(BaseEnv):
         self.previous_positions = [None] * self.num_agents
         self.start_time = time.time()
         self.total_elapsed_time = 0.0
-        
+        self.input_dict = {}
+        self.input_dict["Task"] = task
+
         if not self.skip_save_dir:
             self.create_save_dirs(test_case_id)
         
@@ -1013,6 +1015,149 @@ class AI2ThorEnv(BaseEnv):
                 self.save_frame()
                 for aid in range(self.num_agents):
                     self.step_num[aid] += 1
+
+    # LLM Input Methods from LLaMAR
+    def get_planner_llm_input(self):
+        """
+        Returns the input to the subtask LLM
+        ### INPUT FORMAT ###
+        {{Task: description of the task the robots are supposed to do,
+        {agent_name[0]}'s observation: list of objects the {agent_name[0]} is observing,
+        {agent_name[1]}'s observation: list of objects the {agent_name[1]} is observing,
+        Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
+        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+        }}
+
+        """
+        # extract the agent_name's observations based on how many agents there are
+        planner_llm__input_feats = ["Task"]
+        for i in range(self.num_agents):
+            agent_name = self.agent_names[i]
+            planner_llm__input_feats.append(agent_name + "'s observation")
+        planner_llm__input_feats.extend(
+            ["Robots' open subtasks", "Robots' completed subtasks"]
+        )
+        return dict((k, self.input_dict[k]) for k in planner_llm__input_feats)
+
+    def get_verifier_llm_input(self):
+        """
+        Returns the input to the verifier LLM
+        ### INPUT FORMAT ###
+        {{Task: description of the task the robots are supposed to do,
+        {agent_name[i]}'s observation: list of objects the {agent_name[0]} is observing,
+        {agent_name[i]}'s previous action: previous action of the {agent_name[0]},
+        Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
+        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+        Robots' combined memory: description of robots' combined memory}}
+
+        """
+        # extract the agent_name's observations based on how many agents there are
+        verifier_llm_input_feats = ["Task"]
+        for i in range(self.num_agents):
+            agent_name = self.agent_names[i]
+            verifier_llm_input_feats.extend(
+                [
+                    agent_name + "'s observation",
+                    agent_name + "'s state",
+                    agent_name + "'s previous action",
+                ]
+            )
+        verifier_llm_input_feats.extend(
+            [
+                "Robots' open subtasks",
+                "Robots' completed subtasks",
+                "Robots' combined memory",
+            ]
+        )
+        return dict((k, self.input_dict[k]) for k in verifier_llm_input_feats)
+
+    def get_action_llm_input(self, failure_module=False):
+        """
+        Returns the input to the subtask LLM
+        ### INPUT FORMAT ###
+        {{Task: description of the task the robots are supposed to do,
+        {agent_name[i]}'s observation: list of objects the {agent_name[0]} is observing,
+        {agent_name[i]}'s state: description of {agent_name[0]}'s state,
+        {agent_name[i]}'s previous action: description of what {agent_name[0]} did in the previous time step and whether it was successful,
+        {agent_name[i]}'s previous failures: if {agent_name[0]}'s few previous actions failed, description of what failed,
+        Robots' open subtasks: list of subtasks  supposed to carry out to finish the task. If no plan has been already created, this will be None.
+        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+        Robots' subtask: description of the subtasks the robots were trying to complete in the previous step,
+        Robots' combined memory: description of robot's combined memory}}
+        """
+        # extract the agent_name's observations based on how many agents there are
+        # current additional info from failure ["failure reason"]
+        llm_input_feats = ["Task"]
+        for i in range(self.num_agents):
+            agent_name = self.agent_names[i]
+            llm_input_feats.extend(
+                [
+                    agent_name + "'s observation",
+                    agent_name + "'s state",
+                    agent_name + "'s previous action",
+                    agent_name + "'s previous failures",
+                ]
+            )
+        llm_input_feats.extend(
+            [
+                "Robots' open subtasks",
+                "Robots' completed subtasks",
+                # "Robots' subtasks",
+                "Robots' combined memory",
+            ]
+        )
+
+        if failure_module:
+            # post action / failure module inputs
+            # v0 - give failure reason (override environment-given), add logic for next action
+            llm_input_feats.extend(
+                    [
+                        "failure reason",
+                        # "logic for next action",
+                    ]
+            )
+        return dict((k, self.input_dict[k]) for k in llm_input_feats)
+
+    def get_failure_llm_input(self):
+        """
+        Returns the input to the subtask LLM
+        Same input as action module currently, but at time t+1.
+
+        ### INPUT FORMAT ###
+
+        {{Task: description of the task the robots are supposed to do,
+        {agent_name[i]}'s observation: list of objects the {agent_name[0]} is observing,
+        {agent_name[i]}'s state: description of {agent_name[0]}'s state,
+        {agent_name[i]}'s previous action: description of what {agent_name[0]} did in the previous time step and whether it was successful,
+        {agent_name[i]}'s previous failures: if {agent_name[0]}'s few previous actions failed, description of what failed,
+        Robots' open subtasks: list of subtasks  supposed to carry out to finish the task. If no plan has been already created, this will be None.
+        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+        Robots' subtask: description of the subtasks the robots were trying to complete in the previous step,
+        Robots' combined memory: description of robot's combined memory}}
+        """
+        # extract the agent_name's observations based on how many agents there are
+        llm_input_feats = ["Task"]
+        for i in range(self.num_agents):
+            agent_name = self.agent_names[i]
+            llm_input_feats.extend(
+                [
+                    agent_name + "'s observation",
+                    agent_name + "'s state",
+                    agent_name + "'s previous action",
+                    agent_name + "'s previous failures",
+                ]
+            )
+        llm_input_feats.extend(
+            [
+                "Robots' open subtasks",
+                "Robots' completed subtasks",
+                # "Robots' subtasks",
+                "Robots' combined memory",
+            ]
+        )
+
+        return dict((k, self.input_dict[k]) for k in llm_input_feats)
+
 
 if __name__ == "__main__":
     config_path = "config/config.json"
