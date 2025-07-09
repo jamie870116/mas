@@ -3,6 +3,7 @@ Baseline : Centralized LLM
 
 '''
 import json
+import re
 import os
 import sys
 import argparse
@@ -98,30 +99,59 @@ You will get a description of the task robots are supposed to do.
 You will get the current state of the enviroment, including the list of objects in the environment.
 You will get the subtasks that the robots are supposed to complete in order to achieve the final goal(Task), based on the objects in the environment and the ability of robots.
 
-You need to based on the above information, suggest the actions that each robot should take at the current time step.
+Based on the above information, you need to break down each subtask into smaller actions and assign these subtasks to the appropriate robot.
+
+* Make sure your output length is correct: the length of the Actions list must equal the number of robots. 
+For example, if there are two robots, the Actions list should contain exactly two elements, one for each robot agent.
 
 ### INPUT FORMAT ###
 {{Task: a high level description of the final goal the robots are supposed to do/complete,
 Subtasks: a list of subtasks that the robots are supposed to complete in order to achieve the final goal(Task),
 Objects: a list of objects in the enviroment}}
 
+* Note that the number of subtasks may be bigger than the number of robot agent.
+
+
 ### OUTPUT FORMAT ###
-You will output a list of actions for each robot in the following format:
+You will output a list of actions for each robot in the following format, in json format:
 {{
-Actions: [[actions for robot 1], [actions for robot 2], ..., [actions for robot N]],
+"Actions": [[actions for robot 1], [actions for robot 2], ..., [actions for robot N]],
 }}
-[[actions for robot 1], [actions for robot 2], ..., [actions for robot N]],
+
 where each actions is a list of strings in the format of "ActionName<arg1, arg2, ...>".
 For example, if robot 1 should pick up an object with id "Object_1" and put the object on the table with id "Table_1", the output should be:
 [[NavigateTo<Object_1>, PickupObject<Object_1>, NavigateTo<Table_1>, PutObject<Table_1>], [Idle], ...]
 <Object_1> and <Table_1> are the name plus the number of the object in the environment. If there are multiple objects with the same name but different id, you can use the number to distinguish them, e.g. "Object_1", "Object_2", etc. don't use the id only.
 
+* Example output:
+if given INPUT subtasks are:
+{{
+"Subtasks": [
+    ["pick up the vase and put it on the table"],
+    ["pick up the tissue box and put it on the table"],
+    ["pick up the remote control and put it on the table"]
+]
+}}
+
+* The OUTPUT could be:
+{{
+"Actions": [
+    ["PickupObject(Tomato_1)", "PutObject(CounterTop_1)"],
+    ["PickupObject(Lettuce_1)", "PutObject(CounterTop_1)", "PickupObject<Bread>", "PutObject<CounterTop>"]
+]
+}}
+which means:
+- Robot 1 should pick up the tomato with "Tomato_1" and put it on the counter top with "CounterTop_1"
+- Robot 2 should pick up the lettuce with "Lettuce_1" and put it on the counter top with "CounterTop_1", then pick up the bread with "Bread_1" and put it on the counter top with "CounterTop_1".
+
 
 ### Important Notes ###
-* The robots can hold only one object at a time.
-* Even if the robot can see objects, it might not be able to interact with them if they are too far away. Hence you will need to make the robot move closer to the objects they want to interact with.
-For example: An action like "pick up <object_id>" is feasible only if robot can see the object and is close enough to it. So you will have to move closer to it before you can pick it up.
-So if a particular action fails, you will have to choose a different action for the robot.
+* The `Actions` list must contain exactly {len(AGENT_NAMES)} sublists—one for each robot. Each sublist should include the full sequence of actions for that robot.
+* The number of subtasks may be greater than the number of robots. You may distribute the subtasks in any way you deem optimal.
+* A robot can handle multiple subtasks in a single plan, but each robot must only appear once in the `Actions` list.
+* Each robot’s action list should be a sequential plan—actions should be performed in order and not interleaved with other robots.
+* The robots can hold only one object at a time. Make sure that the actions you suggest do not require the robots to hold more than one object at a time.
+* If you need to put an object on a receptacle, you need to pick it up first, then navigate to the receptacle, and then put it on the receptacle.
 * If you open an object, please ensure that you close it before you move to a different place.
 * Opening object like drawers, cabinets, fridge can block the path of the robot. So open objects only when you think it is necessary.
 * When possible do not perform extraneous actions when one action is sufficient (e.g. only do CleanObject to clean an object, nothing else)
@@ -154,9 +184,17 @@ If the subtasks require the robots to complete them in a specific order, these s
 objects: a list of objects in the enviroment,}}
 
 ### OUTPUT FORMAT ###
-You will output a list of subtasks for each robot in the following format:
+You will output a list of subtasks for each robot in the following format, in json format:
 {{
-Subtasks: [[subtask 1], [subtask 2], ..., [subtask n]],
+"Subtasks": [[subtask 1], [subtask 2], ..., [subtask n]],
+}}
+example:
+{{
+"Subtasks": [
+    ["pick up the vase and put it on the table"],
+    ["pick up the tissue box and put it on the table"],
+    ["pick up the remote control and put it on the table"]
+]
 }}
 
 * NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
@@ -207,7 +245,7 @@ def set_env_with_config(config_file: str):
     return env, config
 
 
-def get_llm_response(payload: str, model: str = "gpt-4o-mini", temperature: float = 0.7, max_tokens=128) -> str:
+def get_llm_response(payload, model = "gpt-4o-mini", temperature= 0.7, max_tokens=1024) -> str:
     response = client.chat.completions.create(model=model, 
                                                 messages=payload, 
                                                 max_tokens=max_tokens, 
@@ -239,36 +277,60 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
     user_prompt += addendum
     return system_prompt, user_prompt
 
-def prepare_payload(system_prompt, user_prompt, config):
-    payload = {
-        "model": "gpt-4o-mini",
-        "messages": [
-            {
-                "role": "system",
-                "content": [
-                    {"type": "text", "text": system_prompt},
-                ],
-            },
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": user_prompt}],
-            },
-        ],
-        "max_tokens": 1000,
-        "temperature": config["temperature"],
-    }
+def prepare_payload(system_prompt, user_prompt):
+    payload = [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": user_prompt
+                }
+            ]
+    
     return payload
 
-def process_action_llm_output(res_content):
-    '''
-    output example:
-    high_level_tasks = [
-        ["PickupObject(Tomato_1)"],
-        ["OpenObject(CounterTop_1)", "CloseObject(Cabinet_1)", "Idle"]
-    ]
-    '''
-    pass
 
+def process_planner_llm_output(res_content):
+    try:
+        return json.loads(res_content)["Subtasks"]
+    except json.JSONDecodeError as e:
+        print(f"[Warning] Initial JSON decode failed: {e}")
+
+        try:
+            # 去除結尾多餘逗號
+            res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
+            # 單引號換雙引號（簡單處理）
+            res_content = res_content.replace("'", '"')
+            # 移除前後空白
+            res_content = res_content.strip()
+
+            data = json.loads(res_content)
+            return data["Subtasks"]
+        except Exception as e2:
+            print(f"[Error] Failed to parse fixed JSON: {e2}")
+            return None
+
+def process_actions_llm_output(res_content):
+    try:
+        return json.loads(res_content)["Actions"]
+    except json.JSONDecodeError as e:
+        print(f"[Warning] Initial JSON decode failed: {e}")
+
+        try:
+            # 去除結尾多餘逗號
+            res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
+            # 單引號換雙引號（簡單處理）
+            res_content = res_content.replace("'", '"')
+            # 移除前後空白
+            res_content = res_content.strip()
+
+            data = json.loads(res_content)
+            return data["Actions"]
+        except Exception as e2:
+            print(f"[Error] Failed to parse fixed JSON: {e2}")
+            return None
 
 def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
     """
@@ -306,20 +368,34 @@ def run_main():
     planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
     # print(f"Planner Prompt: {planner_prompt}")
     # print(f"Planner User Prompt: {planner_user_prompt}")
-    payload = prepare_payload(planner_prompt, planner_user_prompt, config)
-    # print(f"Payload for LLM: {payload}")
-    # res, res_content = get_llm_response(payload)
-    # action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=res_content["Subtasks"])
-    action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=[["pick up the vase and put it on the table"], ["pick up the tissue box and put it on the table"]])
+    planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
+    # print(f"Payload for LLM: {planner_payload}")
+    # res, res_content = get_llm_response(planner_payload)
+    
+    res_content = '''{
+        "Subtasks": [
+            ["'pick up the tomato and put it on the countertop'"],
+            ["pick up the lettuce and put it on the countertop"],
+            ["pick up the bread and put it on the countertop"]
+        ]
+    }
+    '''
+    # print(f"Before LLM Response: {res_content}, type of res_content: {type(res_content)}")
+    subtasks = process_planner_llm_output(res_content)
+    # print(f"LLM Response (orig): {res}")
+    # print(f"After LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
+    action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks)
     # print(f"Action Prompt: {action_prompt}")
     # print(f"Action User Prompt: {action_user_prompt}")
-    payload = prepare_payload(action_prompt, action_user_prompt, config)
-    # print(f"Payload for LLM: {payload}")
-    # res, res_content = get_llm_response(payload)
-
+    action_payload = prepare_payload(action_prompt, action_user_prompt)
+    print(f"Payload for LLM: {action_payload}")
+    # res, res_content = get_llm_response(action_payload)
+    # print(f"LLM orig Response: {res}")
+    # print(f"Before LLM Response: {res_content}")
+    # high_level_tasks = process_actions_llm_output(res_content)
+    # print(f"After LLM Response: {high_level_tasks}, type of res_content: {type(high_level_tasks)}")
     # testing
-    # high_level_tasks = process_action_llm_output(res_content)
-    
+    high_level_tasks = [['PickupObject(Tomato|-00.39|+01.14|-00.81)', 'PutObject(CounterTop|+00.69|+00.95|-02.48)'], ['PickupObject(Lettuce|-01.81|+00.97|-00.94)', 'PutObject(CounterTop|+00.69|+00.95|-02.48)', 'PickupObject(Bread|-00.52|+01.17|-00.03)', 'PutObject(CounterTop|+00.69|+00.95|-02.48)']]
     # run_test(
     #     env,
     #     high_level_tasks=high_level_tasks,
@@ -327,7 +403,7 @@ def run_main():
     #     test_id=1,
     #     task_name = config["task"] if "task" in config else "Test Task",
     # )
-    env.close()
+    # env.close()
     
 
 
