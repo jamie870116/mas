@@ -25,5 +25,11 @@ Other dependecies are shown in `requirements.txt`
 
 - test env:
 ```python
-python {path}/test_env_b.py
+python env/test_env_b.py
+```
+
+### LLM
+- One-time planning with Centralized LLM: 
+```python
+python env/llm.py
 ```

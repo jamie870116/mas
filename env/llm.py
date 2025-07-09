@@ -15,6 +15,8 @@ import time
 from openai import OpenAI
 from env_b import AI2ThorEnv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.helpers import save_to_video
+
 client = OpenAI(api_key=Path('api_key.txt').read_text())
 
 def get_args():
@@ -35,9 +37,9 @@ BASE_PROMPT = f"""
 You are an excellent task planner whose task is to help {NUM_AGENTS} robots to complete the final task of "{config["task"]}" in {config["scene"]}. 
 
 # Task
-Based on the above code plan and environment states, generate an improved and executable Python script. 
 Let's work this out in a step by step way to be sure we have the right answer.
 """
+
 ai2thor_actions = {
     "move": [
         "MoveAhead",
@@ -84,7 +86,7 @@ ACTIONS = f'''
 '''
 
 ACTION_PROMPT = f"""
-You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. All {len(AGENT_NAMES)} robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
+You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
 They can perform the following actions: {ACTIONS}
 
 Here `<angle>` must be one of `[30, 60, 90, 120, 150, 180]`.  
@@ -92,17 +94,28 @@ Here `<angle>` must be one of `[30, 60, 90, 120, 150, 180]`.
 “Idle” is used to let a robot wait in place for one step, if necessary.
 
 
-You need to suggest the action that each robot should take at the current time step.
+You will get a description of the task robots are supposed to do. 
+You will get the current state of the enviroment, including the list of objects in the environment.
+You will get the subtasks that the robots are supposed to complete in order to achieve the final goal(Task), based on the objects in the environment and the ability of robots.
 
-You will get a description of the task robots are supposed to do. You will get an image of the environment from {", ".join([f"{name}'s perspective" for name in AGENT_NAMES[:-1]]) + f", and {AGENT_NAMES[-1]}'s perspective"} as the observation input.
-To help you with detecting objects in the image, you will also get a list objects each agent is able to see in the environment. Here the objects are named as "<object_name>_<object_id>".
-So, along with the image inputs you will get the following information:
+You need to based on the above information, suggest the actions that each robot should take at the current time step.
+
 ### INPUT FORMAT ###
-{{Task: description of the task the robots are supposed to do,
-Robots' open subtasks: list of subtasks  supposed to carry out to finish the task. If no plan has been already created, this will be None.
-Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
-Robots' subtask: description of the subtasks the robots were trying to complete in the previous step,
-Robots' combined memory: description of robot's combined memory}}
+{{Task: a high level description of the final goal the robots are supposed to do/complete,
+Subtasks: a list of subtasks that the robots are supposed to complete in order to achieve the final goal(Task),
+Objects: a list of objects in the enviroment}}
+
+### OUTPUT FORMAT ###
+You will output a list of actions for each robot in the following format:
+{{
+Actions: [[actions for robot 1], [actions for robot 2], ..., [actions for robot N]],
+}}
+[[actions for robot 1], [actions for robot 2], ..., [actions for robot N]],
+where each actions is a list of strings in the format of "ActionName<arg1, arg2, ...>".
+For example, if robot 1 should pick up an object with id "Object_1" and put the object on the table with id "Table_1", the output should be:
+[[NavigateTo<Object_1>, PickupObject<Object_1>, NavigateTo<Table_1>, PutObject<Table_1>], [Idle], ...]
+<Object_1> and <Table_1> are the name plus the number of the object in the environment. If there are multiple objects with the same name but different id, you can use the number to distinguish them, e.g. "Object_1", "Object_2", etc. don't use the id only.
+
 
 ### Important Notes ###
 * The robots can hold only one object at a time.
@@ -113,51 +126,43 @@ So if a particular action fails, you will have to choose a different action for 
 * Opening object like drawers, cabinets, fridge can block the path of the robot. So open objects only when you think it is necessary.
 * When possible do not perform extraneous actions when one action is sufficient (e.g. only do CleanObject to clean an object, nothing else)
 * Since there are {len(AGENT_NAMES)} agents moving around in one room, make sure to plan subtasks and actions so that they don't block or bump into each other as much as possible. This is especially important because there are so many agents in one room.
+* Be aware that the robots will be performing actions in parallel, so make sure that the actions you suggest do not conflict with each other.
 
 * NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
 Let's work this out in a step by step way to be sure we have the right answer.
 """
 
 PLANNER_PROMPT = f"""
+You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
+They can perform the following actions: {ACTIONS}
+You will get a description of the task robots are supposed to do.
+You will get the current state of the enviroment, including the list of objects in the environment.
+
+You need to suggest the decompose the task into several subtasks for that robots to complete in order to achieve the final goal(Task), based on the objects in the environment and the ability of robots. 
+
+For example, if the task is "Put the vase, tissue box, and remote control on the table", the subtasks could be:
+1. pick up the vase and put it on the table
+2. pick up the tissue box and put it on the table
+3. pick up the remote control and put it on the table 
+
+### Important Notes ###
+Note that the subtasks should be independent to each other, i.e. the robots can complete them in any order; 
+If the subtasks require the robots to complete them in a specific order, these subtask should be combined into one subtask.
+
+### INPUT FORMAT ###
+{{Task: a high level description of the final goal the robots are supposed to complete,
+objects: a list of objects in the enviroment,}}
+
+### OUTPUT FORMAT ###
+You will output a list of subtasks for each robot in the following format:
+{{
+Subtasks: [[subtask 1], [subtask 2], ..., [subtask n]],
+}}
+
+* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
+Let's work this out in a step by step way to be sure we have the right answer.
 """
 
-
-VERIFIER_PROMPT = f"""
-you are a task planning expert. Your task is to verify if the task is completed or not. You will be given '''task''' which is the final goal, '''environment state''' which is the current state of environment, and '''ground truth''' which is the ground truth you should check in environment.
-    
-        ## Input
-        ###task:
-        {{Task: description of the task the robots are supposed to do,
-        Robots' open subtasks: list of open subtasks the robots in the previous step. If no plan has been already created, this will be None.
-        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
-        Robots' combined memory: description of robots' combined memory}}
-    
-        ## Output Format        
-        Reason over the robots' task, image inputs, observations, previous actions, open subtasks, completed subtasks and memory, and then output the following:
-        * Reason: The reason for why you think a particular subtask should be moved from the open subtasks list to the completed subtasks list.
-        * Completed Subtasks: The list of subtasks that have been completed by the robots. Note that you can add subtasks to this list only if they have been successfully completed and were in the open subtask list. If no subtasks have been completed at the current step, return an empty list.
-        The "Completed Subtasks" should be in a list format where the completed subtasks are listed. For example: ["locate the apple", "transport the apple to the fridge", "transport the book to the table"]
-        Your output should be in the form of a python dictionary as shown below.
-        Example output with two agents (do it for {len(AGENT_NAMES)} agents): {{"reason": "{AGENT_NAMES[0]} placed the apple in the fridge in the previous step and was successful and {AGENT_NAMES[1]} picked up the the book from the table. Hence {AGENT_NAMES[0]} has completed the subtask of transporting the apple to the fridge, {AGENT_NAMES[1]} has picked up the book, but {AGENT_NAMES[1]} has still not completed the subtask of transporting the book to the table", "completed subtasks": ["picked up book from the table", "transport the apple to the fridge"]}}
-
-        You should reason over the above information,
-        and tell me if the task is complete or not, if not, tell me what is completed and what was not. 
-        
-        * Note: gound truth only show the type of objects, while environment state using object id. This meaning not specific object need to be activated.
-        There might be multiple same type of objects in the environment, be tolerant. If at least one object of the same type satisfy the ground truth condition, then the subtask is completed.
-        Noticed that '''ground truth''' and '''environment state''' might have different naming. For example, state of object in ground truth is Toggled, means that the isToggled field of the object in environment state is true.
-        Please be tolerent and some of Criteria is given to you in above.
-        If you are not sure whether object A contains object B, first check the contains list. If absent, verify if B's position is inside A’s bounding box (size + position tolerance).
-
-        * Since there are {len(AGENT_NAMES)} agents moving around in one room, make sure to plan subtasks and actions so that they don't block or bump into each other as much as possible. This is especially important because there are so many agents in one room.
-        * Don't output anything else other than what has been specified.
-
-        When you output the completed subtasks, make sure to not forget to include the previous ones in addition to the new ones.
-        Let's work this out in a step by step way to be sure we have the right answer.
-        
-        your output should be in the following format in dictionary:
-        
-"""
 
 
 def convert_dict_to_string(input_dict) -> str:
@@ -210,26 +215,31 @@ def get_llm_response(payload: str, model: str = "gpt-4o-mini", temperature: floa
 
     return response, response.choices[0].message.content.strip()
 
-def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "") -> str:
+def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subtasks=[]) -> str:
     """
-    module_name: str
-    choose from planner, verifier, action
+    mode: str, choose from planner, action
+    planner: for decomposing the task into subtasks
+    action: for generating the actions for each robot to perform
+    addendum: additional information to be added to the user prompt
     """
-    # Choose the appropriate prompt based on what module is being called
-    # user_prompt = convert_dict_to_string(env.input_dict)
-    if mode == "action":
+
+    if mode == "planner":
+        system_prompt = PLANNER_PROMPT
+        input = env.get_center_planner_llm_input()
+        user_prompt = convert_dict_to_string(input)
+    elif mode == "action":
         system_prompt = ACTION_PROMPT
-        user_prompt = convert_dict_to_string(env.get_action_llm_input())
-    elif mode == "planner":
-        system_prompt = "PLANNER_PROMPT"
-        user_prompt = convert_dict_to_string(env.get_planner_llm_input())
-    elif mode == "verifier":
-        system_prompt = VERIFIER_PROMPT
-        user_prompt = convert_dict_to_string(env.get_verifier_llm_input())
+        if not subtasks:
+            print("No subtasks provided")
+            return None, None
+        input = env.get_center_planner_llm_input()
+        input["Subtasks"] = subtasks
+        user_prompt = convert_dict_to_string(input)
+    
     user_prompt += addendum
     return system_prompt, user_prompt
 
-def prepare_payload(system_prompt, user_prompt):
+def prepare_payload(system_prompt, user_prompt, config):
     payload = {
         "model": "gpt-4o-mini",
         "messages": [
@@ -245,31 +255,82 @@ def prepare_payload(system_prompt, user_prompt):
             },
         ],
         "max_tokens": 1000,
-        "temperature": config.temperature,
+        "temperature": config["temperature"],
     }
     return payload
 
-def process_action_llm_output():
+def process_action_llm_output(res_content):
+    '''
+    output example:
+    high_level_tasks = [
+        ["PickupObject(Tomato_1)"],
+        ["OpenObject(CounterTop_1)", "CloseObject(Cabinet_1)", "Idle"]
+    ]
+    '''
     pass
 
 
+def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
+    """
+    Run a test case with multiple steps and print results.
+      - high_level_tasks: List[List[str]]，每個 agent 的 high-level 
+      - test_name: 
+      - test_id:  測試識別字串，會傳給 reset()
+    """
+    print(f"\n=== {test_name} (Test ID: {test_id}) ===")
+    obs = env.reset(test_case_id=test_id)
+    # print("Initial Observations:\n", obs)
+
+    print("high_level_tasks: ", high_level_tasks)
+    history = env.action_loop(high_level_tasks)
+    for step_idx, (obs, succ) in enumerate(history, start=1):
+        print(f"\n--- Step {step_idx} ---")
+        # print("Observations:", obs)
+        # print("Success flags:", succ)
+
+    for agent_id, name in enumerate(env.agent_names):
+        print(f"{name} POV path:", env.get_frame(agent_id, "pov"))
+    if env.overhead:
+        print("Shared overhead path:", env.get_frame(view="overhead"))
+
+    if task_name:
+        print('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
+        save_to_video('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
 
 def run_main():
     
     env, config = set_env_with_config(args.config_file)
     env.reset(test_case_id="1")
-    print(f"Environment set with config: {config}")
-    print(f"Number of agents: {env.num_agents}")
-    action_prompt, action_user_prompt = prepare_prompt(env, mode="action")
-    print(f"Action Prompt: {action_prompt}")
-    print(f"Action User Prompt: {action_user_prompt}")
-    verifier_prompt, verifier_user_prompt = prepare_prompt(env, mode="verifier")
-    print(f"Verifier Prompt: {verifier_prompt}")
-    print(f"Verifier User Prompt: {verifier_user_prompt}")
-    # payload = prepare_payload(action_prompt, action_user_prompt)
+    # print(f"Environment set with config: {config}")
+    # print(f"Number of agents: {env.num_agents}")
+    planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
+    # print(f"Planner Prompt: {planner_prompt}")
+    # print(f"Planner User Prompt: {planner_user_prompt}")
+    payload = prepare_payload(planner_prompt, planner_user_prompt, config)
+    # print(f"Payload for LLM: {payload}")
     # res, res_content = get_llm_response(payload)
+    # action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=res_content["Subtasks"])
+    action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=[["pick up the vase and put it on the table"], ["pick up the tissue box and put it on the table"]])
+    # print(f"Action Prompt: {action_prompt}")
+    # print(f"Action User Prompt: {action_user_prompt}")
+    payload = prepare_payload(action_prompt, action_user_prompt, config)
+    # print(f"Payload for LLM: {payload}")
+    # res, res_content = get_llm_response(payload)
+
+    # testing
+    # high_level_tasks = process_action_llm_output(res_content)
+    
+    # run_test(
+    #     env,
+    #     high_level_tasks=high_level_tasks,
+    #     test_name="Test 1",
+    #     test_id=1,
+    #     task_name = config["task"] if "task" in config else "Test Task",
+    # )
     env.close()
     
+
+
 
 if __name__ == "__main__":
     run_main()

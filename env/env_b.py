@@ -1157,7 +1157,31 @@ class AI2ThorEnv(BaseEnv):
         )
 
         return dict((k, self.input_dict[k]) for k in llm_input_feats)
+    
+    def get_center_planner_llm_input(self):
+        obj_list = self.get_all_objects_in_env()
+        return {
+            "Task": self.task,
+            "Objects": obj_list,
+        }
 
+
+    def convert_to_dict_objprop(self, objs, obj_mass, obj_id):
+        objs_dict = []
+        for i, obj in enumerate(objs):
+            obj_dict = {'obj_id': obj_id[i] , 'name': obj, 'mass' : obj_mass[i]}
+            # obj_dict = {'name': obj , 'mass' : 1.0}
+            objs_dict.append(obj_dict)
+        return objs_dict
+
+    def get_all_objects_in_env(self):
+        # get the list of all objects in the current scene
+        obj_id = list([obj["objectId"] for obj in self.controller.last_event.metadata["objects"]])
+        obj = list([obj["objectType"] for obj in self.controller.last_event.metadata["objects"]])
+        obj_mass = list([obj["mass"] for obj in self.controller.last_event.metadata["objects"]])
+        obj = self.convert_to_dict_objprop(obj, obj_mass, obj_id)
+        return obj
+    
 
 if __name__ == "__main__":
     config_path = "config/config.json"
