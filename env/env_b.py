@@ -73,6 +73,11 @@ class BaseEnv:
         """Return the agent's position as a dictionary."""
         return self.event.events[agent_id].metadata["agent"]["position"]
     
+    def get_cur_reachable_positions(self) -> List[Tuple[float, float]]:
+        reachable_positions_ = self.controller.step(action="GetReachablePositions").metadata["actionReturn"]
+        reachable_positions = [(p["x"], p["y"], p["z"]) for p in reachable_positions_]
+        return reachable_positions
+    
     def get_agent_rotation(self, agent_id: int) -> str:
         """Return a string describing the agent's rotation."""
         rot = self.event.events[agent_id].metadata["agent"]["rotation"]["y"]
@@ -118,16 +123,24 @@ class BaseEnv:
             if obj_id not in self.object_dict[obj_name]:
                 self.object_dict[obj_name][obj_id] = len(self.object_dict[obj_name]) + 1
             readable_list.append(f"{obj_name}_{self.object_dict[obj_name][obj_id]}")
+        readable_list.sort()
         return readable_list
     
     def convert_readable_object_to_id(self, object_name: str) -> str:
         """Convert readable object name to ID."""
-        obj_name, obj_num = object_name.split("_")
-        obj_num = int(obj_num)
-        for obj_id, num in self.object_dict.get(obj_name, {}).items():
-            if num == obj_num:
-                return f"{obj_name}{obj_id}"
-        raise ValueError(f"Object {object_name} not found in object_dict")
+        if "|" in object_name:
+            # If the object name contains coordinates, we assume it's already in the correct format
+            obj_name, obj_id = self.parse_object(object_name)
+            if obj_id not in self.object_dict[obj_name]:
+                ValueError(f"Object {object_name} not found in object_dict")
+            return object_name
+        else:
+            obj_name, obj_num = object_name.split("_")
+            obj_num = int(obj_num)
+            for obj_id, num in self.object_dict.get(obj_name, {}).items():
+                if num == obj_num:
+                    return f"{obj_name}{obj_id}"
+            raise ValueError(f"Object {object_name} not found in object_dict")
     
     def parse_action(self, action: str, agent_id: int) -> Dict:
         """Parse action string into AI2THOR-compatible dictionary."""
@@ -446,11 +459,11 @@ class AI2ThorEnv(BaseEnv):
         ]
         if other_agents:
             _, plan = get_shortest_path_to_object(
-                self.controller, obj_id, cur_pos_tuple, cur_rot, other_agent_position=other_agents, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=False, agent_id=agent_id
+                self.controller, obj_id, cur_pos_tuple, cur_rot, other_agent_position=other_agents, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=True, agent_id=agent_id
             )
         else:
             _, plan = get_shortest_path_to_object(
-                self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=False, agent_id=agent_id
+                self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=True, agent_id=agent_id
             )
 
         if not plan:
@@ -470,7 +483,7 @@ class AI2ThorEnv(BaseEnv):
         # self.step_decomp(actions)
         # print("curr action queue: ", self.action_queue)
         act_texts, act_successes = [], []
-        print("Executing actions:", actions)
+        # print("Executing actions:", actions)
         for aid in range(self.num_agents):
             
 
@@ -478,7 +491,8 @@ class AI2ThorEnv(BaseEnv):
                 actions = ["Idle"] * self.num_agents
                 actions[aid] = self.current_hl[aid]
                 self.step_decomp(actions, agent_id=aid)
-
+            print(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
+            print(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
             # print("******")
             # print(f"before exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
             act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
@@ -594,7 +608,7 @@ class AI2ThorEnv(BaseEnv):
 
     def is_subtask_done(self, subtask: str, agent_id: int) -> bool:
         """
-        check if asubtask is completed based on env.state
+        check if a subtask is completed based on env.state
         - PickupObject(obj)
         - PutObject(obj)
         - OpenObject(obj)
@@ -605,8 +619,15 @@ class AI2ThorEnv(BaseEnv):
         - SliceObject(obj)
         - FillObjectWithLiquid(obj)
         - EmptyLiquidFromObject(obj)
+
+        True for :
+        self.move_actions = ["MoveAhead", "MoveBack", "MoveRight", "MoveLeft"]
+        self.rotate_actions = ["RotateRight", "RotateLeft"]
+        self.look_actions = ["LookUp", "LookDown"]
+        self.idle_actions = ["Done", "Idle"]
         """
-        if subtask == 'Idle': return True
+        if subtask in self.idle_actions or subtask in self.move_actions or subtask in self.rotate_actions or subtask in self.look_actions: 
+            return True
 
         # subtask  "PickupObject(Tomato_1)"
         name, obj = subtask[:-1].split("(", 1)
@@ -946,6 +967,41 @@ class AI2ThorEnv(BaseEnv):
         object_ids = [obj["objectId"] for obj in self.event.metadata["objects"]]
         return self.get_readable_object_list(object_ids)
     
+    def get_single_readable_object(self, object_id: str) -> str:
+        """
+        將單一 objectId 轉為可讀名稱 (如 Tomato_1) ，
+        同時更新 self.object_dict 內部索引。
+        """
+        obj_name, obj_coord = self.parse_object(object_id)
+
+        # 建立巢狀 dict：{ "Tomato": { "|-00.39|...": 1, ... } }
+        if obj_name not in self.object_dict:
+            self.object_dict[obj_name] = {}
+
+        if obj_coord not in self.object_dict[obj_name]:
+
+            next_idx = len(self.object_dict[obj_name]) + 1
+            self.object_dict[obj_name][obj_coord] = next_idx
+
+        idx = self.object_dict[obj_name][obj_coord]
+        return f"{obj_name}_{idx}"
+
+
+    def get_all_objects_with_ids(self) -> Dict[str, str]:
+        """
+        取得目前場景的所有物件，並回傳
+        { 可讀名稱: 原始 objectId, ... } 的字典。
+        """
+        mapping: Dict[str, str] = {}
+
+        # 逐一處理 event.metadata["objects"] 內的 objectId
+        for obj in self.event.metadata["objects"]:
+            obj_id = obj["objectId"]
+            readable = self.get_single_readable_object(obj_id)
+            mapping[readable] = obj_id
+
+        return dict(sorted(mapping.items()))
+
     def get_object_status(self, object_name: str) -> Dict[str, Any]:
         """Return the status of a specific object given its readable name."""
         obj_id = self.convert_readable_object_to_id(object_name)
@@ -1158,18 +1214,21 @@ class AI2ThorEnv(BaseEnv):
 
         return dict((k, self.input_dict[k]) for k in llm_input_feats)
     
-    def get_center_planner_llm_input(self):
-        obj_list = self.get_all_objects_in_env()
+    def get_center_llm_input(self):
+        obj_list = self.get_all_objects()
+        reachable_positions = self.get_cur_reachable_positions()
         return {
             "Task": self.task,
+            "Number of agents": self.num_agents,
             "Objects": obj_list,
+            # "reachable_positions": reachable_positions,
         }
 
 
     def convert_to_dict_objprop(self, objs, obj_mass, obj_id):
         objs_dict = []
         for i, obj in enumerate(objs):
-            obj_dict = {'obj_id': obj_id[i] , 'name': obj, 'mass' : obj_mass[i]}
+            obj_dict = {'name': obj, 'objectId': obj_id[i], 'mass': obj_mass[i]}
             # obj_dict = {'name': obj , 'mass' : 1.0}
             objs_dict.append(obj_dict)
         return objs_dict
@@ -1188,7 +1247,7 @@ if __name__ == "__main__":
     env = AI2ThorEnv(config_path)
     obs = env.reset()
     print("Initial Observations:\n", obs)
-    # print("All objects in scene:", env.get_all_objects())
+    print("All objects in scene:", env.get_all_objects())
     
     # success, message = env.simulate_environment_event("break", "Mug_1")
     # print(f"Break Event: {message}")
@@ -1198,9 +1257,9 @@ if __name__ == "__main__":
     # success, message = env.simulate_environment_event("move", "Bowl_1", target_pos)
     # print(f"Move Event: {message}")
     
-    actions = ["MoveAhead", "MoveAhead"]
-    obs, successes = env.step(actions)
-    print("Step Observations:\n", obs)
-    print("Action Successes:", successes)
+    # actions = ["MoveAhead", "MoveAhead"]
+    # obs, successes = env.step(actions)
+    # print("Step Observations:\n", obs)
+    # print("Action Successes:", successes)
     
     env.close()    

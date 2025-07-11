@@ -5,8 +5,7 @@ Aiming to implement a decentralized, LLM-driven multi-robot task planning and co
 
 ## TODO
 - [x] Built env with ai2thor    
-- [-] Setting up LLM workflow
-- [ ] Set up Baselines: Centraulized (One time planning, Replanning loop)
+- [ ] Set up  LLM workflow and Baselines: Centraulized (One time planning, Replanning loop)
 - [ ] Test cases
 - [ ] Decentualized planning
 - [ ] Experiment
@@ -29,7 +28,18 @@ python env/test_env_b.py
 ```
 
 ### LLM
-- One-time planning with Centralized LLM: 
+- One-time planning with Centralized LLM
+- When testing, change the content in config file
+```python 
+{   
+    # change these three value
+    "num_agents": 2,
+    "scene": "FloorPlan1", 
+    "task": "bring a tomato, lettuce, and bread to the countertop to make a sandwich",
+...
+}
+```
+and run:
 ```python
 python env/llm.py
 ```
