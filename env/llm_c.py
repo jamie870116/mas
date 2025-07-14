@@ -525,6 +525,9 @@ Return only the corrected list of subtasks in the following format,in json forma
 Let's work this out in a step by step way to be sure we have the right answer.
 """
 
+ALLOCATOR_PROMPT = f"""
+You are an expert task allocator.
+"""
 
 def convert_dict_to_string(input_dict) -> str:
     """
@@ -576,35 +579,6 @@ def get_llm_response(payload, model = "gpt-4o-mini", temperature= 0.7, max_token
 
     return response, response.choices[0].message.content.strip()
 
-def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subtasks=[]) -> str:
-    """
-    mode: str, choose from planner, action
-    planner: for decomposing the task into subtasks
-    action: for generating the actions for each robot to perform
-    addendum: additional information to be added to the user prompt
-    """
-
-    if mode == "planner":
-        system_prompt = PLANNER_PROMPT
-        input = env.get_center_llm_input()
-        user_prompt = convert_dict_to_string(input)
-    elif mode == "action":
-        system_prompt = ACTION_PROMPT
-        if not subtasks:
-            print("No subtasks provided")
-            return None, None
-        input = env.get_center_llm_input()
-        input["Subtasks"] = subtasks
-        user_prompt = convert_dict_to_string(input)
-    elif mode == "editor":
-        system_prompt = EDITOR_PROMPT
-        input = env.get_center_llm_input()
-        input["Subtasks"] = subtasks
-        user_prompt = convert_dict_to_string(input)
-    
-    user_prompt += addendum
-    return system_prompt, user_prompt
-
 def prepare_payload(system_prompt, user_prompt):
     payload = [
                 {
@@ -618,6 +592,39 @@ def prepare_payload(system_prompt, user_prompt):
             ]
     
     return payload
+
+def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subtasks=[]) -> str:
+    """
+    mode: str, choose from planner, action
+    planner: for decomposing the task into subtasks
+    action: for generating the actions for each robot to perform
+    addendum: additional information to be added to the user prompt
+    """
+
+    if mode == "planner":
+        system_prompt = PLANNER_PROMPT
+        input = env.get_center_llm_input()
+        user_prompt = convert_dict_to_string(input)
+    elif mode == "editor":
+        system_prompt = EDITOR_PROMPT
+        input = env.get_center_llm_input()
+        input["Subtasks"] = subtasks
+        user_prompt = convert_dict_to_string(input)
+    elif mode == "action":
+        system_prompt = ACTION_PROMPT
+        if not subtasks:
+            print("No subtasks provided")
+            return None, None
+        input = env.get_center_llm_input()
+        input["Subtasks"] = subtasks
+        user_prompt = convert_dict_to_string(input)
+    elif mode == "allocator":
+        system_prompt = ALLOCATOR_PROMPT
+        input = env.get_center_allocator_llm_input()
+    user_prompt += addendum
+    return system_prompt, user_prompt
+
+
 
 
 def process_planner_llm_output(res_content):
@@ -687,16 +694,37 @@ def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
         print('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
         save_to_video('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
 
-def initial_subtask_planning(env, config):
+def initial_subtask_planning(env):
     """初始階段：由 LLM 進行任務分解與編輯"""
-    # 1. Planner LLM 產生初步 subtasks
-    # 2. Editor LLM 修正 subtasks
-    # return open_subtasks (list), completed_subtasks (empty list)
-    pass
+    # ---1. Planner LLM 產生初步 subtasks
+    
+    # planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
+    # planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
+    # res, res_content = get_llm_response(planner_payload)
+    
+    # subtasks = process_planner_llm_output(res_content)
+    # print(f"After Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
-def allocate_subtasks_to_agents(open_subtasks, agents, env):
-    """分配 open_subtasks 給各 agent（可 LLM 或 rule-based 實現）"""
-    # return agent_assignments: dict {agent_name: subtask}
+    # # ---2. Editor LLM 修正 subtasks
+    # editor_prompt, editor_user_prompt = prepare_prompt(env, mode="editor", subtasks=subtasks)
+    # editor_payload = prepare_payload(editor_prompt, editor_user_prompt)
+    # res, res_content = get_llm_response(editor_payload)
+
+    # subtasks = process_planner_llm_output(res_content)
+    # print(f"After Editor LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
+
+    # for testing
+    # subtasks = [['open the Fridge_1'], ['pick up the tomato_1 and put it inside the Fridge_1'], ['pick up the lettuce_1 and put it inside the Fridge_1'], ['pick up the bread_1 and put it inside the Fridge_1'], ['close the Fridge_1']]
+    subtasks = [["'pick up the tomato and put it on the countertop'"], ['pick up the lettuce and put it on the countertop'], ['pick up the bread and put it on the countertop']]
+    return subtasks, []
+
+def allocate_subtasks_to_agents(env):
+    """分配 open_subtasks 給各 agent"""
+    
+    allocator_prompt, allocator_user_prompt = prepare_prompt(env, mode="allocator")
+    allocator_payload = prepare_payload(allocator_prompt, allocator_user_prompt)
+    # res, res_content = get_llm_response(allocator_payload)
+    # return agent_assignments: dict {agent_name: subtask}  
     pass
 
 def decompose_subtask_to_actions(subtask, env):
@@ -704,35 +732,69 @@ def decompose_subtask_to_actions(subtask, env):
     # return actions: list
     pass
 
-def execute_agent_actions(env, actions_per_agent):
+def execute_agent_actions(env):
     """執行所有 agent 當前 atomic actions"""
-    # 可批次，也可每 agent 執行一個 action
-    # return updated observations
+    obs, succ = env.exe_step([])
     pass
 
-def verify_subtask_completion(open_subtasks, env):
-    """驗證哪些 subtask 已完成（rule-based + LLM）"""
-    # return completed_now: list of just finished subtasks
-    pass
+# def verify_subtask_completion(open_subtasks, env):
+#     """驗證哪些 subtask 已完成（rule-based + LLM）"""
+#     # return completed_now: list of just finished subtasks
+#     pass
 
 def replan_open_subtasks(task, completed_subtasks, env):
     """根據已完成的 subtask 重新規劃（Planner+Editor LLM）"""
     # return open_subtasks: list
     pass
 
+def update_plan(env, open_subtasks, completed_subtasks):
+    env.open_subtasks = open_subtasks
+    env.closed_subtasks = completed_subtasks
+    env.input_dict["Robots' open subtasks"] = env.open_subtasks
+    env.input_dict["Robots' completed subtasks"] = env.closed_subtasks
+     
+
+def set_env_with_config(config_file: str):
+    ''''
+    config example:{
+            "num_agents": 2,
+            "scene": "FloorPlan1",
+            "task": "bring a tomato, lettuce, and bread to the countertop to make a sandwich",
+            "timeout": 120,
+            "model": "gpt-4o-mini",
+            "use_obs_summariser": false,
+            "use_act_summariser": false,
+            "use_action_failure": true,
+            "use_shared_subtask": true,
+            "use_separate_subtask": false,
+            "use_shared_memory": true,
+            "use_separate_memory": false,
+            "use_plan": true,
+            "force_action": false,
+            "temperature": 0.7,
+            "overhead": true
+        }
+    '''
+    env = AI2ThorEnv(config_file)
+    with open(config_file, "r") as f:
+        config = json.load(f)
+    return env, config
+
 def run_main():
-    # --- 初始化環境 ---
-    env, config = ...  # 由 config 檔案/參數初始化
+    # --- Init.
+    env, config = set_env_with_config('config/config.json')
     agents = env.agent_names
     task = config["task"]
     timeout = config["timeout"]
 
-    # --- 初始規劃 ---
+    # --- initial subtask planning
     open_subtasks, completed_subtasks = initial_subtask_planning(env, config)
 
-    # --- 主循環 ---
+    # --- loop start
     start_time = time.time()
     while open_subtasks and (time.time() - start_time < timeout):
+
+        update_plan(env, open_subtasks, completed_subtasks)
         # 1. 任務分配
         agent_assignments = allocate_subtasks_to_agents(open_subtasks, agents, env)
         
@@ -754,9 +816,7 @@ def run_main():
             open_subtasks = replan_open_subtasks(task, completed_subtasks, env)
         # else: 所有任務完成
 
-    # --- 結束收尾 ---
     env.close()
-    print("All tasks finished or timeout.")
 
 if __name__ == "__main__":
     run_main()

@@ -260,6 +260,7 @@ class AI2ThorEnv(BaseEnv):
         self.memory = ["Nothing"] if self.use_shared_memory else ["Nothing"] * self.num_agents
         self.open_subtasks = "None" if self.use_plan else None
         self.closed_subtasks = "None" if self.use_plan else None
+        # self.input_dict = {}
         self.step_num = [0] * self.num_agents
         
 
@@ -399,13 +400,16 @@ class AI2ThorEnv(BaseEnv):
             # 分解特定agent的动作
             action = actions[agent_id]
             if action.startswith("NavigateTo"):
-                nav_steps = self.get_navigation_step(action, agent_id)
-                self.action_queue[agent_id].extend(nav_steps)
-
-            elif action.startswith(tuple(self.object_interaction_actions)):
                 obj = action.split("(")[1].rstrip(")")
                 nav = f"NavigateTo({obj})"
                 self.action_queue[agent_id].extend(self.get_navigation_step(nav, agent_id))
+                # nav_steps = self.get_navigation_step(action, agent_id)
+                # self.action_queue[agent_id].extend(nav_steps)
+
+            elif action.startswith(tuple(self.object_interaction_actions)):
+                # obj = action.split("(")[1].rstrip(")")
+                # nav = f"NavigateTo({obj})"
+                # self.action_queue[agent_id].extend(self.get_navigation_step(nav, agent_id))
                 self.action_queue[agent_id].append(action)
 
             elif action in self.object_interaction_without_navigation:
@@ -459,11 +463,11 @@ class AI2ThorEnv(BaseEnv):
         ]
         if other_agents:
             _, plan = get_shortest_path_to_object(
-                self.controller, obj_id, cur_pos_tuple, cur_rot, other_agent_position=other_agents, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=True, agent_id=agent_id
+                self.controller, obj_id, cur_pos_tuple, cur_rot, other_agent_position=other_agents, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=False, agent_id=agent_id
             )
         else:
             _, plan = get_shortest_path_to_object(
-                self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=True, agent_id=agent_id
+                self.controller, obj_id, cur_pos_tuple, cur_rot, return_plan=True, cur_step=self.step_num[agent_id], isVisualize=False, agent_id=agent_id
             )
 
         if not plan:
@@ -546,7 +550,10 @@ class AI2ThorEnv(BaseEnv):
 
         return self.get_observations(), act_successes
     
-
+    def set_action_queue(self, action_queue: Dict[int, List[str]]):
+        """Set the action queue for each agent."""
+        pass
+        
     
     def action_loop(self, high_level_tasks: List[str]):
         """execute the actions from high level
@@ -602,7 +609,6 @@ class AI2ThorEnv(BaseEnv):
             # print(f"current action queue: {self.action_queue}")
             # print(f"----------After {self.step_num[0]}------------")
 
-            # TBD: LLM
 
         return history
 
@@ -664,7 +670,19 @@ class AI2ThorEnv(BaseEnv):
             return self.get_object_status(obj).get("isFilledWithLiquid", False)
         elif name == "EmptyLiquidFromObject":
             return not self.get_object_status(obj).get("isFilledWithLiquid", True)
-
+        elif name == "NavigateTo":
+            # NavigateTo is not a subtask, but we can check if the agent is at the object and if the object is in view
+            
+            obj_id = self.convert_readable_object_to_id(obj)
+            agent_pos = self.get_agent_position_dict(agent_id)
+            obj_metadata = next((o for o in self.event.metadata["objects"] if o["objectId"] == obj_id), None)
+            if not obj_metadata:
+                return False
+            obj_pos = obj_metadata["position"]
+            dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
+            # print(f"Checking distance for NavigateTo: {dist:.2f}m and self.get_object_in_view(agent_id)  : {self.get_object_in_view(agent_id)}")
+            return dist < 1 and obj_id in self.get_object_in_view(agent_id)  
+        
         return True
 
         
@@ -1213,7 +1231,20 @@ class AI2ThorEnv(BaseEnv):
         )
 
         return dict((k, self.input_dict[k]) for k in llm_input_feats)
-    
+    # ----
+    def get_center_allocator_llm_input(self):
+        """
+        Returns the input to the subtask LLM
+        ### INPUT FORMAT ###
+        {{Task: description of the task the robots are supposed to do,
+        Number of agents: number of agents in the environment,
+        Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
+        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+        }}
+
+        """
+        return 
+
     def get_center_llm_input(self):
         obj_list = self.get_all_objects()
         reachable_positions = self.get_cur_reachable_positions()

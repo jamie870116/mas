@@ -1,7 +1,7 @@
 {
     "num_agents": 2,
     "scene": "FloorPlan1",
-    "task": "Put the bread, lettuce, and tomato in the fridge",
+    "task": "sliced the Lettuce with butterknife",
     "timeout": 250,
     "model": "gpt-4o-mini",
     "use_obs_summariser": false,
@@ -15,5 +15,5 @@
     "force_action": false,
     "temperature": 0.7,
     "overhead": true,
-    "test_id" : 3
+    "test_id" : 2
 }

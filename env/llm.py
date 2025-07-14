@@ -263,7 +263,9 @@ def get_objects_by_floorplan(fpid: str) -> list[str]:
 CURRENT_OBJECT_REFERENCE = get_objects_by_floorplan(config["scene"])
 
 ai2thor_actions = {
-    # "move": [
+    "move": [
+        "NavigateTo<object_name>",
+        ],
     #     "MoveAhead",
     #     "MoveBack",
     #     "MoveRight",
@@ -282,7 +284,6 @@ ai2thor_actions = {
         "Done"
     ],
     "interact_with_object": [
-        "NavigateTo<object_name>",
         "PickupObject<object_name>",
         "PutObject<receptacle_name>",
         "OpenObject<object_name>",
@@ -368,7 +369,7 @@ if given INPUT subtasks are:
 {{
 "Actions": [
     ["NavigateTo(Vase_1)", "PickupObject(Vase_1)", "NavigateTo(Table_1)", "PutObject(Table_1)"],
-    ["NavigateTo(TissueBox_1)", "PickupObject(TissueBox_1)", "NavigateTo(Table_1)", "PutObject(Table_1)", "NavigateTo(RemoteControl)", "PickupObject<RemoteControl>", "PutObject(Table_1)","PutObject<Table_1>"]
+    ["NavigateTo(TissueBox_1)", "PickupObject(TissueBox_1)", "NavigateTo(Table_1)", "PutObject(Table_1)", "NavigateTo(RemoteControl)", "PickupObject<RemoteControl>", "PutObject(Table_1)"]
 ]
 }}
 which means:
@@ -397,11 +398,15 @@ Note: This subtask combines opening, placing, and closing into one sequence, sin
 * Make sure that the objects you suggest the robots to interact with are actually in the environment.
 * Plan actions that are consistent with the object's real-world behavior and usage.
 * Do not use OpenObject on surfaces like tables or countertops.
+* For any action that requires interacting with an object, always NavigateTo that object first before performing the interaction.
+* When deciding actions that involve interacting with an object, specify the object's name rather than its location, except for "PutObject(receptacle_name)" actions.
+For example, if the task is to slice lettuce, the action should be ["NavigateTo(Lettuce_1)", "SliceObject(Lettuce_1)"] instead of ["NavigateTo(CounterTop_1)", "SliceObject(Lettuce_1)"].
 * For any Openable receptacle (e.g., drawer, fridge, cabinet), you MUST:
     - Open the container before placing any object inside;
     - Ensure the robot has empty hands before opening or closing;
     - Close the container after placing the object.
-* Robots cannot open objects (e.g., drawers, cabinets, fridge) while holding something. Ensure the robot's hand is empty before attempting to open or close objects.
+* Robots cannot open or close openable objects (e.g., drawers, cabinets, fridge) while holding anything. Ensure the robot's hand is empty before attempting to open or close such objects.
+* When performing tool-based actions (e.g., slicing a vegetable with a knife), the robot's hand must only be holding the required tool. The target object (e.g., the vegetable to be sliced) must be placed on a surface or receptacle and must not be picked up or held by any robot during the operation.
 * If an object needs to be placed inside an openable container, open it first before placing the item.
 * Openable object like drawers, cabinets, fridge can block the path of the robot. So open objects only when you think it is necessary.
 * If you open an object, please ensure that you close it before you move to a different place.
@@ -434,12 +439,31 @@ You will get the current state of the enviroment, including the list of objects 
 
 You need to suggest the decompose the task into several subtasks for that robots to complete in order to achieve the given Task, based on the objects in the environment and the ability of robots. 
 
-For example, if the task is "Put the vase, tissue box, and remote control on the table", the subtasks could be:
-1. pick up the vase and put it on the table
-2. pick up the tissue box and put it on the table
-3. pick up the remote control and put it on the table 
+### Example ###
+#Example 1:
+if the task is "Put the vase and tissue box on the table", the output could be:
+{{
+"Subtasks": [["go to the vase and pick up the vase and go to the table and put it on the table"],["go to the  tissue box and pick up the tissue box and go to the table and put it on the table"]],
+}}
 
 
+#Example 2:
+if the task is "Put lettuce in the fridge", the output could be:
+{{
+"Subtasks": [["open the fridge"],["go to the lettuce and pick up the lettuce, go to the fridge and put the lettuce inside the fridge, then close the fridge"]],
+}}
+
+#Example 3
+if the task is "Slice an apple", the output could be:
+{{
+"Subtasks": [["go to the knife and pick up the knife, go to the apple, then slice the apple"]],
+}}
+
+#Example 4
+if the task is "break a wine bottle", the output could be:
+{{
+"Subtasks": [["go to the wine bottle and break the wine bottle"]],
+}}
 
 
 ### INPUT FORMAT ###
@@ -451,14 +475,6 @@ Objects: a list of objects in the current enviroment}}
 You will output a list of subtasks for each robot in the following format, in json format:
 {{
 "Subtasks": [[subtask 1], [subtask 2], ..., [subtask n]],
-}}
-example:
-{{
-"Subtasks": [
-    ["pick up the vase and put it on the table"],
-    ["pick up the tissue box and put it on the table"],
-    ["pick up the remote control and put it on the table"]
-]
 }}
 
 
@@ -477,6 +493,7 @@ example:
 * Openable object like drawers, cabinets, fridge can block the path of the robot. So open objects only when you think it is necessary.
 * If you open an object, please ensure that you close it before you move to a different place.
 * When possible do not perform extraneous actions when one action is sufficient (e.g. only do CleanObject to clean an object, nothing else)
+* When performing tool-based actions (e.g., slicing a vegetable with a knife), the robot's hand must only be holding the required tool. The target object (e.g., the vegetable to be sliced or the object to be broken) must not be picked up by any robot during the operation.
 * If you need to put an object on a receptacle, you need to pick it up first, then navigate to the receptacle, and then put it on the receptacle.
 * The robots can hold only one object at a time. Make sure that the actions you suggest do not require the robots to hold more than one object at a time.
 * Do NOT assume or default to common receptacles like CounterTop or Table unless explicitly specified in the task.
@@ -496,11 +513,57 @@ You will receive:
 Your job is to correct any incorrect subtasks so that the result matches the intended goal.
 
 ### Task Interpretation Rules ###
-1. If the task says "put X in the fridge", make sure X is actually placed **inside** the fridge.
-2. If a container Y (like Fridge or Drawer) is used, make sure it is opened before placing an item inside, and closed afterward. For example:
-   - "open the Y, put the X inside, and close the Y"
-3. Never place items on receptacles not mentioned in the task.
-4. Preserve the robot capabilities (e.g. hand constraints, action limits), but you may restructure or combine subtasks if necessary.
+
+* if the task says "put X in the fridge", ensure X is actually placed inside the fridge.
+* If a container Y (e.g., Fridge or Drawer) is used, make sure it is opened before placing an item inside and closed afterward. 
+For example: "open the Y, put the X inside, and close the Y"
+* Never place items on receptacles not mentioned in the task.
+* Preserve the robot capabilities (e.g., hand constraints, action limits), but you may restructure or combine subtasks if necessary.
+* If two or more subtasks are not independent and must be completed in a specific sequence (i.e., one depends on the result of another), these subtasks must be merged and assigned to the same agent as a single subtask.
+* Merge the subtasks that need to be completed sequentially by the same agent. For example: if subtask 1 is "pick up X" and subtask 2 is "put X on the table", these two must be assigned to the same agent. Similarly, when slicing a vegetable or any object, the agent must first pick up the knife or required tool.
+* Robots cannot open or close openable objects (e.g., drawers, cabinets, fridge) while holding anything. Ensure the robot's hand is empty before attempting to open or close such objects.
+* When performing tool-based actions (e.g., slicing a vegetable with a knife), the robot's hand must only be holding the required tool. The target object (e.g., the vegetable to be sliced or the object to be broken) must not be picked up by any robot during the operation.
+* If any subtask sequence suggests that the target object of a tool-based action is picked up before or during the action, correct it so that the target object remains placed on a surface or receptacle. Only the tool should be held.
+* For any action that requires interacting with an object, always navigate to that object first before performing the interaction.
+
+### Example ###
+## Example 1: Slice Apple
+# if the given subtasks are:
+subtasks = [
+    "go to the knife and pick up the knife",  
+    "go to the apple, then slice the apple " 
+]
+# you should correct them to ensure they are feasible and follow the rules above.
+subtasks = [
+    "go to the knife and pick up the knife, then go to the apple and slice the apple"
+]
+# Note: The same agent must hold the knife, navigate to the apple, and slice the apple. Do not split these dependent actions between agents.
+
+## Example 2: Put Bread in Drawer
+# if the given subtasks are:
+subtasks = [
+    "open the drawer",                                
+    "pick up the bread and put it in the drawer",   
+    "close the drawer"                                
+]
+# you should correct them to ensure they are feasible and follow the rules above.
+subtasks = [
+    "open the drawer, pick up the bread, put it in the drawer, and close the drawer"
+]
+# Note: All steps for interacting with an openable receptacle and placing an object inside must be performed sequentially by the same agent.
+
+## Example 3: Break WineBottle
+# if the given subtasks are:
+subtasks = [
+    "pick up the wine bottle",     
+    "break the wine bottle"        
+]
+# you should correct them to ensure they are feasible and follow the rules above.
+subtasks = [
+    "go to the wine bottle and break the wine bottle"
+]
+# Note: For breakable objects, the agent does not need to pick up the object; just go to its location and break it. All steps must be performed by the same agent.
+
 
 ### Input Format ###
 {{
@@ -709,13 +772,13 @@ def run_main():
     #     ]
     # }
     # '''
-    # print(f"Before Planner LLM Response: {res_content}, type of res_content: {type(res_content)}")
+    print(f"Before Planner LLM Response: {res_content}, type of res_content: {type(res_content)}")
     subtasks = process_planner_llm_output(res_content)
 
     # print(f"LLM Response (orig): {res}")
     print(f"After Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
-    ## ----Editor
+    # ## ----Editor
     editor_prompt, editor_user_prompt = prepare_prompt(env, mode="editor", subtasks=subtasks)
 
     # print(f"editor Prompt: {editor_prompt}")
@@ -731,7 +794,7 @@ def run_main():
     print(f"After Editor LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
 
-    ## ----Action
+    # ## ----Action
     action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks)
 
     # print(f"Action Prompt: {action_prompt}")
@@ -747,14 +810,14 @@ def run_main():
     print(f"After Action LLM Response: {high_level_tasks}, type of res_content: {type(high_level_tasks)}")
 
     # testing
-    # high_level_tasks = [['NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'PutObject(Fridge_1)', 'NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'PutObject(Fridge_1)', 'NavigateTo(Bread_1)', 'PickupObject(Bread_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'], ['Idle']]
-    # run_test(
-    #     env,
-    #     high_level_tasks=high_level_tasks,
-    #     test_name=f"Test {config["test_id"]}",
-    #     test_id=config["test_id"],
-    #     task_name = config["task"] if "task" in config else "Test Task",
-    # )
+    # high_level_tasks = [['Idle'], ['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)']]
+    run_test(
+        env,
+        high_level_tasks=high_level_tasks,
+        test_name=f"Test {config['test_id']}",
+        test_id=config["test_id"],
+        task_name = config["task"] if "task" in config else "Test Task",
+    )
     env.close()
     
 
@@ -763,245 +826,160 @@ def run_main():
 if __name__ == "__main__":
     run_main()
 
+
+
 '''
-Terminal: 
-Planner Prompt: 
-You are an excellent planner and robot controller who is tasked with helping 2 embodied robots named Alice, and Bob carry out a task. 
-They can perform the following actions: 
-## list of action that can be performed by the robot
-{'idle': ['Idle', 'Done'], 'interact_with_object': ['NavigateTo<object_name>', 'PickupObject<object_name>', 'PutObject<receptacle_name>', 'OpenObject<object_name>', 'CloseObject<object_name>', 'ToggleObjectOn<object_name>', 'ToggleObjectOff<object_name>', 'BreakObject<object_name>', 'CookObject<object_name>', 'SliceObject<object_name>', 'DirtyObject<object_name>', 'CleanObject<object_name>', 'FillObjectWithLiquname<object_name>', 'EmptyLiquidFromObject<object_name>', 'UseUpObject<object_name>'], 'interact_without_navigation': ['DropHandObject', 'ThrowObject']}
+Example output: 
 
-
-### TASK ###
-You will get a description of the task robots are supposed to do.
-You will get the current state of the enviroment, including the list of objects in the environment.
-
-You need to suggest the decompose the task into several subtasks for that robots to complete in order to achieve the given Task, based on the objects in the environment and the ability of robots. 
-
-For example, if the task is "Put the vase, tissue box, and remote control on the table", the subtasks could be:
-1. pick up the vase and put it on the table
-2. pick up the tissue box and put it on the table
-3. pick up the remote control and put it on the table 
-
-
-
-
-### INPUT FORMAT ###
-{Task: a high level description of the final goal the robots are supposed to complete,
-Number of agents": the number of robots in the environment,
-Objects: a list of objects in the current enviroment}
-
-### OUTPUT FORMAT ###
-You will output a list of subtasks for each robot in the following format, in json format:
-{
-"Subtasks": [[subtask 1], [subtask 2], ..., [subtask n]],
-}
-example:
-{
-"Subtasks": [
-    ["pick up the vase and put it on the table"],
-    ["pick up the tissue box and put it on the table"],
-    ["pick up the remote control and put it on the table"]
-]
-}
-
-
-### Important Notes ###
-* Note that the subtasks should be independent to each other, i.e. the robots can complete them in any order; 
-* If the subtasks require the robots to complete them in a specific order, these subtask should be combined into one subtask.
-* Make sure that the objects you suggest the robots to interact with are actually in the environment.
-* Plan actions that are consistent with the object's real-world behavior and usage.
-* Do not use OpenObject on surfaces like tables or countertops.
-* For any Openable receptacle (e.g., drawer, fridge, cabinet), you MUST:
-    - Open the container before placing any object inside;
-    - Ensure the robot has empty hands before opening or closing;
-    - Close the container after placing the object.
-* Robots cannot open objects (e.g., drawers, cabinets, fridge) while holding something. Ensure the robot’s hand is empty before attempting to open or close objects.
-* If an object needs to be placed inside an openable container, open it first before placing the item.
-* Openable object like drawers, cabinets, fridge can block the path of the robot. So open objects only when you think it is necessary.
-* If you open an object, please ensure that you close it before you move to a different place.
-* When possible do not perform extraneous actions when one action is sufficient (e.g. only do CleanObject to clean an object, nothing else)
-* If you need to put an object on a receptacle, you need to pick it up first, then navigate to the receptacle, and then put it on the receptacle.
-* The robots can hold only one object at a time. Make sure that the actions you suggest do not require the robots to hold more than one object at a time.
-* Do NOT assume or default to common receptacles like CounterTop or Table unless explicitly specified in the task.
-
-* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
-Let's work this out in a step by step way to be sure we have the right answer.
-
-Planner User Prompt: {Task: Put the bread, lettuce, and tomato in the fridge, 
-Number of agents: 2, 
-Objects: ['Apple_1', 'Book_1', 'Bottle_1', 'Bowl_1', 'Bread_1', 'ButterKnife_1', 'Cabinet_1', 'Cabinet_2', 'Cabinet_3', 'Cabinet_4', 'Cabinet_5', 'Cabinet_6', 'Cabinet_7', 'Cabinet_8', 'Cabinet_9', 'CoffeeMachine_1', 'CounterTop_1', 'CounterTop_2', 'CounterTop_3', 'CreditCard_1', 'Cup_1', 'DishSponge_1', 'Drawer_1', 'Drawer_2', 'Drawer_3', 'Drawer_4', 'Drawer_5', 'Drawer_6', 'Drawer_7', 'Drawer_8', 'Drawer_9', 'Egg_1', 'Faucet_1', 'Floor_1', 'Fork_1', 'Fridge_1', 'GarbageCan_1', 'HousePlant_1', 'Kettle_1', 'Knife_1', 'Lettuce_1', 'LightSwitch_1', 'Microwave_1', 'Mug_1', 'Pan_1', 'PaperTowelRoll_1', 'PepperShaker_1', 'Plate_1', 'Pot_1', 'Potato_1', 'SaltShaker_1', 'Shelf_1', 'Shelf_2', 'Shelf_3', 'ShelvingUnit_1', 'Sink_1', 'Sink_2', 'SoapBottle_1', 'Spatula_1', 'Spoon_1', 'Statue_1', 'Stool_1', 'Stool_2', 'StoveBurner_1', 'StoveBurner_2', 'StoveBurner_3', 'StoveBurner_4', 'StoveKnob_1', 'StoveKnob_2', 'StoveKnob_3', 'StoveKnob_4', 'Toaster_1', 'Tomato_1', 'Vase_1', 'Vase_2', 'Window_2', 'WineBottle_1'], }
-Payload for LLM: [{'role': 'system', 'content': '\nYou are an excellent planner and robot controller who is tasked with helping 2 embodied robots named Alice, and Bob carry out a task. \nThey can perform the following actions: \n## list of action that can be performed by the robot\n{\'idle\': [\'Idle\', \'Done\'], \'interact_with_object\': [\'NavigateTo<object_name>\', \'PickupObject<object_name>\', \'PutObject<receptacle_name>\', \'OpenObject<object_name>\', \'CloseObject<object_name>\', \'ToggleObjectOn<object_name>\', \'ToggleObjectOff<object_name>\', \'BreakObject<object_name>\', \'CookObject<object_name>\', \'SliceObject<object_name>\', \'DirtyObject<object_name>\', \'CleanObject<object_name>\', \'FillObjectWithLiquname<object_name>\', \'EmptyLiquidFromObject<object_name>\', \'UseUpObject<object_name>\'], \'interact_without_navigation\': [\'DropHandObject\', \'ThrowObject\']}\n\n\n### TASK ###\nYou will get a description of the task robots are supposed to do.\nYou will get the current state of the enviroment, including the list of objects in the environment.\n\nYou need to suggest the decompose the task into several subtasks for that robots to complete in order to achieve the given Task, based on the objects in the environment and the ability of robots. \n\nFor example, if the task is "Put the vase, tissue box, and remote control on the table", the subtasks could be:\n1. pick up the vase and put it on the table\n2. pick up the tissue box and put it on the table\n3. pick up the remote control and put it on the table \n\n\n\n\n### INPUT FORMAT ###\n{Task: a high level description of the final goal the robots are supposed to complete,\nNumber of agents": the number of robots in the environment,\nObjects: a list of objects in the current enviroment}\n\n### OUTPUT FORMAT ###\nYou will output a list of subtasks for each robot in the following format, in json format:\n{\n"Subtasks": [[subtask 1], [subtask 2], ..., [subtask n]],\n}\nexample:\n{\n"Subtasks": [\n    ["pick up the vase and put it on the table"],\n    ["pick up the tissue box and put it on the table"],\n    ["pick up the remote control and put it on the table"]\n]\n}\n\n\n### Important Notes ###\n* Note that the subtasks should be independent to each other, i.e. the robots can complete them in any order; \n* If the subtasks require the robots to complete them in a specific order, these subtask should be combined into one subtask.\n* Make sure that the objects you suggest the robots to interact with are actually in the environment.\n* Plan actions that are consistent with the object\'s real-world behavior and usage.\n* Do not use OpenObject on surfaces like tables or countertops.\n* For any Openable receptacle (e.g., drawer, fridge, cabinet), you MUST:\n    - Open the container before placing any object inside;\n    - Ensure the robot has empty hands before opening or closing;\n    - Close the container after placing the object.\n* Robots cannot open objects (e.g., drawers, cabinets, fridge) while holding something. Ensure the robot’s hand is empty before attempting to open or close objects.\n* If an object needs to be placed inside an openable container, open it first before placing the item.\n* Openable object like drawers, cabinets, fridge can block the path of the robot. So open objects only when you think it is necessary.\n* If you open an object, please ensure that you close it before you move to a different place.\n* When possible do not perform extraneous actions when one action is sufficient (e.g. only do CleanObject to clean an object, nothing else)\n* If you need to put an object on a receptacle, you need to pick it up first, then navigate to the receptacle, and then put it on the receptacle.\n* The robots can hold only one object at a time. Make sure that the actions you suggest do not require the robots to hold more than one object at a time.\n* Do NOT assume or default to common receptacles like CounterTop or Table unless explicitly specified in the task.\n\n* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED\nLet\'s work this out in a step by step way to be sure we have the right answer.\n'}, {'role': 'user', 'content': "{Task: Put the bread, lettuce, and tomato in the fridge, \nNumber of agents: 2, \nObjects: ['Apple_1', 'Book_1', 'Bottle_1', 'Bowl_1', 'Bread_1', 'ButterKnife_1', 'Cabinet_1', 'Cabinet_2', 'Cabinet_3', 'Cabinet_4', 'Cabinet_5', 'Cabinet_6', 'Cabinet_7', 'Cabinet_8', 'Cabinet_9', 'CoffeeMachine_1', 'CounterTop_1', 'CounterTop_2', 'CounterTop_3', 'CreditCard_1', 'Cup_1', 'DishSponge_1', 'Drawer_1', 'Drawer_2', 'Drawer_3', 'Drawer_4', 'Drawer_5', 'Drawer_6', 'Drawer_7', 'Drawer_8', 'Drawer_9', 'Egg_1', 'Faucet_1', 'Floor_1', 'Fork_1', 'Fridge_1', 'GarbageCan_1', 'HousePlant_1', 'Kettle_1', 'Knife_1', 'Lettuce_1', 'LightSwitch_1', 'Microwave_1', 'Mug_1', 'Pan_1', 'PaperTowelRoll_1', 'PepperShaker_1', 'Plate_1', 'Pot_1', 'Potato_1', 'SaltShaker_1', 'Shelf_1', 'Shelf_2', 'Shelf_3', 'ShelvingUnit_1', 'Sink_1', 'Sink_2', 'SoapBottle_1', 'Spatula_1', 'Spoon_1', 'Statue_1', 'Stool_1', 'Stool_2', 'StoveBurner_1', 'StoveBurner_2', 'StoveBurner_3', 'StoveBurner_4', 'StoveKnob_1', 'StoveKnob_2', 'StoveKnob_3', 'StoveKnob_4', 'Toaster_1', 'Tomato_1', 'Vase_1', 'Vase_2', 'Window_2', 'WineBottle_1'], }"}]
 Before Planner LLM Response: {
-        "Subtasks": [
-            ["'pick up the tomato and put it on the countertop'"],
-            ["pick up the lettuce and put it on the countertop"],
-            ["pick up the bread and put it on the countertop"]
-        ]
-    }
-    , type of res_content: <class 'str'>
-After Planner LLM Response: [["'pick up the tomato and put it on the countertop'"], ['pick up the lettuce and put it on the countertop'], ['pick up the bread and put it on the countertop']], type of res_content: <class 'list'>
-editor Prompt: 
-You are an expert task planner and editor.
+"Subtasks": [["go to the ButterKnife_1 and pick it up"], ["go to the Lettuce_1 and pick it up, then slice the Lettuce_1 with the ButterKnife_1"]],
+}, type of res_content: <class 'str'>
+[Warning] Initial JSON decode failed: Expecting property name enclosed in double quotes: line 3 column 1 (char 149)
+After Planner LLM Response: [['go to the ButterKnife_1 and pick it up'], ['go to the Lettuce_1 and pick it up, then slice the Lettuce_1 with the ButterKnife_1']], type of res_content: <class 'list'>
+After Editor LLM Response: [['go to the ButterKnife_1 and pick it up, then go to the Lettuce_1 and slice the Lettuce_1 with the ButterKnife_1']], type of res_content: <class 'list'>
+After Action LLM Response: [['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'], ['Idle']], type of res_content: <class 'list'>
 
-You will receive:
-- A high-level task
-- A list of subtasks generated by another agent
-- A list of objects currently in the scene
+=== Test 2 (Test ID: 2) ===
+high_level_tasks:  [['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'], ['Idle']]
+micro_actions: ['MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): Idle
+remaining high level tasks for agent 1 (Bob): deque([])
+Subtask Idle for agent 1 (Bob) is done.
+micro_actions: ['MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+micro_actions: ['MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+micro_actions: ['MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+micro_actions: ['MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+micro_actions: ['MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+micro_actions: ['MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+micro_actions: ['MoveAhead', 'MoveAhead', 'MoveAhead', 'RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+micro_actions: ['MoveAhead', 'MoveAhead', 'RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+micro_actions: ['MoveAhead', 'RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+micro_actions: ['RotateRight', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'RotateRight'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+micro_actions: ['MoveAhead', 'MoveAhead', 'MoveAhead', 'MoveAhead', 'LookDown(30)', 'RotateRight']
+current high level task for agent 0 (Alice): NavigateTo(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+Subtask NavigateTo(ButterKnife_1) for agent 0 (Alice) is done.
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+current high level task for agent 0 (Alice): PickupObject(ButterKnife_1)
+remaining high level tasks for agent 0 (Alice): deque(['NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'PickupObject', 'objectId': 'ButterKnife|-00.41|+01.11|-00.46'}
+Subtask PickupObject(ButterKnife_1) for agent 0 (Alice) is done.
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+Lettuce position: {'x': -1.8069753646850586, 'y': 0.9737617373466492, 'z': -0.9429945945739746}
+micro_actions: ['MoveAhead', 'RotateLeft', 'MoveAhead', 'LookDown(30)', 'LookDown(30)']
+current high level task for agent 0 (Alice): NavigateTo(Lettuce_1)
+remaining high level tasks for agent 0 (Alice): deque(['SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'MoveAhead'}
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+Lettuce position: {'x': -1.8069753646850586, 'y': 0.9737617373466492, 'z': -0.9429945945739746}
+micro_actions: ['RotateLeft', 'MoveAhead', 'LookDown(30)', 'LookDown(30)']
+current high level task for agent 0 (Alice): NavigateTo(Lettuce_1)
+remaining high level tasks for agent 0 (Alice): deque(['SliceObject(Lettuce_1)'])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'RotateLeft'}
+Subtask NavigateTo(Lettuce_1) for agent 0 (Alice) is done.
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
+current high level task for agent 0 (Alice): SliceObject(Lettuce_1)
+remaining high level tasks for agent 0 (Alice): deque([])
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'SliceObject', 'objectId': 'Lettuce|-01.81|+00.97|-00.94'}
+Subtask SliceObject(Lettuce_1) for agent 0 (Alice) is done.
+current high level task for agent 1 (Bob): None
+remaining high level tasks for agent 1 (Bob): deque([])
 
-Your job is to correct any incorrect subtasks so that the result matches the intended goal.
+--- Step 1 ---
 
-### Task Interpretation Rules ###
-1. If the task says "put X in the fridge", make sure X is actually placed **inside** the fridge.
-2. If a container Y (like Fridge or Drawer) is used, make sure it is opened before placing an item inside, and closed afterward. For example:
-   - "open the Y, put the X inside, and close the Y"
-3. Never place items on receptacles not mentioned in the task.
-4. Preserve the robot capabilities (e.g. hand constraints, action limits), but you may restructure or combine subtasks if necessary.
+--- Step 2 ---
 
-### Input Format ###
-{
-Task: a high level description of the final goal the robots are supposed to do/complete,
-Number of agents: the number of robots in the environment,
-Subtasks: A list of subtasks generated by another agent.
-Objects:  a list of objects in the current enviroment.
-}
+--- Step 3 ---
 
-### Output Format ###
-Return only the corrected list of subtasks in the following format,in json format:
-{
-"Subtasks": [[subtask 1], [subtask 2], ..., [subtask n]],
-}
+--- Step 4 ---
 
+--- Step 5 ---
 
-* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
-Let's work this out in a step by step way to be sure we have the right answer.
+--- Step 6 ---
 
-editor User Prompt: {Task: Put the bread, lettuce, and tomato in the fridge, 
-Number of agents: 2, 
-Objects: ['Apple_1', 'Book_1', 'Bottle_1', 'Bowl_1', 'Bread_1', 'ButterKnife_1', 'Cabinet_1', 'Cabinet_2', 'Cabinet_3', 'Cabinet_4', 'Cabinet_5', 'Cabinet_6', 'Cabinet_7', 'Cabinet_8', 'Cabinet_9', 'CoffeeMachine_1', 'CounterTop_1', 'CounterTop_2', 'CounterTop_3', 'CreditCard_1', 'Cup_1', 'DishSponge_1', 'Drawer_1', 'Drawer_2', 'Drawer_3', 'Drawer_4', 'Drawer_5', 'Drawer_6', 'Drawer_7', 'Drawer_8', 'Drawer_9', 'Egg_1', 'Faucet_1', 'Floor_1', 'Fork_1', 'Fridge_1', 'GarbageCan_1', 'HousePlant_1', 'Kettle_1', 'Knife_1', 'Lettuce_1', 'LightSwitch_1', 'Microwave_1', 'Mug_1', 'Pan_1', 'PaperTowelRoll_1', 'PepperShaker_1', 'Plate_1', 'Pot_1', 'Potato_1', 'SaltShaker_1', 'Shelf_1', 'Shelf_2', 'Shelf_3', 'ShelvingUnit_1', 'Sink_1', 'Sink_2', 'SoapBottle_1', 'Spatula_1', 'Spoon_1', 'Statue_1', 'Stool_1', 'Stool_2', 'StoveBurner_1', 'StoveBurner_2', 'StoveBurner_3', 'StoveBurner_4', 'StoveKnob_1', 'StoveKnob_2', 'StoveKnob_3', 'StoveKnob_4', 'Toaster_1', 'Tomato_1', 'Vase_1', 'Vase_2', 'Window_2', 'WineBottle_1'], 
-Subtasks: [["'pick up the tomato and put it on the countertop'"], ['pick up the lettuce and put it on the countertop'], ['pick up the bread and put it on the countertop']], }
-Before Editor LLM Response: {
-"Subtasks": [["open the Fridge_1"], ["pick up the tomato_1 and put it inside the Fridge_1"], ["pick up the lettuce_1 and put it inside the Fridge_1"], ["pick up the bread_1 and put it inside the Fridge_1"], ["close the Fridge_1"]]
-}
-After Editor LLM Response: [['open the Fridge_1'], ['pick up the tomato_1 and put it inside the Fridge_1'], ['pick up the lettuce_1 and put it inside the Fridge_1'], ['pick up the bread_1 and put it inside the Fridge_1'], ['close the Fridge_1']], type of res_content: <class 'list'>
-Action Prompt: 
-You are an excellent planner and robot controller who is tasked with helping 2 embodied robots named Alice, and Bob carry out a task. 
-They can perform the following actions: 
-## list of action that can be performed by the robot
-{'idle': ['Idle', 'Done'], 'interact_with_object': ['NavigateTo<object_name>', 'PickupObject<object_name>', 'PutObject<receptacle_name>', 'OpenObject<object_name>', 'CloseObject<object_name>', 'ToggleObjectOn<object_name>', 'ToggleObjectOff<object_name>', 'BreakObject<object_name>', 'CookObject<object_name>', 'SliceObject<object_name>', 'DirtyObject<object_name>', 'CleanObject<object_name>', 'FillObjectWithLiquname<object_name>', 'EmptyLiquidFromObject<object_name>', 'UseUpObject<object_name>'], 'interact_without_navigation': ['DropHandObject', 'ThrowObject']}
+--- Step 7 ---
 
+--- Step 8 ---
 
-“Done” is used to indicate that the robot has completed its task and is ready to stop.
-“Idle” is used to let a robot wait in place for one step, if necessary.
+--- Step 9 ---
 
-### Task ###
-You will get a description of the task robots are supposed to do. 
-You will get the current state of the enviroment, including the list of objects in the environment.
-You will get the subtasks that the robots are supposed to complete in order to achieve the final goal(Task), based on the objects in the environment and the ability of robots.
+--- Step 10 ---
 
-Based on the above information, you need to break down each subtask into smaller actions and assign these subtasks to the appropriate robot.
+--- Step 11 ---
 
-* Make sure your output length is correct: the length of the Actions list must equal the number of robots. 
-For example, if there are two robots, the Actions list should contain exactly two elements, one for each robot agent.
+--- Step 12 ---
 
-### INPUT FORMAT ###
-{
-Task: a high level description of the final goal the robots are supposed to do/complete,
-Number of agents: the number of robots in the environment,
-Subtasks: a list of subtasks that the robots are supposed to complete in order to achieve the final goal(Task),
-Objects:  a list of objects in the current enviroment.
-}
+--- Step 13 ---
 
+--- Step 14 ---
 
-### OUTPUT FORMAT ###
-You will output a list of actions for each robot in the following format, in json format:
-{
-"Actions": [[actions for robot 1], [actions for robot 2], ..., [actions for robot N]],
-}
+--- Step 15 ---
 
-where each actions is a list of strings in the format of "ActionName<arg1, arg2, ...>".
-For example, if robot 1 should pick up an object with id "Object_1" and put the object on the table with id "Table_1", the output should be:
-[[NavigateTo<Object_1>, PickupObject<Object_1>, NavigateTo<Table_1>, PutObject<Table_1>], [Idle], ...]
-<Object_1> and <Table_1> are the name plus the number of the object in the environment. If there are multiple objects with the same name but different id, you can use the number to distinguish them, e.g. "Object_1", "Object_2", etc. don't use the id only.
-
-* Example1:
-if given INPUT subtasks are:
-{"
-"Number of agents": 2,
-"Task": "bring a vase, tissue box, and remote control to the counter top to make a sandwich",
-"Subtasks": [
-    ["pick up the vase and put it on the table"],
-    ["pick up the tissue box and put it on the table"],
-    ["pick up the remote control and put it on the table"]
-],
-}
-
-* The OUTPUT could be:
-{
-"Actions": [
-    ["NavigateTo(Vase_1)", "PickupObject(Vase_1)", "NavigateTo(Table_1)", "PutObject(Table_1)"],
-    ["NavigateTo(TissueBox_1)", "PickupObject(TissueBox_1)", "NavigateTo(Table_1)", "PutObject(Table_1)", "NavigateTo(RemoteControl)", "PickupObject<RemoteControl>", "PutObject(Table_1)","PutObject<Table_1>"]
-]
-}
-which means:
-- Robot 1 should pick up the Vase with "Vase_1" and put it on the table with "Table_1"
-- Robot 2 should pick up the tissue box with "TissueBox_1" and put it on the counter top with "Table_1", then pick up the remote control with "RemoteControl_1" and put it on the table with "Table_1".
-
-
-* Example2:
-if given INPUT subtasks are:
-{
-"Number of agents": 2,
-"Task": "put the Book inside the drawer",
-"Subtasks": ["put the Book inside the drawer"]
-}
-
-* the OUTPUT could be:
-{ "Actions": 
-[["NavigateTo(Drawer_1)", "OpenObject(Drawer_1)", "NavigateTo(Book_1)", "PickupObject(Book_1)",,"PutObject(Drawer_1)", "CloseObject(Drawer_1)"],["Idle"]]
-}
-
-Note: This subtask combines opening, placing, and closing into one sequence, since the drawer must be opened before placing the item and closed afterward. The robot must have empty hands to operate the drawer.
-
-### Important Notes ###
-* The `Actions` list must contain exactly 2 sublists—one for each robot. Each sublist should include the full sequence of actions for that robot.
-* Each robot's action list should be a sequential plan—actions should be performed in order and not interleaved with other robots.
-* Make sure that the objects you suggest the robots to interact with are actually in the environment.
-* Plan actions that are consistent with the object's real-world behavior and usage.
-* Do not use OpenObject on surfaces like tables or countertops.
-* For any Openable receptacle (e.g., drawer, fridge, cabinet), you MUST:
-    - Open the container before placing any object inside;
-    - Ensure the robot has empty hands before opening or closing;
-    - Close the container after placing the object.
-* Robots cannot open objects (e.g., drawers, cabinets, fridge) while holding something. Ensure the robot's hand is empty before attempting to open or close objects.
-* If an object needs to be placed inside an openable container, open it first before placing the item.
-* Openable object like drawers, cabinets, fridge can block the path of the robot. So open objects only when you think it is necessary.
-* If you open an object, please ensure that you close it before you move to a different place.
-* When possible do not perform extraneous actions when one action is sufficient (e.g. only do CleanObject to clean an object, nothing else)
-* If you need to put an object on a receptacle, you need to pick it up first, then navigate to the receptacle, and then put it on the receptacle.
-* The robots can hold only one object at a time. Make sure that the actions you suggest do not require the robots to hold more than one object at a time.
-* Since there are 2 agents moving around in one room, make sure to plan subtasks and actions so that they don't block or bump into each other as much as possible. This is especially important because there are so many agents in one room.
-* Be aware that the robots will be performing actions in parallel, so make sure that the actions you suggest do not conflict with each other.
-* You should consider the position of the objects and the robots in the enviroment when assigning actions and receptacle to the robots.
-* The number of subtasks may be greater than the number of robots. You may distribute the subtasks in any way you deem optimal.
-* A robot can handle multiple subtasks in a single plan, but each robot must only appear once in the `Actions` list.
-* Do NOT assume or default to common receptacles like CounterTop or Table unless explicitly specified in the task.
-
-
-
-* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
-
-Let's work this out in a step by step way to be sure we have the right answer.
-
-Action User Prompt: {Task: Put the bread, lettuce, and tomato in the fridge, 
-Number of agents: 2, 
-Objects: ['Apple_1', 'Book_1', 'Bottle_1', 'Bowl_1', 'Bread_1', 'ButterKnife_1', 'Cabinet_1', 'Cabinet_2', 'Cabinet_3', 'Cabinet_4', 'Cabinet_5', 'Cabinet_6', 'Cabinet_7', 'Cabinet_8', 'Cabinet_9', 'CoffeeMachine_1', 'CounterTop_1', 'CounterTop_2', 'CounterTop_3', 'CreditCard_1', 'Cup_1', 'DishSponge_1', 'Drawer_1', 'Drawer_2', 'Drawer_3', 'Drawer_4', 'Drawer_5', 'Drawer_6', 'Drawer_7', 'Drawer_8', 'Drawer_9', 'Egg_1', 'Faucet_1', 'Floor_1', 'Fork_1', 'Fridge_1', 'GarbageCan_1', 'HousePlant_1', 'Kettle_1', 'Knife_1', 'Lettuce_1', 'LightSwitch_1', 'Microwave_1', 'Mug_1', 'Pan_1', 'PaperTowelRoll_1', 'PepperShaker_1', 'Plate_1', 'Pot_1', 'Potato_1', 'SaltShaker_1', 'Shelf_1', 'Shelf_2', 'Shelf_3', 'ShelvingUnit_1', 'Sink_1', 'Sink_2', 'SoapBottle_1', 'Spatula_1', 'Spoon_1', 'Statue_1', 'Stool_1', 'Stool_2', 'StoveBurner_1', 'StoveBurner_2', 'StoveBurner_3', 'StoveBurner_4', 'StoveKnob_1', 'StoveKnob_2', 'StoveKnob_3', 'StoveKnob_4', 'Toaster_1', 'Tomato_1', 'Vase_1', 'Vase_2', 'Window_2', 'WineBottle_1'], 
-Subtasks: [['open the Fridge_1'], ['pick up the tomato_1 and put it inside the Fridge_1'], ['pick up the lettuce_1 and put it inside the Fridge_1'], ['pick up the bread_1 and put it inside the Fridge_1'], ['close the Fridge_1']], }
-Before Action LLM Response: {
-"Actions": [
-    ["NavigateTo(Fridge_1)", "OpenObject(Fridge_1)", "NavigateTo(Tomato_1)", "PickupObject(Tomato_1)", "PutObject(Fridge_1)", "NavigateTo(Lettuce_1)", "PickupObject(Lettuce_1)", "PutObject(Fridge_1)", "NavigateTo(Bread_1)", "PickupObject(Bread_1)", "PutObject(Fridge_1)", "CloseObject(Fridge_1)"],
-    ["Idle"]
-]
-}
-After Action LLM Response: [['NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'PutObject(Fridge_1)', 'NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'PutObject(Fridge_1)', 'NavigateTo(Bread_1)', 'PickupObject(Bread_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'], ['Idle']], type of res_content: <class 'list'>
+--- Step 16 ---
+Alice POV path: logs/sliced_the_Lettuce_with_butterknife/test_2/Alice/pov/frame_16.png
+Bob POV path: logs/sliced_the_Lettuce_with_butterknife/test_2/Bob/pov/frame_16.png
+Shared overhead path: logs/sliced_the_Lettuce_with_butterknife/test_2/overhead/frame_16.png
+logs/sliced_the_Lettuce_with_butterknife/test_2
+Resolved task path: /Users/apple/Desktop/UCSB/master_project/mas/logs/sliced_the_Lettuce_with_butterknife/test_2
+Video saved at /Users/apple/Desktop/UCSB/master_project/mas/logs/sliced_the_Lettuce_with_butterknife/test_2/Bob_pov.mp4
+Video saved at /Users/apple/Desktop/UCSB/master_project/mas/logs/sliced_the_Lettuce_with_butterknife/test_2/Alice_pov.mp4
+Video saved at /Users/apple/Desktop/UCSB/master_project/mas/logs/sliced_the_Lettuce_with_butterknife/test_2/overhead.mp4
 '''
