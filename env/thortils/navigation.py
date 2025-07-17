@@ -794,13 +794,13 @@ def _pitch_facing(robot_position, target_position, angles):
     angles = normalize_angles(angles)
     rx, ry, rz = robot_position
     tx, ty, tz = target_position
-    horiz = tx - rx
-    # horiz = math.sqrt((rx - tx) ** 2 + (rz - tz) ** 2) #ry - ty, tx - rx
+    # horiz = tx - rx
+    horiz = math.sqrt((rx - tx) ** 2 + (rz - tz) ** 2) #ry - ty, tx - rx
     # remember for pitch in thor, negative is up, positive is down
     pitch = to_degrees(math.atan2(ry - ty, # reverse y axis direction because of ^^
                                   horiz)) % 360
 
-    return closest(angles, pitch)
+    return closest(angles, -pitch)
 
 def _yaw_facing(robot_position, target_position, angles):
     """

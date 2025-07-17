@@ -312,6 +312,8 @@ class AI2ThorEnv(BaseEnv):
         self.total_elapsed_time = 0.0
         self.input_dict = {}
         self.input_dict["Task"] = task
+        event = self.controller.step(action="GetMapViewCameraProperties")
+        event = self.controller.step(action="AddThirdPartyCamera", **event.metadata["actionReturn"])
 
         if not self.skip_save_dir:
             self.create_save_dirs(test_case_id)
@@ -671,21 +673,52 @@ class AI2ThorEnv(BaseEnv):
         elif name == "EmptyLiquidFromObject":
             return not self.get_object_status(obj).get("isFilledWithLiquid", True)
         elif name == "NavigateTo":
-            # NavigateTo is not a subtask, but we can check if the agent is at the object and if the object is in view
+            # check if the agent is at the object and if the object is in view
             
             obj_id = self.convert_readable_object_to_id(obj)
             agent_pos = self.get_agent_position_dict(agent_id)
             obj_metadata = next((o for o in self.event.metadata["objects"] if o["objectId"] == obj_id), None)
-            if not obj_metadata:
+
+            if obj_id not in self.get_object_in_view(agent_id):
+                # not in view
                 return False
-            obj_pos = obj_metadata["position"]
-            dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
-            # print(f"Checking distance for NavigateTo: {dist:.2f}m and self.get_object_in_view(agent_id)  : {self.get_object_in_view(agent_id)}")
-            return dist < 1 and obj_id in self.get_object_in_view(agent_id)  
+            else:
+                # check if the object is within 0.5m distance
+                agent_pos = self.get_agent_position_dict(agent_id)
+                obj_metadata = next(obj for obj in self.event.metadata["objects"] if obj["objectId"] == obj_id)
+                obj_pos = obj_metadata["position"]
+                # print(f"Checking distance for NavigateTo: {obj_id} at {obj_pos} and agent at {agent_pos}")
+                dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
+                
+                if dist > 0.5:
+                    # error_type += f": distance-too-far ({dist:.2f}m)"
+                    return False 
+                # check if the object is in center view
+                agnet_rot = self.event.events[agent_id].metadata["agent"]["rotation"]["y"]
+                return self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot)
+               
         
         return True
 
-        
+    def is_object_in_center_view(self, agent_pos, object_pos, agent_yaw_deg, threshold_deg=30):
+        x_a, y_a, z_a = agent_pos['x'], agent_pos['y'], agent_pos['z']
+        x_o, y_o, z_o = object_pos['x'], object_pos['y'], object_pos['z']
+        print(f"Checking if object at {object_pos} is in center view of agent at {agent_pos} with yaw {agent_yaw_deg} degrees")
+        # Compute agent's forward vector
+        yaw_rad = math.radians(agent_yaw_deg)
+        forward_vec = np.array([math.sin(yaw_rad), 0, math.cos(yaw_rad)])
+
+        # Vector from agent to object
+        dir_vec = np.array([x_o - x_a, 0, z_o - z_a])
+        dir_vec = dir_vec / np.linalg.norm(dir_vec)
+
+        # Angle between vectors
+        dot_product = np.dot(forward_vec, dir_vec)
+        angle_rad = np.arccos(np.clip(dot_product, -1.0, 1.0))
+        angle_deg = np.degrees(angle_rad)
+        # print(f"Agent position: {agent_pos}, Object position: {object_pos}, Agent yaw: {agent_yaw_deg} degrees, Angle to object: {angle_deg:.2f} degrees")
+        return angle_deg < threshold_deg  # True if in center view
+
     
     # unit of action: Pickup (include NavigateTo Object and pickup Object)
     def step(self, actions: List[str]) -> Tuple[str, List[bool]]:
@@ -916,9 +949,15 @@ class AI2ThorEnv(BaseEnv):
     
     def _get_ceiling_image(self):
         """Capture an overhead image by toggling map view."""
-        event = self.controller.step(action="ToggleMapView")
-        self.controller.step(action="ToggleMapView")
-        return event.cv2img
+        # event = self.controller.step(action="ToggleMapView")
+
+        top_view_rgb = cv2.cvtColor(self.controller.last_event.events[0].third_party_camera_frames[-1], cv2.COLOR_BGR2RGB)
+        # f_name = os.path.dirname(__file__) + "/top_view/img_" + str(img_counter).zfill(5) + ".png"
+        # cv2.imwrite(f_name, top_view_rgb)
+
+        # self.controller.step(action="ToggleMapView")
+        return top_view_rgb
+        # return event.cv2img
     
     def _write_image(self, pth: Path, img):
         """Write an image to the specified path."""

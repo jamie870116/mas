@@ -41,18 +41,15 @@ if __name__ == "__main__":
             config = json.load(f)
             task_name = config["task"]
     
-    # obs = env.reset(test_case_id="15")
-    # objs = env.get_readable_object_list(env.get_object_in_view(0))
-    # tomato = next((o for o in objs if "Tomato" in o), "Tomato_1")
-    # counter = next((o for o in objs if "CounterTop" in o), "CounterTop_1")
-    # bread = next((o for o in objs if "Bread" in o), "Bread_1")
-    # run_test(
-    #     env,
-    #     high_level_tasks=[[f"PickupObject({tomato})", f"PutObject({counter})"], [f"PickupObject({bread})"]], # [[subtasks for agent_i], [...]]
-    #     test_name="Test 15",
-    #     test_id="15",
-    #     task_name=task_name
-    # )
+    obs = env.reset(test_case_id="0")
+    objs = env.get_readable_object_list(env.get_object_in_view(0))
+    run_test(
+        env,
+        high_level_tasks=[['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)'], ['Idle']], # [[subtasks for agent_i], [...]]
+        test_name="Test 0",
+        test_id="0",
+        task_name=task_name
+    )
 
     # obs = env.reset(test_case_id="17")
     # objs = env.get_readable_object_list(env.get_object_in_view(0))
@@ -96,16 +93,16 @@ if __name__ == "__main__":
     #     task_name = task_name,
     # )
 
-    obs = env.reset(test_case_id="3")
-    objects_in_view_alice = env.get_readable_object_list(env.get_object_in_view(0))
+    # obs = env.reset(test_case_id="3")
+    # objects_in_view_alice = env.get_readable_object_list(env.get_object_in_view(0))
     
-    high_level_tasks = [
-        ['NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'], ['Idle']
-    ]
-    run_test(
-        env,
-        high_level_tasks=high_level_tasks,
-        test_name="Test 3",
-        test_id=3,
-        task_name = task_name,
-    )
+    # high_level_tasks = [
+    #     ['NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'], ['Idle']
+    # ]
+    # run_test(
+    #     env,
+    #     high_level_tasks=high_level_tasks,
+    #     test_name="Test 3",
+    #     test_id=3,
+    #     task_name = task_name,
+    # )
