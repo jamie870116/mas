@@ -23,7 +23,7 @@ from env_b import AI2ThorEnv
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.helpers import save_to_video
 
-client = OpenAI(api_key=Path('api_key.txt').read_text())
+client = OpenAI(api_key=Path('api_key_ucsb.txt').read_text())
 
 def get_args():
     parser = argparse.ArgumentParser()

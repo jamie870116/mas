@@ -35,6 +35,27 @@ class BaseEnv:
         self.idle_actions = ["Done", "Idle"]
         self.object_interaction_actions = ["PickupObject", "PutObject", "OpenObject", "CloseObject", "ToggleObjectOn", "ToggleObjectOff", "BreakObject", "CookObject", "SliceObject", "DirtyObject", "CleanObject", "FillObjectWithLiquid", "EmptyLiquidFromObject", "UseUpObject"]
         self.object_interaction_without_navigation  = ["DropHandObject", "ThrowObject"]
+        self.receptacle_objects = [
+            # Kitchen
+            "Bowl", "Cabinet", "CoffeeMachine", "CounterTop", "Cup", "DiningTable",
+            "Drawer", "Fridge", "GarbageCan", "Microwave", "Mug", "Pan", "Plate",
+            "Pot", "Shelf", "SideTable", "Sink", "SinkBasin", "StoveBurner", "Toaster",
+
+            # LivingRoom
+            "ArmChair", "Box", "CoffeeTable", "CounterTop", "Cup", "Desk", "DiningTable",
+            "Drawer", "Dresser", "GarbageCan", "Microwave", "Mug", "Ottoman", "Plate",
+            "Safe", "Shelf", "SideTable", "Sofa", "TVStand",
+
+            # Bedroom
+            "ArmChair", "Bed", "Box", "Cup", "Desk", "Dresser", "Drawer", "GarbageCan",
+            "LaundryHamper", "Mug", "Plate", "Safe", "Shelf", "SideTable", "TVStand",
+
+            # Bathroom
+            "Bathtub", "BathtubBasin", "Cabinet", "CounterTop", "Drawer", "GarbageCan",
+            "HandTowelHolder", "Shelf", "SideTable", "Sink", "SinkBasin", "Toilet",
+            "ToiletPaperHanger", "TowelHolder"
+        ]
+
     
     def random_spawn(self, seed: int = 0):
         """Randomly spawn objects in the environment."""
@@ -250,6 +271,8 @@ class AI2ThorEnv(BaseEnv):
         self.use_plan = self.config["use_plan"]
         self.force_action = self.config["force_action"]
         self.overhead = self.config["overhead"]
+        self.save_logs = self.config["save_logs"]
+        self.logs = []
         
         self.controller = ai2thor.controller.Controller(width=1000, height=1000, gridSize=0.25)
         self.controller.reset(self.scene)
@@ -269,9 +292,13 @@ class AI2ThorEnv(BaseEnv):
         self.current_hl = {}
         self.action_step_num = 0
 
+        
         self.action_history = {name: [] for name in self.agent_names}
         self.action_success_history = {name: [] for name in self.agent_names}
         self.agent_failure_acts = {name: [] for name in self.agent_names}
+
+        self.subtask_success_history = {name: [] for name in self.agent_names} # save the previous successful subtasks for each agent
+
         self.all_obs_dict = {name: [] for name in self.agent_names}
         self.obs_summary_llm_cache_path = "summary_llm_cache.pkl"
         self.verbose = True
@@ -312,6 +339,8 @@ class AI2ThorEnv(BaseEnv):
         self.total_elapsed_time = 0.0
         self.input_dict = {}
         self.input_dict["Task"] = task
+        self.logs = []
+        # get third party camera properties: overhead view
         event = self.controller.step(action="GetMapViewCameraProperties")
         event = self.controller.step(action="AddThirdPartyCamera", **event.metadata["actionReturn"])
 
@@ -497,6 +526,11 @@ class AI2ThorEnv(BaseEnv):
                 actions = ["Idle"] * self.num_agents
                 actions[aid] = self.current_hl[aid]
                 self.step_decomp(actions, agent_id=aid)
+            if self.save_logs:
+                # self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
+                self.logs.append(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
+                self.logs.append(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
+            # print(f"Executing action for agent {aid} ({self.agent_names[aid]}
             print(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
             print(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
             # print("******")
@@ -506,13 +540,14 @@ class AI2ThorEnv(BaseEnv):
             # print("******")
             if act != "Idle":
                 action_dict = self.parse_action(act, aid)
+                if self.save_logs:
+                    self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
                 print(f"Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
                 self.event = self.controller.step(action_dict)
                 success = self.event.events[aid].metadata["lastActionSuccess"]
             else:
                 success = True
 
-            # if act != "Idle":
             self.step_num[aid] += 1
             if not success:
                 self.agent_failure_acts[self.agent_names[aid]].append(act)
@@ -530,7 +565,10 @@ class AI2ThorEnv(BaseEnv):
 
             sub = self.current_hl.get(aid)
             if sub:
+                print(f'previous success: {self.subtask_success_history[self.agent_names[aid]]}')
                 if self.is_subtask_done(sub, aid):
+                    if self.save_logs:
+                        self.logs.append(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
                     print(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
                     self.current_hl[aid] = None
                     self.action_queue[aid].clear()
@@ -541,6 +579,7 @@ class AI2ThorEnv(BaseEnv):
                 #                        for i in range(self.num_agents) ])
 
             self.action_queue[aid].clear()
+            self.logs.append(f"Current success subtask: {self.subtask_success_history}")
 
             if not self.skip_save_dir:
                 self.save_last_frame(agent_id=aid, view="pov",
@@ -570,11 +609,19 @@ class AI2ThorEnv(BaseEnv):
             self.pending_high_level[aid] = deque(tasks)
             self.current_hl[aid] = None
             self.action_queue[aid].clear()
+        
+        if self.save_logs:
+            self.logs.append(f"Initializing action loop with high level tasks:")
+            self.logs.append(f"pending high level tasks: {self.pending_high_level}")
+            self.logs.append(f"nxt task: {self.current_hl}")
+            self.logs.append(f"current action queue: {self.action_queue}")
+            self.logs.append("-------------------------")
         # print("Initializing action loop with high level tasks:")
         # print(f"pending high level tasks: {self.pending_high_level}")
         # print(f"nxt task: {self.current_hl}")
         # print(f"current action queue: {self.action_queue}")
         # print("-------------------------")
+
         history = []
         start_time = time.time()
         while True:
@@ -597,6 +644,12 @@ class AI2ThorEnv(BaseEnv):
             elapsed = time.time() - start_time
             if self.timeout and elapsed > self.timeout:
                 break
+            if self.save_logs:
+                self.logs.append("-------------------------")
+                self.logs.append(f"pending high level tasks: {self.pending_high_level}")
+                self.logs.append(f"nxt task: {self.current_hl}")
+                self.logs.append(f"current action queue: {self.action_queue}")
+
             # print(f"pending high level tasks: {self.pending_high_level}")
             # print(f"nxt task: {self.current_hl}")
             # print(f"current action queue: {self.action_queue}")
@@ -605,12 +658,22 @@ class AI2ThorEnv(BaseEnv):
             obs, succ = self.exe_step([])
             history.append((obs, succ))
             # debug
+            if self.save_logs:
+                self.logs.append(f"----------Step {self.step_num[0]}------------")
+                self.logs.append(f"Step {self.step_num[0]}: {obs}")
+                self.logs.append(f"Action success: {succ}")
             # print(f"----------Before {self.step_num[0]}------------")
             # print(f"pending high level tasks: {self.pending_high_level}")
             # print(f"nxt task: {self.current_hl}")
             # print(f"current action queue: {self.action_queue}")
             # print(f"----------After {self.step_num[0]}------------")
 
+        if self.save_logs:
+            self.logs.append("----------End-----------")
+            filename = self.base_path / "logs.txt"
+            with open(filename, "w", encoding="utf-8") as f:
+                for log in self.logs:
+                    f.write(str(log) + "\n")
 
         return history
 
@@ -633,45 +696,83 @@ class AI2ThorEnv(BaseEnv):
         self.rotate_actions = ["RotateRight", "RotateLeft"]
         self.look_actions = ["LookUp", "LookDown"]
         self.idle_actions = ["Done", "Idle"]
+        self.subtask_success_history
         """
+        suc = False
         if subtask in self.idle_actions or subtask in self.move_actions or subtask in self.rotate_actions or subtask in self.look_actions: 
-            return True
+            suc = True
+            self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
+            return suc
 
         # subtask  "PickupObject(Tomato_1)"
         name, obj = subtask[:-1].split("(", 1)
         # print(f'checking action: {name} with obj: {obj}')
 
         if name == "PickupObject":
-            return self.inventory[agent_id] == obj
+            suc = self.inventory[agent_id] == obj
+            # return self.inventory[agent_id] == obj
 
         elif name == "PutObject":
             if self.inventory[agent_id] != "nothing":
-                return False
+                suc = False
+                return suc
             else: # TBD
-                return True
-            status = self.get_object_status(obj)
-            contains = status.get("contains") or []
-            return obj in contains
+                recep_status = self.get_object_status(obj)
+                contains = recep_status.get("contains") or []
+                prev_sub = ""
+                for i in range(len(self.subtask_success_history[self.agent_names[agent_id]])-1, -1, -1):
+                    a = self.subtask_success_history[self.agent_names[agent_id]][i]
+                    if a.startswith("PickupObject"):
+                        # check if the previous subtask is pickup
+                        # e.g. suppose to be navigateTo() -> pickup() -> put()
+                        prev_sub = a
+                        break
+                # prev_sub = self.subtask_success_history[self.agent_names[agent_id]][-2] # suppose to be navigateTo() -> pickup()
+                if not prev_sub:
+                    return False
+                prev_name, prev_obj = prev_sub[:-1].split("(", 1)
+                prev_obj = prev_obj.split("_")[0]
+                print(f"Previous action: {prev_name} with object: {prev_obj}")
+                print(f"Checking if {prev_obj} is in the container: {contains}: {prev_obj in contains}")
+                for obj_in_container in contains:
+                    if obj_in_container.startswith(prev_obj):
+                        suc = True
+                        break
+                
+
+                # return suc
+            # status = self.get_object_status(obj)
+            # contains = status.get("contains") or []
+            # suc = True
+            # # return obj in contains
 
         elif name == "OpenObject":
-            return self.get_object_status(obj).get("is_open", False)
+            suc = self.get_object_status(obj).get("is_open", False)
+            # return self.get_object_status(obj).get("is_open", False)
         elif name == "CloseObject":
-            return not self.get_object_status(obj).get("is_open", False)
+            suc = not self.get_object_status(obj).get("is_open", False)
+            # return not self.get_object_status(obj).get("is_open", False)
 
         elif name == "ToggleObjectOn":
-            return self.get_object_status(obj).get("is_on", False)
+            suc = self.get_object_status(obj).get("is_on", False)
+            # return self.get_object_status(obj).get("is_on", False)
         elif name == "ToggleObjectOff":
-            return not self.get_object_status(obj).get("is_on", False)
+            suc = not self.get_object_status(obj).get("is_on", False)
+            # return not self.get_object_status(obj).get("is_on", False)
 
         elif name == "BreakObject":
-            return self.get_object_status(obj).get("isBroken", False)
+            suc = self.get_object_status(obj).get("isBroken", False)
+            # return self.get_object_status(obj).get("isBroken", False)
         elif name == "SliceObject":
-            return self.get_object_status(obj).get("isSliced", False)
+            suc = self.get_object_status(obj).get("isSliced", False)
+            # return self.get_object_status(obj).get("isSliced", False)
 
         elif name == "FillObjectWithLiquid":
-            return self.get_object_status(obj).get("isFilledWithLiquid", False)
+            suc = self.get_object_status(obj).get("isFilledWithLiquid", False)
+            # return self.get_object_status(obj).get("isFilledWithLiquid", False)
         elif name == "EmptyLiquidFromObject":
-            return not self.get_object_status(obj).get("isFilledWithLiquid", True)
+            suc = not self.get_object_status(obj).get("isFilledWithLiquid", True)
+            # return not self.get_object_status(obj).get("isFilledWithLiquid", True)
         elif name == "NavigateTo":
             # check if the agent is at the object and if the object is in view
             
@@ -681,24 +782,32 @@ class AI2ThorEnv(BaseEnv):
 
             if obj_id not in self.get_object_in_view(agent_id):
                 # not in view
-                return False
+                suc = False
+                # return False
             else:
                 # check if the object is within 0.5m distance
                 agent_pos = self.get_agent_position_dict(agent_id)
                 obj_metadata = next(obj for obj in self.event.metadata["objects"] if obj["objectId"] == obj_id)
                 obj_pos = obj_metadata["position"]
-                # print(f"Checking distance for NavigateTo: {obj_id} at {obj_pos} and agent at {agent_pos}")
-                dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
                 
-                if dist > 0.5:
+                dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
+                print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
+                if dist > 1.0:
                     # error_type += f": distance-too-far ({dist:.2f}m)"
-                    return False 
+                    suc = False
+                    return suc 
+                elif obj in self.receptacle_objects:
+                    suc = True
+                    self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
+                    return suc
+                    # return True
                 # check if the object is in center view
                 agnet_rot = self.event.events[agent_id].metadata["agent"]["rotation"]["y"]
-                return self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot)
-               
-        
-        return True
+                suc = self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot)
+                # return self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot)
+        if suc:
+            self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
+        return suc
 
     def is_object_in_center_view(self, agent_pos, object_pos, agent_yaw_deg, threshold_deg=30):
         x_a, y_a, z_a = agent_pos['x'], agent_pos['y'], agent_pos['z']
