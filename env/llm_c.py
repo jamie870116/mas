@@ -23,11 +23,12 @@ import subprocess
 import time
 
 from openai import OpenAI
-from env_b import AI2ThorEnv
+from env_cen import AI2ThorEnv_cen as AI2ThorEnv
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.helpers import save_to_video
 
-client = OpenAI(api_key=Path('api_key.txt').read_text())
+client = OpenAI(api_key=Path('api_key_ucsb.txt').read_text())
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -282,8 +283,7 @@ ai2thor_actions = {
     #     "LookDown<angle>"
     # ],
     "idle": [
-        "Idle",
-        "Done"
+        "Idle"
     ],
     "interact_with_object": [
         "NavigateTo<object_name>",
@@ -307,130 +307,10 @@ ai2thor_actions = {
         "ThrowObject"
     ]
 }
-ACTIONS = f'''
-## list of action that can be performed by the robot
-{ai2thor_actions}
-'''
 
-# You are given a list of all object types that may appear in a {_scene_type(config["scene"])} environment, along with their supported interactions.
-
-# This is **not** the list of objects currently present in the scene, but a reference for what types of objects and actions are possible in such environments. 
-# Use this knowledge to ensure that any actions you generate are logically valid and feasible for the given object types.
-
-# Below is the reference list for the {_scene_type(config["scene"])} scene: {CURRENT_OBJECT_REFERENCE}
-
-ACTION_PROMPT = f"""
-You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
-They can perform the following actions: {ACTIONS}
-
-“Done” is used to indicate that the robot has completed its task and is ready to stop.
-“Idle” is used to let a robot wait in place for one step, if necessary.
-
-### Task ###
-You will get a description of the task robots are supposed to do. 
-You will get the current state of the enviroment, including the list of objects in the environment.
-You will get the subtasks that the robots are supposed to complete in order to achieve the final goal(Task), based on the objects in the environment and the ability of robots.
-
-Based on the above information, you need to break down each subtask into smaller actions and assign these subtasks to the appropriate robot.
-
-* Make sure your output length is correct: the length of the Actions list must equal the number of robots. 
-For example, if there are two robots, the Actions list should contain exactly two elements, one for each robot agent.
-
-### INPUT FORMAT ###
-{{
-Task: a high level description of the final goal the robots are supposed to do/complete,
-Number of agents: the number of robots in the environment,
-Subtasks: a list of subtasks that the robots are supposed to complete in order to achieve the final goal(Task),
-Objects:  a list of objects in the current enviroment.
-}}
-
-
-### OUTPUT FORMAT ###
-You will output a list of actions for each robot in the following format, in json format:
-{{
-"Actions": [[actions for robot 1], [actions for robot 2], ..., [actions for robot N]],
-}}
-
-where each actions is a list of strings in the format of "ActionName<arg1, arg2, ...>".
-For example, if robot 1 should pick up an object with id "Object_1" and put the object on the table with id "Table_1", the output should be:
-[[NavigateTo<Object_1>, PickupObject<Object_1>, NavigateTo<Table_1>, PutObject<Table_1>], [Idle], ...]
-<Object_1> and <Table_1> are the name plus the number of the object in the environment. If there are multiple objects with the same name but different id, you can use the number to distinguish them, e.g. "Object_1", "Object_2", etc. don't use the id only.
-
-* Example1:
-if given INPUT subtasks are:
-{{"
-"Number of agents": 2,
-"Task": "bring a vase, tissue box, and remote control to the counter top to make a sandwich",
-"Subtasks": [
-    ["pick up the vase and put it on the table"],
-    ["pick up the tissue box and put it on the table"],
-    ["pick up the remote control and put it on the table"]
-],
-}}
-
-* The OUTPUT could be:
-{{
-"Actions": [
-    ["NavigateTo(Vase_1)", "PickupObject(Vase_1)", "NavigateTo(Table_1)", "PutObject(Table_1)"],
-    ["NavigateTo(TissueBox_1)", "PickupObject(TissueBox_1)", "NavigateTo(Table_1)", "PutObject(Table_1)", "NavigateTo(RemoteControl)", "PickupObject<RemoteControl>", "PutObject(Table_1)","PutObject<Table_1>"]
-]
-}}
-which means:
-- Robot 1 should pick up the Vase with "Vase_1" and put it on the table with "Table_1"
-- Robot 2 should pick up the tissue box with "TissueBox_1" and put it on the counter top with "Table_1", then pick up the remote control with "RemoteControl_1" and put it on the table with "Table_1".
-
-
-* Example2:
-if given INPUT subtasks are:
-{{
-"Number of agents": 2,
-"Task": "put the Book inside the drawer",
-"Subtasks": ["put the Book inside the drawer"]
-}}
-
-* the OUTPUT could be:
-{{ "Actions": 
-[["NavigateTo(Drawer_1)", "OpenObject(Drawer_1)", "NavigateTo(Book_1)", "PickupObject(Book_1)",,"PutObject(Drawer_1)", "CloseObject(Drawer_1)"],["Idle"]]
-}}
-
-Note: This subtask combines opening, placing, and closing into one sequence, since the drawer must be opened before placing the item and closed afterward. The robot must have empty hands to operate the drawer.
-
-### Important Notes ###
-* The `Actions` list must contain exactly {len(AGENT_NAMES)} sublists—one for each robot. Each sublist should include the full sequence of actions for that robot.
-* Each robot's action list should be a sequential plan—actions should be performed in order and not interleaved with other robots.
-* Make sure that the objects you suggest the robots to interact with are actually in the environment.
-* Plan actions that are consistent with the object's real-world behavior and usage.
-* Do not use OpenObject on surfaces like tables or countertops.
-* For any Openable receptacle (e.g., drawer, fridge, cabinet), you MUST:
-    - Open the container before placing any object inside;
-    - Ensure the robot has empty hands before opening or closing;
-    - Close the container after placing the object.
-* Robots cannot open objects (e.g., drawers, cabinets, fridge) while holding something. Ensure the robot's hand is empty before attempting to open or close objects.
-* If an object needs to be placed inside an openable container, open it first before placing the item.
-* Openable object like drawers, cabinets, fridge can block the path of the robot. So open objects only when you think it is necessary.
-* If you open an object, please ensure that you close it before you move to a different place.
-* When possible do not perform extraneous actions when one action is sufficient (e.g. only do CleanObject to clean an object, nothing else)
-* If you need to put an object on a receptacle, you need to pick it up first, then navigate to the receptacle, and then put it on the receptacle.
-* The robots can hold only one object at a time. Make sure that the actions you suggest do not require the robots to hold more than one object at a time.
-* Since there are {len(AGENT_NAMES)} agents moving around in one room, make sure to plan subtasks and actions so that they don't block or bump into each other as much as possible. This is especially important because there are so many agents in one room.
-* Be aware that the robots will be performing actions in parallel, so make sure that the actions you suggest do not conflict with each other.
-* You should consider the position of the objects and the robots in the enviroment when assigning actions and receptacle to the robots.
-* The number of subtasks may be greater than the number of robots. You may distribute the subtasks in any way you deem optimal.
-* A robot can handle multiple subtasks in a single plan, but each robot must only appear once in the `Actions` list.
-* Do NOT assume or default to common receptacles like CounterTop or Table unless explicitly specified in the task.
-
-
-
-* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
-
-Let's work this out in a step by step way to be sure we have the right answer.
-"""
-# You are given a list of all object types that may appear in a {_scene_type(config["scene"])} environment, along with their supported interactions.
-# This is **not** the list of objects currently present in the scene, but a reference for what types of objects and actions are possible in such environments. 
-# Use this knowledge to ensure that any actions you generate are logically valid and feasible for the given object types.
 PLANNER_PROMPT = f"""
 You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
-They can perform the following actions: {ACTIONS}
+They can perform the following actions: {ai2thor_actions}
 
 ### TASK ###
 You will get a description of the task robots are supposed to do.
@@ -442,7 +322,6 @@ For example, if the task is "Put the vase, tissue box, and remote control on the
 1. pick up the vase and put it on the table
 2. pick up the tissue box and put it on the table
 3. pick up the remote control and put it on the table 
-
 
 
 
@@ -526,7 +405,159 @@ Let's work this out in a step by step way to be sure we have the right answer.
 """
 
 ALLOCATOR_PROMPT = f"""
-You are an expert task allocator.
+
+You are an expert task allocator who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
+
+### TASK ###
+You will receive:
+- a task description outlining the overall goal,
+- the number of available robot agents,
+- and two lists: remaining subtasks and completed subtasks.
+
+Your job is to assign at most one subtask to each available agent at a time, in a way that helps fulfill the overall task.
+If a subtask depends on the completion of another subtask, assign "Idle" to the agent instead, until the prerequisite subtask is completed.
+Also output the subtasks that are not yet been assigned to any robot agent.
+- *Executable* means: all of its prerequisite subtasks (if any) appear in the **Robots' completed subtasks** list.
+- If a subtask is **not yet executable** (blocked by missing prerequisites), do **not** assign it. Instead, assign `"Idle"` to that agent (if no other executable subtask is available).
+- Do not assign the **same subtask** to multiple agents unless the subtask text explicitly indicates it is parallelizable (e.g., contains a marker like `[MULTI]` or specifies distinct targets).
+- If there are fewer open subtasks than agents, assign remaining agents `"Idle"`.
+
+Also return the list of **unassigned subtasks** (these are the open subtasks that remain after this allocation—include both blocked and unallocated-but-executable ones that you did not assign this round).
+
+
+### INPUT FORMAT ###
+{{Task: description of the task the robots are supposed to do,
+Number of agents: number of agents in the environment,
+Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
+Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+}}
+
+### OUTPUT FORMAT ###
+Return a JSON object:
+{{
+  "Allocation": {{
+    "agent1": "subtask or Idle",
+    "agent2": "subtask or Idle",
+    ...
+    "agentN": "subtask or Idle"
+  }},
+  "Remain": ["unassigned_subtask1", "unassigned_subtask2", ...]
+}}
+
+
+
+### Important Notes ###
+* Each agent can be assigned at most one subtask.
+* A subtask can only be assigned if all its prerequisites have been completed.
+* Do **not** assign the **same subtask** to multiple agents.
+* If no subtasks are available for an agent, assign `"Idle"`.
+* **NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED**
+
+Let's work this out in a step by step way to be sure we have the right answer.
+"""
+
+
+
+ACTION_PROMPT = f"""
+
+You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
+They can perform the following actions:
+{ai2thor_actions}
+
+"Idle" is used to let a robot wait in place for one step, if necessary.
+
+
+### Task ###
+You will receive:
+- a high-level description of the overall task the robots are supposed to complete,
+- a list of objects present in the environment,
+- a list of subtasks that need to be completed.
+
+Your job is to break down each subtask independently into a list of executable actions that a robot can perform to complete it.
+
+
+### INPUT FORMAT ###
+{{
+  "Task": <string> — description of the overall goal,
+  "Number of agents": <int> — number of available robots,
+  "Objects": <list<string>> — list of object in the environment,
+  "Subtasks": <list<string>> — list of subtasks; each subtask is to be broken down into actions
+}}
+
+### OUTPUT FORMAT ###
+Return a JSON object in the following format:
+{{
+  "Actions": [
+    [<action_1_for_subtask_1>, <action_2_for_subtask_1>, ...],
+    [<action_1_for_subtask_2>, <action_2_for_subtask_2>, ...],
+    ...
+  ]
+}}
+
+# Note:
+Each action must be a string in the format: ActionName<Object_ID or arguments>
+For example, to pick up an object with ID "Object_1" and place it on a table with ID "Table_1":
+[
+  ["NavigateTo(Object_1)", "PickupObject(Object_1)", "NavigateTo(Table_1)", "PutObject(Table_1)"],
+  ...
+]
+<Object_ID> should match the names in the "Objects" list. If there are multiple objects of the same type, use numbered identifiers like "Book_1", "Book_2", etc. — do not use object names without identifiers.
+
+
+# Example1:
+if given INPUT subtasks are:
+{{"
+"Subtasks": [
+    ["pick up the vase and put it on the table"],
+    ["pick up the tissue box and put it on the table"],
+],
+}}
+
+* The OUTPUT could be:
+{{
+"Actions": [
+    ["NavigateTo(Vase_1)", "PickupObject(Vase_1)", "NavigateTo(Table_1)", "PutObject(Table_1)"],
+    ["NavigateTo(TissueBox_1)", "PickupObject(TissueBox_1)", "NavigateTo(Table_1)", "PutObject(Table_1)"]
+]
+}}
+
+
+* Example2:
+if given INPUT subtasks are:
+{{
+"Task": "put the Book inside the drawer",
+"Subtasks": ["put the Book inside the drawer", "Idle"]
+}}
+
+* the OUTPUT could be:
+{{ "Actions": 
+[["NavigateTo(Drawer_1)", "OpenObject(Drawer_1)", "NavigateTo(Book_1)", "PickupObject(Book_1)",,"PutObject(Drawer_1)", "CloseObject(Drawer_1)"],["Idle"]]
+}}
+Note: The drawer must be opened before placing the item, and closed afterward. The robot must have empty hands to operate the drawer.
+
+
+### Important Notes ###
+* Each subtask must be broken down into a **sequential list of feasible atomic actions**, based on the available actions defined above.
+* The output must contain one list of actions for each input subtask, in the same order. The i-th subtask must correspond to the i-th action list.
+* Use only objects listed in the "Objects" input. Do not invent object names or assume availability.
+* All object references in the action strings must include the object no. (e.g., "Book_1", not just "Book").
+* If a subtask is "Idle", return a single action ["Idle"].
+* Actions must follow physical and semantic feasibility:
+    - Robots must navigate to an object before interacting with it.
+    - To place an object inside or on another object, the robot must first pick up the object.
+    - Robots can only hold **one object at a time**.
+    - Do not open containers while holding an object—robots must have empty hands to open or close openable objects.
+    - When placing an object inside an openable container (e.g., Drawer, Cabinet, Fridge), the container must be opened first and closed afterward.
+    - Do not use OpenObject on non-openable objects like tables or countertops.
+* Minimize redundant or unnecessary actions. For example:
+    - Use only CleanObject when cleaning is needed—do not combine with unrelated actions.
+    - Do not open containers unless it is required to fulfill the subtask.
+    - Close openable containers only if the robot had opened them earlier in the same sequence.
+* Do not assume default targets (e.g., Table or CounterTop) unless the subtask or task explicitly mentions them.
+* Each subtask’s action list should be complete and self-contained. You should not assume external context, shared memory, or agent collaboration.
+
+* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN JSON AS DESCRIBED
+Let's work this out in a step by step way to be sure we have the right answer.
 """
 
 def convert_dict_to_string(input_dict) -> str:
@@ -571,7 +602,7 @@ def set_env_with_config(config_file: str):
     return env, config
 
 
-def get_llm_response(payload, model = "gpt-4o-mini", temperature= 0.7, max_tokens=1024) -> str:
+def get_llm_response(payload, model = "gpt-4o", temperature= 0.7, max_tokens=1024) -> str:
     response = client.chat.completions.create(model=model, 
                                                 messages=payload, 
                                                 max_tokens=max_tokens, 
@@ -618,9 +649,11 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         input = env.get_center_llm_input()
         input["Subtasks"] = subtasks
         user_prompt = convert_dict_to_string(input)
+
     elif mode == "allocator":
         system_prompt = ALLOCATOR_PROMPT
         input = env.get_center_allocator_llm_input()
+        user_prompt = convert_dict_to_string(input)
     user_prompt += addendum
     return system_prompt, user_prompt
 
@@ -654,11 +687,14 @@ def process_actions_llm_output(res_content):
         print(f"[Warning] Initial JSON decode failed: {e}")
 
         try:
-            # 去除結尾多餘逗號
+            if res_content.startswith("```json"):
+                res_content = res_content.removeprefix("```json").strip()
+            elif res_content.startswith("```"):
+                res_content = res_content.removeprefix("```").strip()
+            if res_content.endswith("```"):
+                res_content = res_content[:-3].strip()
             res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
-            # 單引號換雙引號（簡單處理）
             res_content = res_content.replace("'", '"')
-            # 移除前後空白
             res_content = res_content.strip()
 
             data = json.loads(res_content)
@@ -666,6 +702,57 @@ def process_actions_llm_output(res_content):
         except Exception as e2:
             print(f"[Error] Failed to parse fixed JSON: {e2}")
             return None
+
+def process_allocator_llm_output(res_content):
+    """
+    Input:
+    {
+        "Allocation": {
+            "agent1": "pick up the tomato and put it on the countertop",
+            "agent2": "pick up the lettuce and put it on the countertop"
+        },
+        "Remain": [
+            "pick up the bread and put it on the countertop"
+        ]
+    }
+    Output:
+    allocation: [subtask, subtask]
+    remain: []
+    """
+    try:
+        remain = json.loads(res_content)["Remain"]
+        allocations = json.loads(res_content)["Allocation"]
+        res = []
+        for i in range(NUM_AGENTS):
+            key = 'agent' + str(i+1)
+            if key in allocations:
+                res.append(allocations[key].strip('"\''))
+            else:
+                res.append("Idle")
+        return res, remain
+    except json.JSONDecodeError as e:
+        print(f"[Warning] Initial JSON decode failed: {e}")
+        try:
+            res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
+            res_content = res_content.replace("'", '"')
+            res_content = res_content.strip()
+
+            data = json.loads(res_content)
+            remain = data["Remain"]
+            allocations = data["Allocation"]
+            res = []
+            for i in range(NUM_AGENTS):
+                key = 'agent' + str(i+1)
+                if key in allocations:
+                    res.append(allocations[key].strip('"\''))
+                else:
+                    res.append("Idle")
+            return res, remain
+        except Exception as e2:
+            print(f"[Error] Failed to parse fixed JSON: {e2}")
+            return None
+    
+
 
 def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
     """
@@ -694,13 +781,13 @@ def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
         print('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
         save_to_video('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
 
-def initial_subtask_planning(env):
+def initial_subtask_planning(env, config):
     """初始階段：由 LLM 進行任務分解與編輯"""
     # ---1. Planner LLM 產生初步 subtasks
     
     # planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
     # planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
-    # res, res_content = get_llm_response(planner_payload)
+    # res, res_content = get_llm_response(planner_payload, model=config['model'])
     
     # subtasks = process_planner_llm_output(res_content)
     # print(f"After Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
@@ -708,7 +795,7 @@ def initial_subtask_planning(env):
     # # ---2. Editor LLM 修正 subtasks
     # editor_prompt, editor_user_prompt = prepare_prompt(env, mode="editor", subtasks=subtasks)
     # editor_payload = prepare_payload(editor_prompt, editor_user_prompt)
-    # res, res_content = get_llm_response(editor_payload)
+    # res, res_content = get_llm_response(editor_payload, model=config['model'])
 
     # subtasks = process_planner_llm_output(res_content)
     # print(f"After Editor LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
@@ -721,29 +808,45 @@ def initial_subtask_planning(env):
 def allocate_subtasks_to_agents(env):
     """分配 open_subtasks 給各 agent"""
     
-    allocator_prompt, allocator_user_prompt = prepare_prompt(env, mode="allocator")
-    allocator_payload = prepare_payload(allocator_prompt, allocator_user_prompt)
-    # res, res_content = get_llm_response(allocator_payload)
-    # return agent_assignments: dict {agent_name: subtask}  
-    pass
+    # allocator_prompt, allocator_user_prompt = prepare_prompt(env, mode="allocator")
+    # allocator_payload = prepare_payload(allocator_prompt, allocator_user_prompt)
+    # print("allocator system prompt: ", allocator_prompt)
+    # print("allocator user prompt: ", allocator_user_prompt)
+    # res, res_content = get_llm_response(allocator_payload, model=config['model'])
+    # print('llm output', res_content)
+    # allocation, remain = process_allocator_llm_output(res_content)
 
-def decompose_subtask_to_actions(subtask, env):
+    # for testing
+    allocation =  ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop']
+    remain =  ['pick up the bread and put it on the countertop']
+    
+    return allocation, remain
+
+def decompose_subtask_to_actions(env, subtasks):
     """將 subtask 拆解成 atomic actions（LLM）"""
-    # return actions: list
-    pass
+    # action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks)
+    # action_payload = prepare_payload(action_prompt, action_user_prompt)
+    # print("action prompt:", action_prompt)
+    # print("action user prompt:", action_user_prompt)
+    # res, res_content = get_llm_response(action_payload, model=config['model'])
+    # print('llm output', res_content)
+    # actions = process_actions_llm_output(res_content)
+    actions = [['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']]
+    return actions
+
 
 def execute_agent_actions(env):
     """執行所有 agent 當前 atomic actions"""
     obs, succ = env.exe_step([])
     pass
 
-# def verify_subtask_completion(open_subtasks, env):
-#     """驗證哪些 subtask 已完成（rule-based + LLM）"""
-#     # return completed_now: list of just finished subtasks
-#     pass
+def verify_subtask_completion(env):
+    """驗證哪些 subtask 已完成（rule-based + LLM）"""
+    # return completed_now: list of just finished subtasks
+    pass
 
 def replan_open_subtasks(task, completed_subtasks, env):
-    """根據已完成的 subtask 重新規劃（Planner+Editor LLM）"""
+    """根據已完成的 subtask 重新規劃（Planner+Editor LLM with failures or remaining subtasks）"""
     # return open_subtasks: list
     pass
 
@@ -786,35 +889,44 @@ def run_main():
     agents = env.agent_names
     task = config["task"]
     timeout = config["timeout"]
-
+    obs = env.reset(test_case_id=config['test_id'])
     # --- initial subtask planning
     open_subtasks, completed_subtasks = initial_subtask_planning(env, config)
+    env.update_plan(open_subtasks, completed_subtasks)
+    print("open_subtasks: ", env.open_subtasks)
+    print("closed_subtasks: ", env.closed_subtasks)
 
-    # --- loop start
-    start_time = time.time()
-    while open_subtasks and (time.time() - start_time < timeout):
+    agent_assignments, remain = allocate_subtasks_to_agents(env)
+    print("agent_assignments: ", agent_assignments)
+    print("remain unassigned subtasks: ", remain)
+    actions = decompose_subtask_to_actions(env, agent_assignments)
+    print("actions: ", actions)
+    # # --- loop start
+    # start_time = time.time()
+    # while open_subtasks and (time.time() - start_time < timeout):
 
-        update_plan(env, open_subtasks, completed_subtasks)
-        # 1. 任務分配
-        agent_assignments = allocate_subtasks_to_agents(open_subtasks, agents, env)
+    #     # update_plan(env, open_subtasks, completed_subtasks)
+    #     env.update_plan(open_subtasks, completed_subtasks)
+    #     # 1. 任務分配
+    #     agent_assignments = allocate_subtasks_to_agents(env)
         
-        # 2. 拆解每個 agent 當前 subtask 為 actions
-        actions_per_agent = {}
-        for agent, subtask in agent_assignments.items():
-            actions_per_agent[agent] = decompose_subtask_to_actions(subtask, env)
+    #     # 2. 拆解每個 agent 當前 subtask 為 actions
+    #     actions_per_agent = {}
+    #     for agent, subtask in agent_assignments.items():
+    #         actions_per_agent[agent] = decompose_subtask_to_actions(subtask, env)
         
-        # 3. 執行 atomic action
-        observations = execute_agent_actions(env, actions_per_agent)
+    #     # 3. 執行 atomic action
+    #     observations = execute_agent_actions(env, actions_per_agent)
         
-        # 4. 檢查哪些 subtask 完成
-        completed_now = verify_subtask_completion(open_subtasks, env)
-        completed_subtasks.extend(completed_now)
-        open_subtasks = [s for s in open_subtasks if s not in completed_now]
+    #     # 4. 檢查哪些 subtask 完成
+    #     completed_now = verify_subtask_completion(open_subtasks, env)
+    #     completed_subtasks.extend(completed_now)
+    #     open_subtasks = [s for s in open_subtasks if s not in completed_now]
         
-        # 5. 如還有 open_subtasks，則進行 replan
-        if open_subtasks:
-            open_subtasks = replan_open_subtasks(task, completed_subtasks, env)
-        # else: 所有任務完成
+    #     # 5. 如還有 open_subtasks，則進行 replan
+    #     if open_subtasks:
+    #         open_subtasks = replan_open_subtasks(task, completed_subtasks, env)
+    #     # else: 所有任務完成
 
     env.close()
 

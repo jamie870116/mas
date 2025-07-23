@@ -755,8 +755,8 @@ def run_main():
     ## ----planner
     planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
 
-    # print(f"Planner Prompt: {planner_prompt}")
-    # print(f"Planner User Prompt: {planner_user_prompt}")
+    print(f"Planner Prompt: {planner_prompt}")
+    print(f"Planner User Prompt: {planner_user_prompt}")
 
     planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
     # print(f"Payload for LLM: {planner_payload}")
@@ -781,8 +781,8 @@ def run_main():
     # ## ----Editor
     editor_prompt, editor_user_prompt = prepare_prompt(env, mode="editor", subtasks=subtasks)
 
-    # print(f"editor Prompt: {editor_prompt}")
-    # print(f"editor User Prompt: {editor_user_prompt}")
+    print(f"editor Prompt: {editor_prompt}")
+    print(f"editor User Prompt: {editor_user_prompt}")
 
     editor_payload = prepare_payload(editor_prompt, editor_user_prompt)
     # print(f"Payload for LLM: {editor_payload}")
@@ -797,8 +797,8 @@ def run_main():
     # ## ----Action
     action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks)
 
-    # print(f"Action Prompt: {action_prompt}")
-    # print(f"Action User Prompt: {action_user_prompt}")
+    print(f"Action Prompt: {action_prompt}")
+    print(f"Action User Prompt: {action_user_prompt}")
 
     action_payload = prepare_payload(action_prompt, action_user_prompt)
     # print(f"Payload for LLM: {action_payload}")
@@ -811,13 +811,13 @@ def run_main():
 
     # testing
     # high_level_tasks = [['Idle'], ['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)']]
-    run_test(
-        env,
-        high_level_tasks=high_level_tasks,
-        test_name=f"Test {config['test_id']}",
-        test_id=config["test_id"],
-        task_name = config["task"] if "task" in config else "Test Task",
-    )
+    # run_test(
+    #     env,
+    #     high_level_tasks=high_level_tasks,
+    #     test_name=f"Test {config['test_id']}",
+    #     test_id=config["test_id"],
+    #     task_name = config["task"] if "task" in config else "Test Task",
+    # )
     env.close()
     
 

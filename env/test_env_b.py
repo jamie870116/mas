@@ -93,16 +93,17 @@ if __name__ == "__main__":
     #     task_name = task_name,
     # )
 
-    obs = env.reset(test_case_id="4")
+    obs = env.reset(test_case_id="6")
     # objects_in_view_alice = env.get_readable_object_list(env.get_object_in_view(0))
     
     high_level_tasks = [
         ['NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(Fridge_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'], ['Idle']
     ]
+    
     run_test(
         env,
         high_level_tasks=high_level_tasks,
-        test_name="Test 4",
-        test_id=4,
+        test_name="Test 6",
+        test_id=6,
         task_name = task_name,
     )

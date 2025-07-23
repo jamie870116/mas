@@ -251,7 +251,7 @@ class BaseEnv:
         failure_text += " but was unsuccessful."
         return failure_text
 
-class AI2ThorEnv(BaseEnv):
+class AI2ThorEnv_cen(BaseEnv):
     """Main AI2THOR environment for multi-agent tasks with global timer and frame saving."""
     def __init__(self, config_path: str = "config.json"):
         super().__init__()
@@ -282,9 +282,10 @@ class AI2ThorEnv(BaseEnv):
         self.inventory = ["nothing"] * self.num_agents
         self.subtasks = ["Initial subtask"] if self.use_shared_subtask else ["Initial subtask"] * self.num_agents
         self.memory = ["Nothing"] if self.use_shared_memory else ["Nothing"] * self.num_agents
+
         self.open_subtasks = "None" if self.use_plan else None
         self.closed_subtasks = "None" if self.use_plan else None
-        # self.input_dict = {}
+        self.input_dict = {}
         self.step_num = [0] * self.num_agents
         
 
@@ -305,8 +306,8 @@ class AI2ThorEnv(BaseEnv):
         self.verbose = True
         self.skip_save_dir = False
         self.grid_size = 0.25
-        self.previous_object_ids = [None] * self.num_agents
-        self.previous_positions = [None] * self.num_agents
+        # self.previous_object_ids = [None] * self.num_agents
+        # self.previous_positions = [None] * self.num_agents
         self.start_time = None
         self.total_elapsed_time = 0.0
     
@@ -334,11 +335,10 @@ class AI2ThorEnv(BaseEnv):
         self.all_obs_dict = {name: [] for name in self.agent_names}
         self.open_subtasks = "None" if self.use_plan else None
         self.closed_subtasks = "None" if self.use_plan else None
-        self.previous_object_ids = [None] * self.num_agents
-        self.previous_positions = [None] * self.num_agents
+        # self.previous_object_ids = [None] * self.num_agents
+        # self.previous_positions = [None] * self.num_agents
         self.start_time = time.time()
         self.total_elapsed_time = 0.0
-        self.input_dict = {}
         self.input_dict["Task"] = task
         self.logs = []
         # get third party camera properties: overhead view
@@ -1058,6 +1058,13 @@ class AI2ThorEnv(BaseEnv):
             self.new_all_obs.append(obs_list)
         self.all_obs_dict = {self.agent_names[i]: self.new_all_obs[i] for i in range(self.num_agents)}
     
+    def update_plan(self, open_subtasks: List[str], closed_subtasks: List[str]):
+        self.open_subtasks = open_subtasks
+        self.closed_subtasks = closed_subtasks
+        self.input_dict["Robots' open subtasks"] = self.open_subtasks
+        self.input_dict["Robots' completed subtasks"] = self.closed_subtasks
+    
+
     def _get_ceiling_image(self):
         """Capture an overhead image by toggling map view."""
         # event = self.controller.step(action="ToggleMapView")
@@ -1381,7 +1388,17 @@ class AI2ThorEnv(BaseEnv):
         )
 
         return dict((k, self.input_dict[k]) for k in llm_input_feats)
-    # ----
+    
+    # ----own
+    def get_center_llm_input(self):
+        obj_list = self.get_all_objects()
+        return {
+            "Task": self.task,
+            "Number of agents": self.num_agents,
+            "Objects": obj_list,
+        }
+    
+    
     def get_center_allocator_llm_input(self):
         """
         Returns the input to the subtask LLM
@@ -1393,17 +1410,15 @@ class AI2ThorEnv(BaseEnv):
         }}
 
         """
-        return 
-
-    def get_center_llm_input(self):
-        obj_list = self.get_all_objects()
-        reachable_positions = self.get_cur_reachable_positions()
         return {
             "Task": self.task,
             "Number of agents": self.num_agents,
-            "Objects": obj_list,
-            # "reachable_positions": reachable_positions,
+            "Robots' open subtasks": self.open_subtasks,
+            "Robots' completed subtasks": self.closed_subtasks,
         }
+         
+
+    
 
 
     def convert_to_dict_objprop(self, objs, obj_mass, obj_id):
@@ -1425,7 +1440,7 @@ class AI2ThorEnv(BaseEnv):
 
 if __name__ == "__main__":
     config_path = "config/config.json"
-    env = AI2ThorEnv(config_path)
+    env = AI2ThorEnv_cen(config_path)
     obs = env.reset()
     print("Initial Observations:\n", obs)
     print("All objects in scene:", env.get_all_objects())
