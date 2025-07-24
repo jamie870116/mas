@@ -831,6 +831,8 @@ def decompose_subtask_to_actions(env, subtasks):
     # res, res_content = get_llm_response(action_payload, model=config['model'])
     # print('llm output', res_content)
     # actions = process_actions_llm_output(res_content)
+
+    # For testing 
     actions = [['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']]
     return actions
 
@@ -859,6 +861,54 @@ def update_plan(env, open_subtasks, completed_subtasks):
     env.input_dict["Robots' open subtasks"] = env.open_subtasks
     env.input_dict["Robots' completed subtasks"] = env.closed_subtasks
      
+def bundle_task_plan(subtasks, actions, decomp_actions):
+    """
+    Pack corresponding subtask, actions, and decomposed actions into aligned dicts.
+    [
+        { # for each agent
+            "subtask": str,       # 語意任務的自然語言描述
+            "actions": List[str], # 高階動作清單（LLM 輸出）
+            "steps": List[List[str]]  # 每個 high-level action 對應的原子步驟序列
+        }
+        ...
+    ]
+
+    Example:
+    [
+        {
+            "subtask": "pick up the tomato and put it on the countertop",
+            "actions": [
+                "NavigateTo(Tomato_1)",
+                "PickupObject(Tomato_1)",
+                "NavigateTo(CounterTop_1)",
+                "PutObject(CounterTop_1)"
+            ],
+            "steps": [
+                ['MoveAhead', 'MoveAhead', ..., 'RotateRight', 'MoveAhead'],
+                ['PickupObject(Tomato_1)'],
+                ['MoveAhead', 'MoveAhead', ..., 'RotateLeft'],
+                ['PutObject(CounterTop_1)']
+            ]
+        },
+        {
+            "subtask": "pick up the lettuce and put it on the countertop",
+            "actions": [...],
+            "steps": [...]
+        }
+    ]
+
+
+    """
+    assert len(subtasks) == len(actions) == len(decomp_actions), "Input lists must be of equal length"
+
+    bundled = []
+    for subtask, acts, decomp in zip(subtasks, actions, decomp_actions):
+        bundled.append({
+            "subtask": subtask,
+            "actions": acts,
+            "steps": decomp
+        })
+    return bundled
 
 def set_env_with_config(config_file: str):
     ''''
@@ -898,14 +948,26 @@ def run_main():
     env.update_plan(open_subtasks, completed_subtasks)
     # print("open_subtasks: ", env.open_subtasks)
     # print("closed_subtasks: ", env.closed_subtasks)
-
+    # 1. 任務分配
     agent_assignments, remain = allocate_subtasks_to_agents(env)
     # print("agent_assignments: ", agent_assignments)
     # print("remain unassigned subtasks: ", remain)
+    # 2. 拆解每個 agent 當前 subtask 為 actions
     actions = decompose_subtask_to_actions(env, agent_assignments)
     # print("actions: ", actions)
     decomp_actions = get_steps_by_actions(env, actions)
+    # 3. 執行動作，當所有agent完成當前子任務或是同時卡住時，更新子任務狀態並進入下一個循環
     # print("decomp_actions: ", decomp_actions)
+    cur_plan = bundle_task_plan(agent_assignments, actions, decomp_actions)
+    print("cur_plan: ", cur_plan)
+    isSuccess, info = env.stepwise_action_loop(cur_plan)
+    if not isSuccess:
+        print("Subtask failed. Need replan.")
+        print("Failure info:", info)
+        # replanning 邏輯可接續處理
+    elif isSuccess:
+        print("All subtasks completed successfully.")
+        print("Execution summary:", info)
 
     # # --- loop start
     # start_time = time.time()
