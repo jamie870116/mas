@@ -427,15 +427,19 @@ class AI2ThorEnv_cen(BaseEnv):
     self.object_interaction_actions = ["PickupObject", "PutObject", "OpenObject", "CloseObject", "ToggleObjectOn", "ToggleObjectOff", "BreakObject", "CookObject", "SliceObject", "DirtyObject", "CleanObject", "FillObjectWithLiquid", "EmptyLiquidFromObject", "UseUpObject"]
     self.object_interaction_without_navigation  = ["DropHandObject", "ThrowObject"]
     """
-    def step_decomp(self, actions: List[str], agent_id: int = None):
+    def step_decomp(self, actions: List[str], agent_id: int = None, isNeed2Add2Queue: bool = True):
         """break down the step into unit as define in Ai2Thor (MoveAhead, RotateRight etc.)"""
+        res = []
         if agent_id is not None:
             # 分解特定agent的动作
             action = actions[agent_id]
             if action.startswith("NavigateTo"):
                 obj = action.split("(")[1].rstrip(")")
                 nav = f"NavigateTo({obj})"
-                self.action_queue[agent_id].extend(self.get_navigation_step(nav, agent_id))
+                nav_steps = self.get_navigation_step(nav, agent_id)
+                if isNeed2Add2Queue:
+                    self.action_queue[agent_id].extend(nav_steps)
+                res = nav_steps
                 # nav_steps = self.get_navigation_step(action, agent_id)
                 # self.action_queue[agent_id].extend(nav_steps)
 
@@ -443,38 +447,93 @@ class AI2ThorEnv_cen(BaseEnv):
                 # obj = action.split("(")[1].rstrip(")")
                 # nav = f"NavigateTo({obj})"
                 # self.action_queue[agent_id].extend(self.get_navigation_step(nav, agent_id))
-                self.action_queue[agent_id].append(action)
+                if isNeed2Add2Queue:
+                    self.action_queue[agent_id].append(action)
+                res = action
 
             elif action in self.object_interaction_without_navigation:
-                self.action_queue[agent_id].append(action)
+                if isNeed2Add2Queue:
+                    self.action_queue[agent_id].append(action)
+                res = action
 
             elif action in self.idle_actions:
-                self.action_queue[agent_id].append("Idle")
+                if isNeed2Add2Queue:
+                    self.action_queue[agent_id].append("Idle")
+                res = "Idle"
 
             else:
-                self.action_queue[agent_id].append(action)
+                if isNeed2Add2Queue:
+                    self.action_queue[agent_id].append(action)
+                res = action
         else:
             # 分解所有agent的动作
             for agent_id, action in enumerate(actions):
                 if action.startswith("NavigateTo"):
                     nav_steps = self.get_navigation_step(action, agent_id)
-                    self.action_queue[agent_id].extend(nav_steps)
-
+                    if isNeed2Add2Queue:
+                        self.action_queue[agent_id].extend(nav_steps)
+                    res.extend(nav_steps)
+                    
                 elif action.startswith(tuple(self.object_interaction_actions)):
                     obj = action.split("(")[1].rstrip(")")
                     nav = f"NavigateTo({obj})"
-                    self.action_queue[agent_id].extend(self.get_navigation_step(nav, agent_id))
-                    self.action_queue[agent_id].append(action)
+                    if isNeed2Add2Queue:
+                        self.action_queue[agent_id].extend(self.get_navigation_step(nav, agent_id))
+                        self.action_queue[agent_id].append(action)
+                    res.append(action)
 
                 elif action in self.object_interaction_without_navigation:
-                    self.action_queue[agent_id].append(action)
+                    if isNeed2Add2Queue:
+                        self.action_queue[agent_id].append(action)
+
+                    res.append(action)
 
                 elif action in self.idle_actions:
-                    self.action_queue[agent_id].append("Idle")
+                    if isNeed2Add2Queue:
+                        self.action_queue[agent_id].append("Idle")
+                    res.append("Idle")
 
                 else:
-                    self.action_queue[agent_id].append(action)
-
+                    if isNeed2Add2Queue:
+                        self.action_queue[agent_id].append(action)
+                    res.append(action)
+        return res
+    
+    def actions_decomp(self, actions: List[str]):
+        # TBD: 從llm_c.py接收一系列動作，將其各自分解成可執行的原子動作，要回傳回去
+        '''
+        Input:
+        [
+        ['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], 
+        ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']
+        ]
+        Output:
+        [
+        [[nav_step],[PickupObject]...],
+        []
+        ]
+        '''
+        res = []
+        # 分解特定agent的动作
+        for agent_id, agent_actions in enumerate(actions):
+            res_agent = []
+            for action in agent_actions:
+                if action.startswith("NavigateTo"):
+                    obj = action.split("(")[1].rstrip(")")
+                    nav = f"NavigateTo({obj})"
+                    nav_steps = self.get_navigation_step(nav, agent_id)
+                    res_agent.append(nav_steps)
+                    # nav_steps = self.get_navigation_step(action, agent_id)
+                    # self.action_queue[agent_id].extend(nav_steps)
+                elif action in self.idle_actions:
+                    # self.action_queue[agent_id].append("Idle")
+                    res_agent.append(["Idle"])
+                else:
+                    
+                    # self.action_queue[agent_id].append(action)
+                    res_agent.append([action])
+            res.append(res_agent)
+        return res
         
     def get_navigation_step(self, action: str, agent_id: int) -> List[str]:
         object_name = action.split("(")[1].rstrip(")")
@@ -510,7 +569,7 @@ class AI2ThorEnv_cen(BaseEnv):
         for act_name, params in plan:
             action_str = self.convert_thortils_action((act_name, params))
             micro_actions.append(action_str)
-        print(f"micro_actions: {micro_actions}")
+        # print(f"micro_actions: {micro_actions}")
         return micro_actions
 
 
@@ -527,7 +586,7 @@ class AI2ThorEnv_cen(BaseEnv):
             if self.current_hl[aid]:
                 actions = ["Idle"] * self.num_agents
                 actions[aid] = self.current_hl[aid]
-                self.step_decomp(actions, agent_id=aid)
+                _ = self.step_decomp(actions, agent_id=aid)
             if self.save_logs:
                 # self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
                 self.logs.append(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
@@ -593,9 +652,14 @@ class AI2ThorEnv_cen(BaseEnv):
 
         return self.get_observations(), act_successes
     
-    def set_action_queue(self, action_queue: Dict[int, List[str]]):
+    def get_decomp_steps(self, pending_subtasks: Dict[int, List[str]]):
         """Set the action queue for each agent."""
-        pass
+        for aid, tasks in enumerate(pending_subtasks):
+            self.pending_high_level[aid] = deque(tasks)
+            # self.current_hl[aid] = None
+            # self.action_queue[aid].clear()
+            action = self.step_decomp(tasks, aid, isNeed2Add2Queue=False)
+        return action
         
     
     def action_loop(self, high_level_tasks: List[str]):

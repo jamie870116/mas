@@ -834,6 +834,9 @@ def decompose_subtask_to_actions(env, subtasks):
     actions = [['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']]
     return actions
 
+def get_steps_by_actions(env, actions):
+    steps = env.actions_decomp(actions)
+    return steps
 
 def execute_agent_actions(env):
     """執行所有 agent 當前 atomic actions"""
@@ -893,14 +896,17 @@ def run_main():
     # --- initial subtask planning
     open_subtasks, completed_subtasks = initial_subtask_planning(env, config)
     env.update_plan(open_subtasks, completed_subtasks)
-    print("open_subtasks: ", env.open_subtasks)
-    print("closed_subtasks: ", env.closed_subtasks)
+    # print("open_subtasks: ", env.open_subtasks)
+    # print("closed_subtasks: ", env.closed_subtasks)
 
     agent_assignments, remain = allocate_subtasks_to_agents(env)
-    print("agent_assignments: ", agent_assignments)
-    print("remain unassigned subtasks: ", remain)
+    # print("agent_assignments: ", agent_assignments)
+    # print("remain unassigned subtasks: ", remain)
     actions = decompose_subtask_to_actions(env, agent_assignments)
-    print("actions: ", actions)
+    # print("actions: ", actions)
+    decomp_actions = get_steps_by_actions(env, actions)
+    # print("decomp_actions: ", decomp_actions)
+
     # # --- loop start
     # start_time = time.time()
     # while open_subtasks and (time.time() - start_time < timeout):

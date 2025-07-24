@@ -65,3 +65,7 @@ python env/llm.py
 >         - Rule-based verification
 >     6. Replan: Similar to initial planning. Given the task and closed subtasks, let planner and editor generate a new list of subtasks (this will be the new open subtasks).
 
+For testing, run:
+```python
+python env/llm_c.py
+```

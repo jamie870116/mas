@@ -47,8 +47,8 @@ def thor_object_pose(event_or_controller, object_id, as_tuple=False):
         # Unknown because object_id is not valid.
         return None
     p = obj["position"]
-    if "Lettuce" in object_id:
-        print('Lettuce position:', p)
+    # if "Lettuce" in object_id:
+    #     print('Lettuce position:', p)
 
     if as_tuple:
         return (p["x"], p["y"], p["z"])
