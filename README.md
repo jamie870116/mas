@@ -39,11 +39,11 @@ python env/test_env_b.py
 - When testing, change the content in config file
 ```python 
 {   
-    # change these three value
+    # change these value
     "num_agents": 2,
     "scene": "FloorPlan1", 
     "task": "bring a tomato, lettuce, and bread to the countertop to make a sandwich",
-
+    "model": "gpt-4o" # choose from gpt models
 }
 ```
 and run:
@@ -59,13 +59,13 @@ python env/llm.py
 >     1. Update open subtasks and completed subtasks.
 >     2. Allocate subtasks to robot agents in the environment using LLM.
 >     3. Break down each assigned subtask with LLM into a list of smaller available actions.
->     4. Execute one subtask per agent.
+>     4. **(Working on this step)** Execute one subtask per agent.
 >     5. Verify if the subtask is completed using two methods:
 >         - LLM-based verification (by observation of the environment)
 >         - Rule-based verification
 >     6. Replan: Similar to initial planning. Given the task and closed subtasks, let planner and editor generate a new list of subtasks (this will be the new open subtasks).
 
-For testing, run:
+For testing, change the content in config file and  run:
 ```python
 python env/llm_c.py
 ```
