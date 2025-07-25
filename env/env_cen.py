@@ -289,9 +289,11 @@ class AI2ThorEnv_cen(BaseEnv):
         self.open_subtasks = "None" if self.use_plan else None
         self.closed_subtasks = "None" if self.use_plan else None
         self.inventory = ["nothing"] * self.num_agents
-        self.pending_high_level = defaultdict(deque) # {agent_id: [queue]} 
+        self.pending_high_level = defaultdict(deque) # {agent_id: [queue]} # eg. NavigateTo(Obj), PickUp(Obj)..
+        self.pending_subtasks = defaultdict(deque) # {agent_id: [queue]} # description of subtasks
         self.action_queue = defaultdict(deque) # {agent_id: [queue] }for breaking down navigation steps or so
-        self.current_hl = {}
+        self.current_hl = {} 
+        self.cur_plan = {}
         self.action_step_num = 0
         self.subtask_success_history = {name: [] for name in self.agent_names}  # save the previous successful subtasks for each agent
         self.subtask_failure_reasons = {name: [] for name in self.agent_names} # save the previous failure subtasks and reason for each agent
@@ -336,9 +338,16 @@ class AI2ThorEnv_cen(BaseEnv):
         self.subtask_failure_reasons = {name: [] for name in self.agent_names} 
         self.agent_failure_acts = {name: [] for name in self.agent_names}
         self.all_obs_dict = {name: [] for name in self.agent_names}
+        
         self.open_subtasks = "None" if self.use_plan else None
         self.closed_subtasks = "None" if self.use_plan else None
-        
+        self.pending_high_level = defaultdict(deque) # {agent_id: [queue]} # eg. NavigateTo(Obj), PickUp(Obj)..
+        self.pending_subtasks = defaultdict(deque) # {agent_id: [queue]} # description of subtasks
+        self.action_queue = defaultdict(deque) # {agent_id: [queue] }for breaking down navigation steps or so
+        self.current_hl = {} 
+        self.cur_plan = {}
+        self.action_step_num = 0
+
         self.start_time = time.time()
         self.total_elapsed_time = 0.0
         self.input_dict["Task"] = task
@@ -749,79 +758,199 @@ class AI2ThorEnv_cen(BaseEnv):
             res.append(res_agent)
         return res
     
-        
     def stepwise_action_loop(self, cur_plan):
-        # TBD: 目前只執行一個子動作就結束並且還需要存frame
         """
-        逐步執行多機器人的 atomic action，每輪執行一個 action。
-        若任何 agent 執行失敗則返回需要 replan，否則執行至所有 agent 完成當前 subtask。
+        # TBD: 不能先分解steps, navigation step 應該要逐步分解
+        持續執行多機器人的 atomic action，直到所有 agent 當前 subtask 完成或有任何 agent 失敗。
+        
         cur_plan: list of dicts, each with:
             - subtask (str)
             - actions (List[str])
             - steps (List[List[str]])  # atomic per action
-        """
-        # 初始化狀態與隊列
-        for aid, plan in enumerate(cur_plan):
-            self.pending_high_level[aid] = deque([plan["subtask"]])
-            self.current_hl[aid] = plan["subtask"]
-            self.action_queue[aid] = deque(plan["steps"][0])  # 一開始是第一段 atomic steps
 
-        current_status = {
+        """
+        if not self.cur_plan:
+            self.cur_plan = cur_plan
+
+        # init.
+        for aid, plan in enumerate(cur_plan):
+            self.pending_subtasks[aid] = deque([plan["subtask"]])
+            self.pending_high_level[aid] = deque(plan["actions"])
+            self.current_hl[aid] = self.pending_high_level[aid].popleft()
+            self.action_queue[aid] = deque(plan["steps"][0])
+
+        while True:
+            step_success = [True] * self.num_agents
+            for aid in range(self.num_agents):
+                if not self.action_queue[aid]:
+                    continue
+
+                act = self.action_queue[aid].popleft()
+                if self.save_logs:
+                    self.logs.append(f"Agent {aid} executes: {act}")
+                print(f"[Agent {aid}] Executing: {act}")
+
+                if act != "Idle":
+                    action_dict = self.parse_action(act, aid)
+                    self.event = self.controller.step(action_dict)
+                    success = self.event.events[aid].metadata["lastActionSuccess"]
+                else:
+                    success = True
+
+                step_success[aid] = success
+                self.action_history[self.agent_names[aid]].append(act)
+                self.action_success_history[self.agent_names[aid]].append(success)
+
+                if not success:
+                    self.subtask_failure_reasons[self.agent_names[aid]].append(f"Failed at step: {act}")
+                    self.agent_failure_acts[self.agent_names[aid]].append(act)
+                else:
+                    self.agent_failure_acts[self.agent_names[aid]] = []
+
+                if act.startswith("PickupObject") and success:
+                    self.inventory[aid] = self.get_agent_object_held(aid)
+                elif act.startswith(("PutObject", "DropHandObject")) and success:
+                    self.inventory[aid] = "nothing"
+
+                if not self.skip_save_dir:
+                    self.save_last_frame(agent_id=aid, view="pov", filename=f"frame_{self.action_step_num}.png")
+
+            if self.overhead and not self.skip_save_dir:
+                self.save_last_frame(view="overhead",
+                                    filename=f"frame_{self.step_num[0]}.png")
+            self.action_step_num += 1
+
+            # 若有 agent 失敗，立即跳出
+            if not all(step_success):
+                return False, self._gather_status()
+
+            
+                
+            # 執行完一輪，若所有 action_queue 為空，要檢查 subtask 是否完成
+            all_done = all(len(self.action_queue[aid]) == 0 for aid in range(self.num_agents))
+            for aid in range(self.num_agents):
+                if len(self.action_queue[aid]) == 0 and self.current_hl[aid]:
+                    # 檢查此高階任務是否完成
+                    if self.is_subtask_done(self.current_hl[aid], aid):
+                        if self.save_logs:
+                            self.logs.append(f"Subtask {self.current_hl[aid]} for agent {aid} done.")
+                        self.subtask_success_history[self.agent_names[aid]].append(self.current_hl[aid])
+                        self.current_hl[aid] = None
+                        if self.pending_high_level[aid]:
+                            self.current_hl[aid] = self.pending_high_level[aid].popleft()
+                            idx = cur_plan[aid]["actions"].index(self.current_hl[aid])
+                            self.action_queue[aid] = deque(cur_plan[aid]["steps"][idx])
+                    # else: 尚未完成，繼續等待，或視需求決定是否 replan
+
+            # 全部 agent action_queue 為空且 high level 也沒了，結束
+            if all_done and all(self.current_hl[aid] is None for aid in range(self.num_agents)) \
+            and all(not self.pending_high_level[aid] for aid in range(self.num_agents)):
+                return False, self._gather_status()  # 全部完成
+
+            # 每步存 log
+            if self.save_logs:
+                self.logs.append(f"Step {self.action_step_num} completed. Status: {self._gather_status()}")
+
+    def _gather_status(self):
+        # 回傳目前任務狀態（可視需要擴充細節）
+        return {
             "step": self.action_step_num,
             "subtask_success": self.subtask_success_history,
             "subtask_failure_reasons": self.subtask_failure_reasons,
             "inventory": self.inventory.copy(),
-            "failed_acts": self.agent_failure_acts
+            "failed_acts": self.agent_failure_acts,
+            # 其餘可視需求補充
         }
 
-        # 每一步執行一個 atomic action
-        step_success = [True] * self.num_agents
-        for aid in range(self.num_agents):
-            if not self.action_queue[aid]:
-                continue
+    def save_log(self):
+        if self.save_logs:
+            self.logs.append("----------End-----------")
+            filename = self.base_path / "logs.txt"
+            with open(filename, "a", encoding="utf-8") as f:
+                for log in self.logs:
+                    f.write(str(log) + "\n")
 
-            act = self.action_queue[aid].popleft()
-            print(f"[Agent {aid}] Executing: {act}")
+    # def stepwise_action_loop(self, cur_plan):
+    #     # TBD: 目前只執行一個子動作就結束並且還需要存frame
+    #     """
+    #     逐步執行多機器人的 atomic action，每輪執行一個 action。
+    #     若任何 agent 執行失敗則返回需要 replan，否則執行至所有 agent 完成當前 subtask。
+    #     cur_plan: list of dicts, each with:
+    #         - subtask (str)
+    #         - actions (List[str])
+    #         - steps (List[List[str]])  # atomic per action
+    #     """
+    #     if not self.cur_plan:
+    #         self.cur_plan = cur_plan
 
-            if act != "Idle":
-                action_dict = self.parse_action(act, aid)
-                self.event = self.controller.step(action_dict)
-                success = self.event.events[aid].metadata["lastActionSuccess"]
-            else:
-                success = True
+    #     # 初始化狀態與隊列
+    #     for aid, plan in enumerate(cur_plan):
+    #         self.pending_subtasks[aid] = deque([plan["subtask"]])
+    #         self.pending_high_level[aid] = deque(plan["actions"])
+    #         # print(f'agent {aid}"s pending high level tasks: {self.pending_high_level[aid]}, type: {type(self.pending_high_level[aid])}')
+    #         self.current_hl[aid] = self.pending_high_level[aid].popleft()
+    #         self.action_queue[aid] = deque(plan["steps"][0])  # 一開始是第一段 atomic steps
+    #     print(f'self.pending_subtasks: {self.pending_subtasks}')
+    #     print(f'self.pending_high_level: {self.pending_high_level}')
+    #     print(f'self.current_hl: {self.current_hl}')
+    #     print(f'self.action_queue: {self.action_queue}')
 
-            step_success[aid] = success
-            self.action_history[self.agent_names[aid]].append(act)
-            self.action_success_history[self.agent_names[aid]].append(success)
+    #     current_status = {
+    #         "step": self.action_step_num,
+    #         "subtask_success": self.subtask_success_history,
+    #         "subtask_failure_reasons": self.subtask_failure_reasons,
+    #         "inventory": self.inventory.copy(),
+    #         "failed_acts": self.agent_failure_acts
+    #     }
 
-            if not success:
-                self.subtask_failure_reasons[self.agent_names[aid]].append(f"Failed at step: {act}")
-                self.agent_failure_acts[self.agent_names[aid]].append(act)
-            else:
-                self.agent_failure_acts[self.agent_names[aid]] = []
+    #     # 每一步執行一個 atomic action
+    #     step_success = [True] * self.num_agents
+    #     for aid in range(self.num_agents):
+    #         if not self.action_queue[aid]:
+    #             continue
 
-            if act.startswith("PickupObject") and success:
-                self.inventory[aid] = self.get_agent_object_held(aid)
-            elif act.startswith(("PutObject", "DropHandObject")) and success:
-                self.inventory[aid] = "nothing"
+    #         act = self.action_queue[aid].popleft()
+    #         print(f"[Agent {aid}] Executing: {act}")
 
-        # 若有 agent 失敗，立刻回傳需重新規劃
-        if not all(step_success):
-            current_status["step"] = self.action_step_num
-            return False, current_status  # replan_needed = True
+    #         if act != "Idle":
+    #             action_dict = self.parse_action(act, aid)
+    #             self.event = self.controller.step(action_dict)
+    #             success = self.event.events[aid].metadata["lastActionSuccess"]
+    #         else:
+    #             success = True
 
-        self.action_step_num += 1
+    #         step_success[aid] = success
+    #         self.action_history[self.agent_names[aid]].append(act)
+    #         self.action_success_history[self.agent_names[aid]].append(success)
 
-        # 若所有 agent 動作佇列都空，任務結束，回傳成功
-        all_done = all(len(self.action_queue[aid]) == 0 for aid in range(self.num_agents))
-        if all_done:
-            for aid in range(self.num_agents):
-                self.subtask_success_history[self.agent_names[aid]].append(self.current_hl[aid])
-                self.current_hl[aid] = None
-            current_status["step"] = self.action_step_num
-            return False, current_status
+    #         if not success:
+    #             self.subtask_failure_reasons[self.agent_names[aid]].append(f"Failed at step: {act}")
+    #             self.agent_failure_acts[self.agent_names[aid]].append(act)
+    #         else:
+    #             self.agent_failure_acts[self.agent_names[aid]] = []
 
-        return True, current_status
+    #         if act.startswith("PickupObject") and success:
+    #             self.inventory[aid] = self.get_agent_object_held(aid)
+    #         elif act.startswith(("PutObject", "DropHandObject")) and success:
+    #             self.inventory[aid] = "nothing"
+
+    #     # 若有 agent 失敗，立刻回傳需重新規劃
+    #     if not all(step_success):
+    #         current_status["step"] = self.action_step_num
+    #         return False, current_status  # replan_needed = True
+
+    #     self.action_step_num += 1
+
+    #     # 若所有 agent 動作佇列都空，任務結束，回傳成功
+    #     all_done = all(len(self.action_queue[aid]) == 0 for aid in range(self.num_agents))
+    #     if all_done:
+    #         for aid in range(self.num_agents):
+    #             self.subtask_success_history[self.agent_names[aid]].append(self.current_hl[aid])
+    #             self.current_hl[aid] = None
+    #         current_status["step"] = self.action_step_num
+    #         return False, current_status
+
+    #     return True, current_status
 
         
 

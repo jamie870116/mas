@@ -964,11 +964,11 @@ def run_main():
     if not isSuccess:
         print("Subtask failed. Need replan.")
         print("Failure info:", info)
-        # replanning 邏輯可接續處理
+        # replanning 
     elif isSuccess:
         print("All subtasks completed successfully.")
         print("Execution summary:", info)
-
+    env.save_log()
     # # --- loop start
     # start_time = time.time()
     # while open_subtasks and (time.time() - start_time < timeout):
