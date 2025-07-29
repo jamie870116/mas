@@ -569,11 +569,11 @@ class AI2ThorEnv_cen(BaseEnv):
             # print(f"Executing action for agent {aid} ({self.agent_names[aid]}
             print(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
             print(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
-            # print("******")
-            # print(f"before exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
+            print("******")
+            print(f"before exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
             act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
-            # print(f"After exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
-            # print("******")
+            print(f"After exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
+            print("******")
             if act != "Idle":
                 action_dict = self.parse_action(act, aid)
                 if self.save_logs:
@@ -766,8 +766,11 @@ class AI2ThorEnv_cen(BaseEnv):
             - steps (List[List[str]])  # atomic per action
 
         """
-        if not self.cur_plan:
-            self.cur_plan = cur_plan
+        self.cur_plan = cur_plan
+        if self.save_logs:
+            self.logs.append(f"----Start a new plan----")
+            self.logs.append(f"Current plan: {self.cur_plan}")
+
 
         pending_actions = []
         for aid, plan in enumerate(cur_plan):
@@ -830,7 +833,7 @@ class AI2ThorEnv_cen(BaseEnv):
         if self.save_logs:
             self.logs.append("----------End-----------")
             filename = self.base_path / "logs.txt"
-            with open(filename, "w", encoding="utf-8") as f:
+            with open(filename, "a", encoding="utf-8") as f:
                 for log in self.logs:
                     f.write(str(log) + "\n")
 
@@ -1593,6 +1596,7 @@ class AI2ThorEnv_cen(BaseEnv):
             "Number of agents": self.num_agents,
             "Robots' open subtasks": self.open_subtasks,
             "Robots' completed subtasks": self.closed_subtasks,
+            "inventory": self.inventory,
             "Objects": obj_list,
         }
     
@@ -1612,6 +1616,7 @@ class AI2ThorEnv_cen(BaseEnv):
             "Number of agents": self.num_agents,
             "Robots' open subtasks": self.open_subtasks,
             "Robots' completed subtasks": self.closed_subtasks,
+            "inventory": self.inventory,
         }
          
 

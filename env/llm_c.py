@@ -50,6 +50,7 @@ You are an excellent task planner whose task is to help {NUM_AGENTS} robots to c
 # Task
 Let's work this out in a step by step way to be sure we have the right answer.
 """
+
 ai2thor_objs = {
     "Kitchen": {
         "AluminumFoil": ["Pickupable"],
@@ -333,14 +334,14 @@ Objects: a list of objects in the current enviroment}}
 ### OUTPUT FORMAT ###
 You will output a list of subtasks for each robot in the following format, in json format:
 {{
-"Subtasks": [[subtask 1], [subtask 2], ..., [subtask n]],
+"Subtasks": [subtask 1, subtask 2, ..., subtask n],
 }}
 example:
 {{
 "Subtasks": [
-    ["pick up the vase and put it on the table"],
-    ["pick up the tissue box and put it on the table"],
-    ["pick up the remote control and put it on the table"]
+    "pick up the vase and put it on the table",
+    "pick up the tissue box and put it on the table",
+    "pick up the remote control and put it on the table"
 ]
 }}
 
@@ -406,13 +407,17 @@ Let's work this out in a step by step way to be sure we have the right answer.
 
 ALLOCATOR_PROMPT = f"""
 
-You are an expert task allocator who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
+You are an expert task allocator who is tasked with helping {len(AGENT_NAMES)} embodied robots carry out a task. 
 
 ### TASK ###
 You will receive:
-- a task description outlining the overall goal,
+- a description of the overall task goal,
 - the number of available robot agents,
-- and two lists: remaining subtasks and completed subtasks.
+- a list of open (pending) subtasks and a list of completed subtasks,
+- a list of previously failed subtasks (optional),
+- the failure reasons of those subtasks (optional),
+- a list of failed actions (optional),
+- and the current inventory (i.e., what each robot is holding, if anything).
 
 Your job is to assign at most one subtask to each available agent at a time, in a way that helps fulfill the overall task.
 If a subtask depends on the completion of another subtask, assign "Idle" to the agent instead, until the prerequisite subtask is completed.
@@ -423,14 +428,26 @@ Also output the subtasks that are not yet been assigned to any robot agent.
 - If there are fewer open subtasks than agents, assign remaining agents `"Idle"`.
 
 Also return the list of **unassigned subtasks** (these are the open subtasks that remain after this allocation—include both blocked and unallocated-but-executable ones that you did not assign this round).
+In addition, include a short explanation of **why** the subtask was (or was not) assigned to each agent. These reasons will help the coordinator module understand your allocation logic.
+
 
 
 ### INPUT FORMAT ###
-{{Task: description of the task the robots are supposed to do,
-Number of agents: number of agents in the environment,
-Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
-Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+{{
+  "Task": "High-level description of the task the robots are supposed to do",
+  "Number of agents": <int>,
+  "Robots' open subtasks": [ ... ] or None ,
+  "Robots' completed subtasks": [ ... ] or None,
+  "failure_subtasks": [ ... ] or None,
+  "subtask_failure_reasons": [ ... ] or None,
+  "failed_acts": [ ... ] or None,
+  "inventory": {{
+      "agent1": "object or None",
+      "agent2": "object or None",
+      ...
+  }} or None
 }}
+
 
 ### OUTPUT FORMAT ###
 Return a JSON object:
@@ -441,9 +458,9 @@ Return a JSON object:
     ...
     "agentN": "subtask or Idle"
   }},
-  "Remain": ["unassigned_subtask1", "unassigned_subtask2", ...]
+  "Remain": ["unassigned_subtask1", "unassigned_subtask2", ...],
+  "Reason": ["reason"]
 }}
-
 
 
 ### Important Notes ###
@@ -451,6 +468,8 @@ Return a JSON object:
 * A subtask can only be assigned if all its prerequisites have been completed.
 * Do **not** assign the **same subtask** to multiple agents.
 * If no subtasks are available for an agent, assign `"Idle"`.
+* Do not assign a subtask to an agent if the agent's inventory would make it infeasible.
+* Consider failure history and avoid repeating problematic assignments.
 * **NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED**
 
 Let's work this out in a step by step way to be sure we have the right answer.
@@ -558,30 +577,30 @@ Note: The drawer must be opened before placing the item, and closed afterward. T
 Let's work this out in a step by step way to be sure we have the right answer.
 """
 
-# TBD
 REPLAN_PROMPT = f"""
 You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
 They can perform the following actions: {ai2thor_actions}
 
 ### TASK ###
-You will get a description of the task robots are supposed to do.
-You will get the current state of the enviroment, including the list of objects in the environment.
+Your job is to reason over the current state of the environment and the progress history of previously executed plans, in order to **replan** the sequence of subtasks necessary to complete the overall goal.
 
-You need to suggest the decompose the task into several subtasks for that robots to complete in order to achieve the given Task, based on the objects in the environment and the ability of robots. 
+This environment is partially observable, and robots may encounter execution failures due to occlusion, distance, blocked paths, or misidentified object locations. Therefore, the replanning should take into account:
+- Which subtasks have already been completed successfully
+- Which subtasks have failed (and the reasons why)
+- The list of failed actions
+- The current objects in the environment
+- The current inventory (objects held by robots)
+- The number of available robots
 
-For example, if the task is "Put the vase, tissue box, and remote control on the table", the subtasks could be:
-1. pick up the vase and put it on the table
-2. pick up the tissue box and put it on the table
-3. pick up the remote control and put it on the table 
-
+Your goal is to **revise or regenerate a valid and efficient sequence of subtasks** for the robots, using all the information above. When possible, retain subtasks that have not yet failed. Otherwise, adjust or replace the failed ones with alternative approaches.
 
 
 ### INPUT FORMAT ###
 {{
 Task: a high level description of the final goal the robots are supposed to complete,
 Number of agents": the number of robots in the environment,
-Robots' open subtasks: a list of subtasks that are generated by another agent and are not yet completed ,
-Robots' completed subtasks: a list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.,
+Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
+Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.,
 failure_subtasks: a list of subtasks that have failed,
 subtask_failure_reasons: a list of reasons why the subtasks failed,
 inventory: what the robots are currently holding,
@@ -592,19 +611,25 @@ Objects: a list of objects in the current enviroment
 ### OUTPUT FORMAT ###
 You will output a list of subtasks for each robot in the following format, in json format:
 {{
-"Subtasks": [[subtask 1], [subtask 2], ..., [subtask n]],
+"Subtasks": [subtask 1, subtask 2, ..., subtask n],
 }}
 example:
 {{
 "Subtasks": [
-    ["pick up the vase and put it on the table"],
-    ["pick up the tissue box and put it on the table"],
-    ["pick up the remote control and put it on the table"]
+    "pick up the vase and put it on the table",
+    "pick up the tissue box and put it on the table",
+    "pick up the remote control and put it on the table"
 ]
 }}
 
 
 ### Important Notes ###
+* Each subtask should be atomic and goal-directed (e.g., "pick up the apple and put it in the fridge").
+* Avoid repeating failed subtasks unless their failure cause has been addressed.
+* Ensure the plan is minimal-avoid unnecessary steps.
+* The subtasks should not be robot-specific; centralized planning assigns tasks without binding them to specific agents.
+* You can assume the robots are coordinated and will handle task allocation downstream.
+* Consider object availability, spatial constraints, and object affordances when generating subtasks.
 * Note that the subtasks should be independent to each other, i.e. the robots can complete them in any order; 
 * If the subtasks require the robots to complete them in a specific order, these subtask should be combined into one subtask.
 * Make sure that the objects you suggest the robots to interact with are actually in the environment.
@@ -692,7 +717,7 @@ def prepare_payload(system_prompt, user_prompt):
     
     return payload
 
-def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subtasks=[]) -> str:
+def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subtasks=[], info={}) -> str:
     """
     mode: str, choose from planner, action
     planner: for decomposing the task into subtasks
@@ -721,10 +746,19 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
     elif mode == "allocator":
         system_prompt = ALLOCATOR_PROMPT
         input = env.get_center_allocator_llm_input()
+        if info:
+            input['failure_subtasks'] = info['failure_subtasks']
+            input['subtask_failure_reasons'] = info['subtask_failure_reasons']
+            input['failed_acts'] = info['failed_acts']
         user_prompt = convert_dict_to_string(input)
+
     elif mode == "replan":
         system_prompt = REPLAN_PROMPT
         input = env.get_replan_llm_input()
+        if info:
+            input['failure_subtasks'] = info['failure_subtasks']
+            input['subtask_failure_reasons'] = info['subtask_failure_reasons']
+            input['failed_acts'] = info['failed_acts']
         user_prompt = convert_dict_to_string(input)
 
     user_prompt += addendum
@@ -740,7 +774,12 @@ def process_planner_llm_output(res_content):
         print(f"[Warning] Initial JSON decode failed: {e}")
 
         try:
-            # 去除結尾多餘逗號
+            if res_content.startswith("```json"):
+                res_content = res_content.removeprefix("```json").strip()
+            elif res_content.startswith("```"):
+                res_content = res_content.removeprefix("```").strip()
+            if res_content.endswith("```"):
+                res_content = res_content[:-3].strip()
             res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
             # 單引號換雙引號（簡單處理）
             res_content = res_content.replace("'", '"')
@@ -787,6 +826,7 @@ def process_allocator_llm_output(res_content):
         "Remain": [
             "pick up the bread and put it on the countertop"
         ]
+        "Reason": [""]
     }
     Output:
     allocation: [subtask, subtask]
@@ -795,6 +835,7 @@ def process_allocator_llm_output(res_content):
     try:
         remain = json.loads(res_content)["Remain"]
         allocations = json.loads(res_content)["Allocation"]
+        reasons = json.loads(res_content)["Reason"]
         res = []
         for i in range(NUM_AGENTS):
             key = 'agent' + str(i+1)
@@ -806,6 +847,12 @@ def process_allocator_llm_output(res_content):
     except json.JSONDecodeError as e:
         print(f"[Warning] Initial JSON decode failed: {e}")
         try:
+            if res_content.startswith("```json"):
+                res_content = res_content.removeprefix("```json").strip()
+            elif res_content.startswith("```"):
+                res_content = res_content.removeprefix("```").strip()
+            if res_content.endswith("```"):
+                res_content = res_content[:-3].strip()
             res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
             res_content = res_content.replace("'", '"')
             res_content = res_content.strip()
@@ -813,6 +860,7 @@ def process_allocator_llm_output(res_content):
             data = json.loads(res_content)
             remain = data["Remain"]
             allocations = data["Allocation"]
+            reasons = json.loads(res_content)["Reason"]
             res = []
             for i in range(NUM_AGENTS):
                 key = 'agent' + str(i+1)
@@ -858,55 +906,54 @@ def initial_subtask_planning(env, config):
     """初始階段：由 LLM 進行任務分解與編輯"""
     # ---1. Planner LLM 產生初步 subtasks
     
-    # planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
-    # planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
-    # res, res_content = get_llm_response(planner_payload, model=config['model'])
-    
-    # subtasks = process_planner_llm_output(res_content)
+    planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
+    planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
+    res, res_content = get_llm_response(planner_payload, model=config['model'])
+    # print('init plan llm output', res_content)
+    subtasks = process_planner_llm_output(res_content)
     # print(f"After Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
-    # # ---2. Editor LLM 修正 subtasks
-    # editor_prompt, editor_user_prompt = prepare_prompt(env, mode="editor", subtasks=subtasks)
-    # editor_payload = prepare_payload(editor_prompt, editor_user_prompt)
-    # res, res_content = get_llm_response(editor_payload, model=config['model'])
+    # ---2. Editor LLM 修正 subtasks
+    editor_prompt, editor_user_prompt = prepare_prompt(env, mode="editor", subtasks=subtasks)
+    editor_payload = prepare_payload(editor_prompt, editor_user_prompt)
+    res, res_content = get_llm_response(editor_payload, model=config['model'])
 
-    # subtasks = process_planner_llm_output(res_content)
-    # print(f"After Editor LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
+    subtasks = process_planner_llm_output(res_content)
+    print(f"After Editor LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
     # for testing
-    # subtasks = [['open the Fridge_1'], ['pick up the tomato_1 and put it inside the Fridge_1'], ['pick up the lettuce_1 and put it inside the Fridge_1'], ['pick up the bread_1 and put it inside the Fridge_1'], ['close the Fridge_1']]
-    subtasks = [["'pick up the tomato and put it on the countertop'"], ['pick up the lettuce and put it on the countertop'], ['pick up the bread and put it on the countertop']]
+    # subtasks = ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop', 'pick up the bread and put it on the countertop']
     return subtasks, []
 
-def allocate_subtasks_to_agents(env):
+def allocate_subtasks_to_agents(env, info={}):
     """分配 open_subtasks 給各 agent"""
     
-    # allocator_prompt, allocator_user_prompt = prepare_prompt(env, mode="allocator")
-    # allocator_payload = prepare_payload(allocator_prompt, allocator_user_prompt)
+    allocator_prompt, allocator_user_prompt = prepare_prompt(env, mode="allocator", info=info)
+    allocator_payload = prepare_payload(allocator_prompt, allocator_user_prompt)
     # print("allocator system prompt: ", allocator_prompt)
     # print("allocator user prompt: ", allocator_user_prompt)
-    # res, res_content = get_llm_response(allocator_payload, model=config['model'])
-    # print('llm output', res_content)
-    # allocation, remain = process_allocator_llm_output(res_content)
-
+    res, res_content = get_llm_response(allocator_payload, model=config['model'])
+    print('llm allocator output', res_content)
+    allocation, remain = process_allocator_llm_output(res_content)
+    print('allocation: ', allocation)
     # for testing
-    allocation =  ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop']
-    remain =  ['pick up the bread and put it on the countertop']
+    # allocation =  ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop']
+    # remain =  ['pick up the bread and put it on the countertop']
     
     return allocation, remain
 
 def decompose_subtask_to_actions(env, subtasks):
     """將 subtask 拆解成 atomic actions（LLM）"""
-    # action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks)
-    # action_payload = prepare_payload(action_prompt, action_user_prompt)
+    action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks)
+    action_payload = prepare_payload(action_prompt, action_user_prompt)
     # print("action prompt:", action_prompt)
     # print("action user prompt:", action_user_prompt)
-    # res, res_content = get_llm_response(action_payload, model=config['model'])
+    res, res_content = get_llm_response(action_payload, model=config['model'])
     # print('llm output', res_content)
-    # actions = process_actions_llm_output(res_content)
+    actions = process_actions_llm_output(res_content)
 
     # For testing 
-    actions = [['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']]
+    # actions = [['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']]
     return actions
 
 def get_steps_by_actions(env, actions):
@@ -930,21 +977,27 @@ def verify_subtask_completion(env, info):
     open_subtasks = env.open_subtasks
     closed_subtasks = env.closed_subtasks
     completed_subtasks = info['success_subtasks']
+    # print(open_subtasks)
     for c in completed_subtasks:
-        open_subtasks.remove(c)
-        closed_subtasks.append(c)
+        if c != 'Idle':
+            print(c)
+            open_subtasks.remove(c)
+            closed_subtasks.append(c)
     return open_subtasks, closed_subtasks
 
-def replan_open_subtasks(env, info, open_subtasks, completed_subtasks):
-    """根據已完成的 subtask 重新規劃（Planner+Editor LLM with failures or remaining subtasks）"""
-    # return open_subtasks: list
-    pass
+def replan_open_subtasks(env, info, completed_subtasks):
+    replan_prompt, replan_user_prompt = prepare_prompt(env, mode="replan", info=info)
+    # print("replan system prompt: ", replan_prompt)
+    # print("replan user prompt: ", replan_user_prompt)
+    replan_payload = prepare_payload(replan_prompt, replan_user_prompt)
+    res, res_content = get_llm_response(replan_payload, model=config['model'])
+    # print('llm output', res_content)
+    subtasks = process_planner_llm_output(res_content)
+    # print(f"After Re-Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
-def update_plan(env, open_subtasks, completed_subtasks):
-    env.open_subtasks = open_subtasks
-    env.closed_subtasks = completed_subtasks
-    env.input_dict["Robots' open subtasks"] = env.open_subtasks
-    env.input_dict["Robots' completed subtasks"] = env.closed_subtasks
+    return subtasks, completed_subtasks
+
+
      
 def bundle_task_plan(subtasks, actions, decomp_actions):
     """
@@ -1034,15 +1087,14 @@ def run_main():
     # --- loop start
     start_time = time.time()
     while open_subtasks and (time.time() - start_time < timeout):
-        
         env.update_plan(open_subtasks, completed_subtasks)
-        # print("open_subtasks: ", env.open_subtasks)
-        # print("closed_subtasks: ", env.closed_subtasks)
+        print("open_subtasks: ", env.open_subtasks)
+        print("closed_subtasks: ", env.closed_subtasks)
 
         # 2. 任務分配
         agent_assignments, remain = allocate_subtasks_to_agents(env)
-        # print("agent_assignments: ", agent_assignments)
-        # print("remain unassigned subtasks: ", remain)
+        print("agent_assignments: ", agent_assignments)
+        print("remain unassigned subtasks: ", remain)
 
         # 3. 拆解每個 agent 當前 subtask 為 actions
         actions = decompose_subtask_to_actions(env, agent_assignments)
@@ -1055,18 +1107,27 @@ def run_main():
         print("cur_plan: ", cur_plan)
         isSuccess, info = env.stepwise_action_loop(cur_plan)
 
-        if not isSuccess:
-            print("Subtask failed. Need replan.")
-            print("Failure info:", info)
-        elif isSuccess:
-            print("All subtasks completed successfully.")
-            print("Execution summary:", info)
-        
+        # if not isSuccess:
+        #     print("Subtask failed. Need replan.")
+        #     print("Failure info:", info)
+        # elif isSuccess:
+        #     print("All subtasks completed successfully.")
+        #     print("Execution summary:", info)
+        # for testing
+        # isSuccess = True
+        # info = {'step': 0, 'actions_success': {'Alice': ['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], 'Bob': ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']}, 'success_subtasks': ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop'], 'failure_subtasks': [], 'subtask_failure_reasons': {'Alice': [], 'Bob': []}, 'inventory': ['nothing', 'nothing'], 'failed_acts': {'Alice': [], 'Bob': []}}
+        print('info', info)
         open_subtasks, completed_subtasks = verify_subtask_completion(env, info)
-        print("open_subtasks: ", open_subtasks)
-        print("closed_subtasks: ", completed_subtasks)
+        print("after verify open_subtasks: ", open_subtasks)
+        print("after verify closed_subtasks: ", completed_subtasks)
+        env.update_plan(open_subtasks, completed_subtasks)
         if open_subtasks or not isSuccess:
-            replan_open_subtasks(env, info, open_subtasks, completed_subtasks)
+            open_subtasks, completed_subtasks = replan_open_subtasks(env, info, completed_subtasks)
+            print("replan open_subtasks: ", open_subtasks)
+            print("replan closed_subtasks: ", completed_subtasks)
+            start_time = time.time()
+        else:
+            break
         
     # env.save_log()
    
