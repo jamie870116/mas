@@ -509,6 +509,7 @@ def get_shortest_path_to_object(controller, object_id,
     other_agent_position = kwargs.get("other_agent_position", None)
     cur_step = kwargs.get("cur_step", None)
     isVisualize = kwargs.get("isVisualize", False)
+    mannual_block_pos = kwargs.get("mannual_block_pos", [])
 
     # reachable positions; must round them to grids otherwise ai2thor has a bug.
     grid_size = controller.initialization_parameters["gridSize"]
@@ -524,6 +525,10 @@ def get_shortest_path_to_object(controller, object_id,
         non_reachable_positions = [
             tuple(map(lambda x: roundany(x, grid_size), tuplize_xz(pos))) for pos in other_agent_position
         ]
+
+        # non_reachable_positions = [
+        #     tuple(map(lambda x: roundany(x, grid_size), tuplize_xz(pos))) for pos in other_agent_position
+        # ]
         # add enclosure around these positions (agents are bigger than 1 grid position!)
         add=lambda p,delta: (p[0]+delta[0],p[1]+delta[1])
         sweep=[-1,0,1]
@@ -535,17 +540,37 @@ def get_shortest_path_to_object(controller, object_id,
                     # if abs(deltax)+abs(deltaz)>1:
                     #   continue
                     non_reachable_positions.append(add(p, (deltax*grid_size,deltaz*grid_size)))
+        mannual_block_positions = []
+        if mannual_block_pos:
+            # print('mannual_block_pos ', mannual_block_pos)
+            mannual_block_positions = [
+                tuple(map(lambda x: roundany(x, grid_size), tuplize_xz(pos))) for pos in mannual_block_pos
+            ]
 
+            # add=lambda p,delta: (p[0]+delta[0],p[1]+delta[1])
+            # sweep=[-1,0,1]
+            # for p in mannual_block_positions.copy():
+            #     for deltax in sweep:
+            #         for deltaz in sweep:
+            #             # @cc - don't block diagonals
+            #             # @tt - block diagonals now (hypothesis: agent is getting stuck?)
+            #             # if abs(deltax)+abs(deltaz)>1:
+            #             #   continue
+            #             mannual_block_positions.append(add(p, (deltax*grid_size,deltaz*grid_size)))
+            
         # @tt - subtlety, cannot remove the position of the agent (even if it lies inside the other's grid!)
         agent_position_formatted=(tuple(map(lambda x: roundany(x, grid_size), start_position)))
         agent_position_formatted=(agent_position_formatted[0],agent_position_formatted[2])
-        non_reachable_positions=list(set(non_reachable_positions) - set([agent_position_formatted]))
-
+        non_reachable_positions=list(set(non_reachable_positions + mannual_block_positions) - set([agent_position_formatted]))
+        # print('non reachable ', non_reachable_positions)
         # @tt - add agent's own position into reachable positions!
         reachable_positions=list(set(reachable_positions+[agent_position_formatted]))
         # filter out
         reachable_positions=list(filter(lambda p : p not in non_reachable_positions, reachable_positions))
-        
+        # print('filtered reachable ', reachable_positions)
+    
+    
+    # print('final filtered reachable ', reachable_positions)
 
     # Compute plan; Actually need to call the A* twice.
     # The first time determines the position the robot will end
@@ -647,6 +672,7 @@ def get_shortest_path_to_object(controller, object_id,
                               dict(x=pitch, y=yaw, z=roll)))
 
     if return_plan:
+        print(f'returning plan: {actions}, poses: {poses}')
         return poses, actions
     else:
         return poses
@@ -824,24 +850,26 @@ def _yaw_facing(robot_position, target_position, angles):
 
 
 #--------- Visualization ------------#
-def plot_navigation_search_result(start, goal, plan, expanded_poses,
-                                  reachable_positions, grid_size, ax=None):
+def plot_navigation_search_result(
+    start, goal, plan, expanded_poses, reachable_positions, grid_size, ax=None
+):
     """
     Plots the reachable positions (the grid map),
     the expanded poses during the search, and the plan.
 
     start, goal (tuple): position, rotation poses
     """
+
     def plot_map(ax, reachable_positions, start, goal):
         x = [p[0] for p in reachable_positions]
         z = [p[1] for p in reachable_positions]
-        ax.scatter(x, z, s=30, c='gray', zorder=1, label='Reachable')
+        ax.scatter(x, z, s=300, c="gray", zorder=1)
 
         xs, _, zs = start[0]
-        ax.scatter([xs], [zs], s=20, c='red', zorder=4, label='Start')
+        ax.scatter([xs], [zs], s=200, c="red", zorder=4)
 
         xg, _, zg = goal[0]
-        ax.scatter([xg], [zg], s=20, c='green', zorder=4, label='Goal')
+        ax.scatter([xg], [zg], s=200, c="green", zorder=4)
 
     ###start
     if ax is None:
@@ -851,18 +879,59 @@ def plot_navigation_search_result(start, goal, plan, expanded_poses,
     z = [p[1] for p in reachable_positions]
     plot_map(ax, reachable_positions, start, goal)
 
-    ax.set_xlim(min(x)-grid_size, max(x)+grid_size)
-    ax.set_ylim(min(z)-grid_size, max(z)+grid_size)
+    ax.set_xlim(min(x) - grid_size, max(x) + grid_size)
+    ax.set_ylim(min(z) - grid_size, max(z) + grid_size)
 
     x = [p[0][0] for p in expanded_poses]
     z = [p[0][2] for p in expanded_poses]
     c = [i for i in range(0, len(expanded_poses))]
-    ax.scatter(x, z, s=12, c=c, zorder=2, cmap="bone", label='Expanded')
+    ax.scatter(x, z, s=120, c=c, zorder=1)
 
     if plan is not None:
         for step in plan:
             x, z, _, _ = step["next_pose"]
-            ax.scatter([x], [z], s=12, zorder=2, c="orange", label='Plan')
+            ax.scatter([x], [z], s=120, zorder=2, c="orange")
+
+# def plot_navigation_search_result(start, goal, plan, expanded_poses,
+#                                   reachable_positions, grid_size, ax=None):
+#     """
+#     Plots the reachable positions (the grid map),
+#     the expanded poses during the search, and the plan.
+
+#     start, goal (tuple): position, rotation poses
+#     """
+#     def plot_map(ax, reachable_positions, start, goal):
+#         x = [p[0] for p in reachable_positions]
+#         z = [p[1] for p in reachable_positions]
+#         ax.scatter(x, z, s=30, c='gray', zorder=1, label='Reachable')
+
+#         xs, _, zs = start[0]
+#         ax.scatter([xs], [zs], s=20, c='red', zorder=4, label='Start')
+
+#         xg, _, zg = goal[0]
+#         ax.scatter([xg], [zg], s=20, c='green', zorder=4, label='Goal')
+
+#     ###start
+#     if ax is None:
+#         ax = plt.gca()
+
+#     x = [p[0] for p in reachable_positions]
+#     z = [p[1] for p in reachable_positions]
+#     plot_map(ax, reachable_positions, start, goal)
+
+#     ax.set_xlim(min(x)-grid_size, max(x)+grid_size)
+#     ax.set_ylim(min(z)-grid_size, max(z)+grid_size)
+
+#     x = [p[0][0] for p in expanded_poses]
+#     z = [p[0][2] for p in expanded_poses]
+#     c = [i for i in range(0, len(expanded_poses))]
+#     ax.scatter(x, z, s=12, c=c, zorder=2, cmap="bone", label='Expanded')
+
+#     if plan is not None:
+#         for step in plan:
+#             x, z, _, _ = step["next_pose"]
+#             ax.scatter([x], [z], s=12, zorder=2, c="orange", label='Plan')
+            
 
 
 #--------- Metrics ------------#

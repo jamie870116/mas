@@ -1,6 +1,6 @@
 # test_env_b_script.py
-
-from env_b import AI2ThorEnv
+# from env_b import AI2ThorEnv
+from env_cen import AI2ThorEnv_cen as AI2ThorEnv
 import os
 import sys
 import json
@@ -36,74 +36,99 @@ def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
         
 
 if __name__ == "__main__":
+    '''
+    - test all the actions
+        -self.move_actions = ["MoveAhead", "MoveBack", "MoveRight", "MoveLeft"]
+        -self.rotate_actions = ["RotateRight", "RotateLeft"]
+        -self.look_actions = ["LookUp", "LookDown"]
+        -self.idle_actions = ["Done", "Idle"]
+        -self.object_interaction_actions = ["PickupObject", "PutObject", "OpenObject", "CloseObject", "ToggleObjectOn", "ToggleObjectOff", "BreakObject", "CookObject", "SliceObject", "DirtyObject", "CleanObject", "FillObjectWithLiquid", "EmptyLiquidFromObject", "UseUpObject"]
+        -self.object_interaction_without_navigation  = ["DropHandObject", "ThrowObject"]
+
+    - obj in floorplan1
+    ['Apple_1', 'Book_1', 'Bottle_1', 'Bowl_1', 'Bread_1', 'ButterKnife_1', 'Cabinet_1', 'Cabinet_2', 'Cabinet_3', 'Cabinet_4', 'Cabinet_5', 'Cabinet_6', 'Cabinet_7', 'Cabinet_8', 'Cabinet_9', 
+    'CoffeeMachine_1', 'CounterTop_1', 'CounterTop_2', 'CounterTop_3', 'CreditCard_1', 'Cup_1', 'DishSponge_1', 'Drawer_1', 'Drawer_2', 'Drawer_3', 'Drawer_4', 'Drawer_5', 'Drawer_6', 'Drawer_7', 'Drawer_8', 'Drawer_9', 
+    'Egg_1', 'Faucet_1', 'Floor_1', 'Fork_1', 'Fridge_1', 'GarbageCan_1', 'HousePlant_1', 'Kettle_1', 'Knife_1', 'Lettuce_1', 'LightSwitch_1', 'Microwave_1', 'Mug_1', 'Pan_1', 'PaperTowelRoll_1', 'PepperShaker_1', 'Plate_1', 
+    'Pot_1', 'Potato_1', 'SaltShaker_1', 'Shelf_1', 'Shelf_2', 'Shelf_3', 'ShelvingUnit_1', 'Sink_1', 'Sink_2', 'SoapBottle_1', 'Spatula_1', 'Spoon_1', 'Statue_1', 'Stool_1', 'Stool_2', 'StoveBurner_1', 'StoveBurner_2', 'StoveBurner_3', 
+    'StoveBurner_4', 'StoveKnob_1', 'StoveKnob_2', 'StoveKnob_3', 'StoveKnob_4', 'Toaster_1', 'Tomato_1', 'Vase_1', 'Vase_2', 'Window_2', 'WineBottle_1']
+    
+    '''
+
     env = AI2ThorEnv("config/config.json")
     with open("config/config.json", "r") as f:
             config = json.load(f)
             task_name = config["task"]
     
-    # obs = env.reset(test_case_id="0")
-    # objs = env.get_readable_object_list(env.get_object_in_view(0))
-    # run_test(
-    #     env,
-    #     high_level_tasks=[['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)'], ['Idle']], # [[subtasks for agent_i], [...]]
-    #     test_name="Test 0",
-    #     test_id="0",
-    #     task_name=task_name
-    # )
 
-    # obs = env.reset(test_case_id="17")
-    # objs = env.get_readable_object_list(env.get_object_in_view(0))
-    # tomato = next((o for o in objs if "Tomato" in o), "Tomato_1")
-    # counter = next((o for o in objs if "CounterTop" in o), "CounterTop_1")
-    # run_test(
-    #     env,
-    #     high_level_tasks=[[f"PickupObject({tomato})", f"PutObject({counter})"], ["Idle"]], # [[subtasks for agent_i], [...]]
-    #     test_name="Test 17",
-    #     test_id="17",
-    #     task_name=task_name
-    # )
-
-    # obs = env.reset(test_case_id="18")
-    # objs = env.get_readable_object_list(env.get_object_in_view(0))
-    # # tomato = next((o for o in objs if "Tomato" in o), "Tomato_1")
-    # # counter = next((o for o in objs if "CounterTop" in o), "CounterTop_1")
-    # bread = next((o for o in objs if "Bread" in o), "Bread_1")
-    # run_test(
-    #     env,
-    #     high_level_tasks=[["Idle"], [f"PickupObject({bread})"]], # [[subtasks for agent_i], [...]]
-    #     test_name="Test 18",
-    #     test_id="18",
-    #     task_name=task_name
-    # )
-
-    # obs = env.reset(test_case_id="11")
-    # objects_in_view_alice = env.get_readable_object_list(env.get_object_in_view(0))
-    # tomato = next((obj for obj in objects_in_view_alice if "Tomato" in obj), "Tomato_1")
-    # counter = next((obj for obj in env.get_readable_object_list(env.get_object_in_view(0)) if "CounterTop" in obj), "CounterTop_1")
-    # cabinet = next((obj for obj in env.get_readable_object_list(env.get_object_in_view(0)) if "Cabinet" in obj), "Cabinet_1")
+    obs = env.reset(test_case_id="7")
+    # detections = env.event.events[0].instance_detections2D
+    # frame = env.event.events[0].frame
+    # height, width, channels = frame.shape
+    # print(height, width, channels)
+    # print(detections["StoveKnob|-00.33|+00.88|-02.19"])
+    # print(list(detections.instance_masks.keys()))
+    # print(detections)
+    # objs = env.get_all_objects()
+    # # print(objs)
     # high_level_tasks = [
-    #     [f"PickupObject({tomato})"],
-    #     [f"OpenObject({cabinet})", f"CloseObject({cabinet})", "Idle"]
+    #     ['NavigateTo(Apple_1)', 'PickupObject(Apple_1)'], ['Idle']
     # ]
-    # run_test(
-    #     env,
-    #     high_level_tasks=high_level_tasks,
-    #     test_name="Test 11",
-    #     test_id=11,
-    #     task_name = task_name,
-    # )
-
-    obs = env.reset(test_case_id="6")
-    # objects_in_view_alice = env.get_readable_object_list(env.get_object_in_view(0))
-    
     high_level_tasks = [
-        ['NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(Fridge_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'], ['Idle']
+        #  ['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Potato_1)', 'SliceObject(Potato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)', 'NavigateTo(Potato_1)', 'PickupObject(Potato_1)', 'NavigateTo(Pan_1)', 'PutObject(Pan_1)', 'PickupObject(Pan_1)', 'NavigateTo(StoveBurner_1)', 'PutObject(StoveBurner_1)'], ['Idle']
+                  ['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Tomato_1)', 'SliceObject(Tomato_1)', 'DropHandObject', 'NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)'], ['Idle']
+
     ]
     
     run_test(
         env,
         high_level_tasks=high_level_tasks,
-        test_name="Test 6",
-        test_id=6,
+        test_name="Test 7",
+        test_id=7,
         task_name = task_name,
     )
+    objs = env.get_all_objects()
+    print(objs)
+    env.close()
+    # objs = env.get_readable_object_list(env.get_object_in_view(0))
+    # print(objs)
+    # high_level_tasks = [
+    #     ['NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'NavigateTo(Mug_1)','PickupObject(Mug_1)', 'NavigateTo(Fridge_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'], ['Idle']
+    # ]
+    
+    # run_test(
+    #     env,
+    #     high_level_tasks=high_level_tasks,
+    #     test_name="Test 2",
+    #     test_id=2,
+    #     task_name = task_name,
+    # )
+
+    # # before and after opening fridge
+    # final_reachable_position = [(-0.75, -1.25), (-0.75, -1.5), (-0.75, -1.75), (0.75, -1.25), (0.75, -1.5), (0.75, -1.75), (2.0, 2.0), (1.5, 2.0), (-1.0, -1.0), (-0.75, 1.25), (-0.75, 1.5), (-0.75, 1.75), (0.75, 1.25), (0.75, 1.5), (0.75, 1.75), (-1.25, -1.0), (-1.0, 0.25), (-1.0, 0.0), (-1.0, -0.25), (-1.0, -0.5), (-1.0, -0.75), (-1.25, 0.75), (-1.25, 0.25), (-1.25, 0.0), (-1.25, -0.25), (-1.25, -0.5), (-1.25, -0.75), (0.5, -1.25), (0.5, -1.5), (0.5, -1.75), (1.25, -1.25), (1.25, -1.5), (1.25, -1.75), (-1.0, 2.0), (1.75, -1.0), (1.75, -2.0), (0.0, 2.0), (0.0, 2.25), (-1.25, 2.0), (0.5, 1.25), (0.5, 1.5), (0.5, 1.75), (1.5, -1.25), (1.5, -1.5), (1.5, -1.75), (1.75, 0.75), (1.75, 0.5), (1.75, 0.25), (1.75, 0.0), (1.75, -0.25), (1.75, -0.5), (1.75, -0.75), (0.25, 2.0), (-0.5, -1.25), (-0.5, -1.5), (-0.5, -1.75), (1.5, 1.25), (1.5, 1.5), (1.5, 1.0), (1.5, 1.75), (1.75, 2.0), (-0.25, -1.25), (-0.25, -1.5), (-0.25, -1.75), (-0.5, 1.25), (-0.5, 1.5), (-0.5, 1.75), (1.0, -1.0), (-1.0, -1.5), (-1.0, -1.75), (-1.0, -1.25), (-1.5, 2.0), (-0.75, 2.0), (-0.25, 1.25), (-0.25, 1.5), (-0.25, 1.75), (2.0, -0.5), (2.0, -0.75), (1.0, 0.0), (1.0, -0.25), (1.25, 1.25), (1.25, 1.5), (1.25, 1.0), (1.25, 1.75), (0.25, -1.25), (0.25, -1.5), (0.25, -1.75), (1.0, 2.0), (2.0, 1.25), (2.0, 1.5), (2.0, 1.0), (2.0, 1.75), (0.5, 2.0), (1.75, 1.25), (1.75, 1.5), (1.75, 1.0), (1.75, 1.75), (0.75, 2.0), (0.0, -1.25), (0.0, -1.5), (0.0, -1.75), (-1.25, -1.25), (-1.25, -1.5), (-1.25, -1.75), (-1.5, 1.5), (-1.5, 1.75), (1.25, -1.0), (-1.0, 1.0), (-1.0, 1.25), (-1.0, 1.5), (-1.0, 1.75), (-0.5, 2.0), (1.0, -1.25), (0.0, 1.25), (0.0, 1.5), (0.0, 1.75), (1.0, -1.5), (1.0, -1.75), (2.0, -1.0), (2.0, -2.0), (-1.25, 1.0), (-1.25, 1.25), (-1.25, 1.5), (-1.25, 1.75), (1.5, -1.0), (1.5, -2.0), (1.25, 0.75), (1.25, 0.5), (1.25, 0.25), (1.25, 0.0), (1.25, -0.25), (1.25, -0.5), (1.25, -0.75), (-0.25, 2.0), (-0.25, 2.25), (0.25, 1.25), (0.25, 1.5), (0.25, 1.75), (1.0, 1.25), (1.0, 1.5), (1.0, 1.75), (2.0, 0.75), (2.0, 0.5), (2.0, 0.25), (2.0, 0.0), (2.0, -0.25), (1.5, 0.75), (1.5, 0.5), (1.5, 0.25), (1.5, 0.0), (1.5, -0.25), (1.5, -0.5), (1.5, -0.75), (1.25, 2.0)]
+
+
+    # import matplotlib.pyplot as plt
+    # x_vals = [x for x, z in final_reachable_position]
+    # z_vals = [z for x, z in final_reachable_position]
+
+    # # 繪圖
+    # plt.figure(figsize=(10, 8))
+    # plt.scatter(x_vals, z_vals, c='blue', s=100, label='reachable', alpha=0.7)
+
+    # plt.title("Final Reachable Positions")
+    # plt.xlabel("X")
+    # plt.ylabel("Z")
+    # plt.grid(True)
+    # plt.axis('equal')
+    # plt.legend()
+    # plt.show()
+
+'''
+新增的 reachable positions:
+(-1.5, 0.900999903678894, 0.75)
+(-1.5, 0.900999903678894, 1.5)
+- x :-1.5,-1.25,-1
+Before openning Object Fridge_1 status: {'object_id': 'Fridge|-02.10|+00.00|+01.07', 'name': 'Fridge_e92350c6', 'position': {'x': -2.0969998836517334, 'y': 0.0, 'z': 1.0720000267028809}, 'rotation': {'x': -0.0, 'y': 89.9999771118164, 'z': -0.0}, 'is_open': False, 'is_on': False, 'is_picked_up': False, 'isSliced': False, 'isToggled': False, 'isBroken': False, 'isFilledWithLiquid': False, 'contains': ['Egg|-02.04|+00.81|+01.24']}
+Executing action for agent 0 (Alice): {'agentId': 0, 'action': 'OpenObject', 'objectId': 'Fridge|-02.10|+00.00|+01.07'}
+After openning Object Fridge_1 status: {'object_id': 'Fridge|-02.10|+00.00|+01.07', 'name': 'Fridge_e92350c6', 'position': {'x': -2.0969998836517334, 'y': 0.0, 'z': 1.0720000267028809}, 'rotation': {'x': -0.0, 'y': 89.9999771118164, 'z': -0.0}, 'is_open': True, 'is_on': False, 'is_picked_up': False, 'isSliced': False, 'isToggled': False, 'isBroken': False, 'isFilledWithLiquid': False, 'contains': ['Egg|-02.04|+00.81|+01.24']}
+'''

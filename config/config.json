@@ -1,7 +1,7 @@
 {
     "num_agents": 2,
     "scene": "FloorPlan1",
-    "task": "Put tomato,lettuce and bread in fridge",
+    "task": "Test single actions",
     "timeout": 60,
     "model": "gpt-4o",
     "use_obs_summariser": false,
@@ -15,6 +15,6 @@
     "force_action": false,
     "temperature": 0.7,
     "overhead": true,
-    "test_id" : 6,
+    "test_id" : 7,
     "save_logs" : true
 }
