@@ -5,7 +5,7 @@ Aiming to implement a decentralized, LLM-driven multi-robot task planning and co
 
 ## TODO
 - [x] Built env with ai2thor    
-- [ ] Set up  LLM workflow and Baselines: Centraulized (One time planning, Replanning loop)
+- [x] Set up  LLM workflow and Baselines: Centraulized (One time planning, Replanning loop)
 - [ ] Test cases
 - [ ] Decentualized planning
 - [ ] Experiment
@@ -46,6 +46,32 @@ python env/test_env_b.py
     "model": "gpt-4o" # choose from gpt models
 }
 ```
+> **Configuration Options Reference**  
+>  
+> `num_agents`: Integer between **1** and **7**  
+>  
+> `scene`: Format `"FloorPlanX"`  
+> Categories (Same as defined in AI2Thor):  
+> - Kitchen: `FloorPlan1` to `FloorPlan30`  
+> - Living Room: `FloorPlan201` to `FloorPlan230`  
+> - Bedroom: `FloorPlan301` to `FloorPlan330`  
+> - Bathroom: `FloorPlan401` to `FloorPlan430`  
+>  
+> `task`: High-level natural language instruction combining actions like:  
+> - Put [object] in/on [location]` 
+> - Slice [object]` 
+> - Clean [object]  
+> - Turn on/off [appliance]
+> Refer to `config/scene_objects.json` to check which objects are included in each floorplan.  
+>  
+> `model`: Supported GPT models include:  
+> - `"gpt-4o"`  
+> - `"gpt-4o-mini"`  
+> Different models may yield different results.
+> 
+>
+
+
 and run:
 ```python
 python env/llm.py
@@ -59,7 +85,7 @@ python env/llm.py
 >     1. Update open subtasks and completed subtasks.
 >     2. Allocate subtasks to robot agents in the environment using LLM.
 >     3. Break down each assigned subtask with LLM into a list of smaller available actions.
->     4. **(Working on this step)** Execute one subtask per agent.
+>     4. Execute one subtask per agent.
 >     5. Verify if the subtask is completed using two methods:
 >         - LLM-based verification (by observation of the environment)
 >         - Rule-based verification
