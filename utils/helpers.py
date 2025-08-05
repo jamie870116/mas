@@ -2,6 +2,19 @@ import cv2
 import os
 from pathlib import Path
 import re
+def extract_frame_indices(filename):
+    """
+    Extracts the primary and optional secondary frame index from filename like 'frame_0_2.png' or 'frame_1.png'.
+    Returns a tuple (primary, secondary) for sorting.
+    """
+    match = re.match(r"frame_(\d+)(?:_(\d+))?\.png", filename)
+    if match:
+        primary = int(match.group(1))
+        secondary = int(match.group(2)) if match.group(2) else 0
+        return (primary, secondary)
+    return (float('inf'), float('inf'))  # Place unrecognized files at the end
+
+
 
 def save_to_video(file_name: str, fps: int = 10, project_root: str = None):
     """
@@ -43,9 +56,13 @@ def save_to_video(file_name: str, fps: int = 10, project_root: str = None):
     # Process each subfolder to create a video
     for subfolder in subfolders:
         # Collect all frame files in the subfolder
+        # frame_files = sorted(
+        #     [f for f in subfolder.iterdir() if f.is_file() and f.suffix == ".png"],
+        #     key=lambda x: int(re.search(r'frame_(\d+)\.png', x.name).group(1))
+        # )
         frame_files = sorted(
             [f for f in subfolder.iterdir() if f.is_file() and f.suffix == ".png"],
-            key=lambda x: int(re.search(r'frame_(\d+)\.png', x.name).group(1))
+            key=lambda x: extract_frame_indices(x.name)
         )
         
         if not frame_files:
@@ -76,4 +93,4 @@ def save_to_video(file_name: str, fps: int = 10, project_root: str = None):
 
 if __name__ == "__main__":
     # Example usage with relative path
-    save_to_video("logs/Put_tomato,lettuce_and_bread_in_countertop/test_5")
+    save_to_video("logs/Test_single_actions/test_15")

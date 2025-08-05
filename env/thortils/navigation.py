@@ -672,7 +672,7 @@ def get_shortest_path_to_object(controller, object_id,
                               dict(x=pitch, y=yaw, z=roll)))
 
     if return_plan:
-        print(f'returning plan: {actions}, poses: {poses}')
+        # print(f'returning plan: {actions}, poses: {poses}')
         return poses, actions
     else:
         return poses

@@ -58,11 +58,20 @@ class BaseEnv:
         ]
         self.small_objects = [
             # kitchen
-            "Potato", "Egg"
+            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker"
+            # living room
+            "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox",
+            # bedroom
+            "CD", "CellPhone", "Pencil", "Pen", "Watch", "AlarmClock", "CreditCard","TeddyBear"
+            # Bathroom
+            "Cloth", "Faucet", "DishSponge","PaperTowelRoll","SoapBar", "ToiletPaper"
         ]
         # only egg -> EggCracked; other Sliced
         self.sliceable_objects = ['Potato', 'Tomato', 'Bread', 'Lettuce', 'Egg', 'Apple'] 
-
+        # These are the objects that is breakable and cannot be interacted or recovered after broken
+        self.breakable_objects = ['Bowl','Bottle','Mug','Plate','Cup','Vase','ShowerDoor','Mirror','Statue','Window','WineBottle']
+        self.dirtyable_objects = ['Bed','Bowl','Cloth','Cup','Mirror','Mug','Pan','Plate','Pot']
+        self.usable_objects = ['PaperTowelRoll', 'SoapBottle', 'TissueBox', 'ToiletPaper']
     
     def random_spawn(self, seed: int = 0):
         """Randomly spawn objects in the environment."""
@@ -151,6 +160,7 @@ class BaseEnv:
         """
         self.object_dict = {}
         object_ids = [obj["objectId"] for obj in self.event.metadata["objects"]]
+        
         print('object_ids', object_ids)
         for full_obj_id in object_ids:
             obj_name, obj_uid = self.parse_object(full_obj_id)
@@ -159,8 +169,14 @@ class BaseEnv:
                 self.object_dict[obj_name] = {}
 
             if obj_uid not in self.object_dict[obj_name]:
+                isSliced = False
+                isBroken = False
                 if obj_name in self.sliceable_objects:
                     isSliced = self.get_object_status_byID(full_obj_id).get("isSliced", False)
+                if obj_name in self.breakable_objects:
+                    isBroken = self.get_object_status_byID(full_obj_id).get("isBroken", False)
+                if isBroken:
+                    continue
                 if isSliced:
                     if obj_name != 'Egg':
                         if "Cracked" not in obj_uid:
@@ -216,6 +232,9 @@ class BaseEnv:
             #     action_dict["forceAction"] = True
         elif action.startswith("DropHandObject"):
             action_dict["action"] = "DropHandObject"
+        elif action.startswith("ThrowObject"):
+            action_dict["action"] = "ThrowObject"
+            action_dict["moveMagnitude"] = 150.0
         elif action.startswith("NavigateTo"):
             action_dict["action"] = "Pass"
         elif action.startswith("Look"):
@@ -243,6 +262,8 @@ class BaseEnv:
                     "isSliced": obj.get("isSliced", False),
                     "isToggled": obj.get("isToggled", False),
                     "isBroken": obj.get("isBroken", False),
+                    "isUsedUp": obj.get("isUsedUp", True),
+                    "isDirty": obj.get("isDirty", False),
                     "isFilledWithLiquid": obj.get("isFilledWithLiquid", False),
                     'contains': obj.get("receptacleObjectIds", None),
                 }
@@ -456,7 +477,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 )
             )
 
-        
+        self.update_object_dict()
         if not self.skip_save_dir:
             self.save_frame()
         
@@ -527,6 +548,7 @@ class AI2ThorEnv_cen(BaseEnv):
        
     def get_navigation_step(self, action: str, agent_id: int) -> List[str]:
         object_name = action.split("(")[1].rstrip(")")
+        # print(self.object_dict, object_name)
         obj_id = self.convert_readable_object_to_id(object_name)
 
         cur_pos = self.get_agent_position_dict(agent_id)
@@ -661,7 +683,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 # self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
                 self.logs.append(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
                 self.logs.append(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
-            # print(f"Executing action for agent {aid} ({self.agent_names[aid]}
+            # print(f"Executing action for agent {aid} ({self.agent_names[aid]}")
             # print(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
             # print(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
             # print("******")
@@ -669,7 +691,7 @@ class AI2ThorEnv_cen(BaseEnv):
             act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
             # print(f"After exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
             # print("******")
-            
+            # print(act)
             # for testing
             before_reachable_position = self.get_cur_reachable_positions()
             # if act.startswith('Open'):
@@ -677,12 +699,28 @@ class AI2ThorEnv_cen(BaseEnv):
             #     print(f"Before openning Object Fridge_1 status: {status}")
 
             if act != "Idle":
-                action_dict = self.parse_action(act, aid)
-                if self.save_logs:
-                    self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
-                print(f"Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
-                self.event = self.controller.step(action_dict)
-                success = self.event.events[aid].metadata["lastActionSuccess"]
+                if act.startswith('Rotate'):
+                    action_dict = {"agentId": aid, "action": act, "degrees":30}
+                    # action_dict = self.parse_action(act, aid)
+                    for i in range(2):
+                        self.event = self.controller.step(action_dict)
+                        success = self.event.events[aid].metadata["lastActionSuccess"]
+                        
+                        self.save_last_frame(agent_id=aid, view="pov",
+                                     filename=f"frame_{self.step_num[aid]}_{i+1}.png")
+                        self.save_last_frame(view="overhead",
+                                 filename=f"frame_{self.step_num[0]}_{i+1}.png")
+                        if not success:
+                            break
+                    self.event = self.controller.step(action_dict)
+                    success = self.event.events[aid].metadata["lastActionSuccess"]
+                else:
+                    action_dict = self.parse_action(act, aid)
+                    if self.save_logs:
+                        self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
+                    print(f"Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
+                    self.event = self.controller.step(action_dict)
+                    success = self.event.events[aid].metadata["lastActionSuccess"]
             else:
                 success = True
 
@@ -733,6 +771,7 @@ class AI2ThorEnv_cen(BaseEnv):
                     if self.save_logs:
                         self.logs.append(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
                     print(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
+                    self.subtask_success_history[self.agent_names[aid]].append(sub)
                     self.current_hl[aid] = None
                     self.action_queue[aid].clear()
                 else:
@@ -1060,6 +1099,9 @@ class AI2ThorEnv_cen(BaseEnv):
         - SliceObject(obj)
         - FillObjectWithLiquid(obj)
         - EmptyLiquidFromObject(obj)
+        - UseUpObject(obj)
+        - DirtyObject(obj)
+        - CleanObject(obj)
 
         True for :
         self.move_actions = ["MoveAhead", "MoveBack", "MoveRight", "MoveLeft"]
@@ -1072,7 +1114,7 @@ class AI2ThorEnv_cen(BaseEnv):
         if subtask in self.idle_actions or subtask in self.move_actions or subtask in self.rotate_actions or subtask in self.look_actions or subtask in self.object_interaction_without_navigation: 
             suc = True
             print('cam degree ', self.event.events[agent_id].metadata["agent"]["cameraHorizon"])
-            self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
+            # self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
             return suc
         
 
@@ -1082,7 +1124,7 @@ class AI2ThorEnv_cen(BaseEnv):
         if name in self.look_actions:
             suc = True
             print('cam degree ', self.event.events[agent_id].metadata["agent"]["cameraHorizon"])
-            self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
+            # self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
             # return suc
         
         elif name == "PickupObject":
@@ -1110,12 +1152,12 @@ class AI2ThorEnv_cen(BaseEnv):
                 prev_name, prev_obj = prev_sub[:-1].split("(", 1)
                 prev_obj = prev_obj.split("_")[0]
                 print(f"Previous action: {prev_name} with object: {prev_obj}")
-                print(f"Checking if {prev_obj} is in the container: {contains}: {prev_obj in contains}")
+                
                 for obj_in_container in contains:
                     if obj_in_container.startswith(prev_obj):
                         suc = True
                         break
-                
+                print(f"Checking if {prev_obj} is in the container: {contains}: {suc}")
 
         elif name == "OpenObject":
             suc = self.get_object_status(obj).get("is_open", False)
@@ -1135,6 +1177,7 @@ class AI2ThorEnv_cen(BaseEnv):
             suc = self.get_object_status(obj).get("isBroken", False)
             if suc:
                 self.update_object_dict()
+                print(self.object_dict)
             # return self.get_object_status(obj).get("isBroken", False)
         elif name == "SliceObject":
             suc = self.get_object_status(obj).get("isSliced", False)
@@ -1149,8 +1192,15 @@ class AI2ThorEnv_cen(BaseEnv):
             # return self.get_object_status(obj).get("isFilledWithLiquid", False)
         elif name == "EmptyLiquidFromObject":
             suc = not self.get_object_status(obj).get("isFilledWithLiquid", True)
-            
+        elif name == "UseUpObject":
+            suc = not self.get_object_status(obj).get("isUsedUp", True)
+            print(self.get_object_status(obj))
             # return not self.get_object_status(obj).get("isFilledWithLiquid", True)
+        elif name == "DirtyObject":
+            suc = self.get_object_status(obj).get("isDirty", False)
+        elif name == "CleanObject":
+            suc = not self.get_object_status(obj).get("isDirty", False)
+
         elif name == "NavigateTo":
             # check if the agent is at the object and if the object is in view (by default visibilty: dist 1.5m)
             obj_id = self.convert_readable_object_to_id(obj)
@@ -1174,21 +1224,30 @@ class AI2ThorEnv_cen(BaseEnv):
             #         self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
             #         return suc
             else:
-                if obj_id not in self.get_object_in_view(agent_id):
+                if obj_id not in self.get_object_in_view(agent_id) and obj_name not in self.small_objects:
                     # not in view
-                    if 'Potato' in obj_id:
-                        print('current seeing', self.get_object_in_view(agent_id))
                     print(obj, ' is not in view')
                     suc = False
                     return suc
                 else:
                     # agnet_rot = self.event.events[agent_id].metadata["agent"]["rotation"]["y"]
                     # agent_cam = self.event.events[agent_id].metadata["agent"]["cameraHorizon"]
-                    if not self.action_queue[agent_id] or obj_name in self.small_objects:
+                    # if not self.action_queue[agent_id] and obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id):
+                        
+                    #     suc = True
+                    #     self.current_hl[agent_id] = None
+                    #     self.action_queue[agent_id].clear()
+                        
+                    #     # self.pending_high_level[agent_id].appendleft(subtask)
+                    #     self.pending_high_level[agent_id].appendleft('MoveBack')
+                        # print('pending: ',self.pending_high_level[agent_id])
+                    # el
+                    if not self.action_queue[agent_id] and obj_id in self.get_object_in_view(agent_id):
                         detections = self.event.events[agent_id].instance_detections2D
                         obj_bbox = detections[obj_id]
-                        pitch_diff, act_pitch = self.estimate_pitch_to_center_object(obj_bbox)
-                        print(f'obj_bbox: {obj_bbox}, pitch diff: {pitch_diff}')
+                        pitch_diff, act_pitch = self.estimate_pitch_to_center_object(obj_bbox, self.event.events[agent_id].frame.shape)
+                        yaw_diff, act_yaw = self.estimate_yaw_to_center_object(obj_bbox, self.event.events[agent_id].frame.shape)
+                        print(f'obj_bbox: {obj_bbox}, pitch diff: {pitch_diff}, yaw_diff: {yaw_diff}')
                         suc = True 
                         if pitch_diff != 0:
                             # dist is close enough but cam degree is incorrect
@@ -1197,17 +1256,28 @@ class AI2ThorEnv_cen(BaseEnv):
                             self.pending_high_level[agent_id].appendleft(act_pitch+"(" + str(p_degree) + ")")
                         # suc = self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot, agent_cam)
                         # print(f'*** is obect {obj} in center view: {suc}')
-                    elif obj_name in self.small_objects:
+                    elif self.action_queue[agent_id] and obj_name in self.small_objects and obj_id in self.get_object_in_view(agent_id):
                         detections = self.event.events[agent_id].instance_detections2D
                         obj_bbox = detections[obj_id]
-                        pitch_diff, act_pitch = self.estimate_pitch_to_center_object(obj_bbox)
-                        print(f'obj_bbox: {obj_bbox}, pitch diff: {pitch_diff}')
+                        pitch_diff, act_pitch = self.estimate_pitch_to_center_object(obj_bbox, self.event.events[agent_id].frame.shape)
+                        yaw_diff, act_yaw = self.estimate_yaw_to_center_object(obj_bbox, self.event.events[agent_id].frame.shape)
+                        print(f'obj_bbox: {obj_bbox}, pitch diff: {pitch_diff}, yaw_diff: {yaw_diff}')
                         suc = True 
                         if pitch_diff != 0:
                             # dist is close enough but cam degree is incorrect
                             p_degree = closest_angles(V_ANGLES, abs(pitch_diff))
                             print(f'need to change pitch to {p_degree}')
                             self.pending_high_level[agent_id].appendleft(act_pitch+"(" + str(p_degree) + ")")
+                    elif not self.action_queue[agent_id] and obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id):
+                        suc = True
+                        self.current_hl[agent_id] = None
+                        self.action_queue[agent_id].clear()
+                        
+                        # self.pending_high_level[agent_id].appendleft(subtask)
+                        self.pending_high_level[agent_id].appendleft('LookDown(30)')
+                        print('pending: ',self.pending_high_level[agent_id])
+
+
 
             # if obj_id not in self.get_object_in_view(agent_id) and not self.action_queue[agent_id]:
             #     # not in view
@@ -1239,7 +1309,7 @@ class AI2ThorEnv_cen(BaseEnv):
             #     # return self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot)
 
         if suc:
-            self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
+            # self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
             if name not in self.look_actions and name != "NavigateTo":
                 # reset the pitch
                 self.add_reset_pitch_subtask(agent_id)
@@ -1286,6 +1356,29 @@ class AI2ThorEnv_cen(BaseEnv):
         else:
             return -delta_pitch, "LookUp"
         
+    def estimate_yaw_to_center_object(self, obj_bbox, frame_shape=(1000, 1000, 3)):
+        """
+        Estimate the horizontal angle needed to center the object.
+        Returns (angle_diff, action_name), where action is RotateLeft or RotateRight.
+        """
+        x1, _, x2, _ = obj_bbox
+        frame_width = frame_shape[1]
+        bbox_center_x = (x1 + x2) / 2
+        frame_center_x = frame_width / 2
+
+        # offset: + if object is on right side, - if on left
+        offset = bbox_center_x - frame_center_x
+
+        # 假設最大視角為 90 度，估算角度差異（簡化線性推估）
+        max_angle = 90
+        angle_diff = (offset / (frame_width / 2)) * (max_angle / 2)
+
+        if abs(angle_diff) < 30:  # 小於5度視為已對準
+            return 0, ""
+
+        action = "RotateRight" if angle_diff > 0 else "RotateLeft"
+        degree = closest_angles(H_ANGLES, abs(angle_diff))
+        return degree, action
 
 
     # def is_object_in_center_view(self, agent_pos, object_pos, agent_yaw_deg, agent_cam, threshold_deg=30) -> bool:
