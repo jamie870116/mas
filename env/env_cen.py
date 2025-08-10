@@ -865,7 +865,7 @@ class AI2ThorEnv_cen(BaseEnv):
                         self._record_subtask_failure(aid, reason="no-path", at_action=sub)
                         self.nav_no_plan[self.agent_names[aid]] = False
                     terminal = False
-                    if last_reason in ("object-not-exist", "no-path"):
+                    if last_reason == 'no-path' or 'not-exist' in last_reason:
                         terminal = True
                     elif last_reason and last_reason.startswith("distance-too-far"):
                         # 視需求：距離過遠你可能想交給 LLM 微控制恢復，不一定視為終止
