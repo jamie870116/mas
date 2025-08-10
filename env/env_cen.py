@@ -115,6 +115,11 @@ class BaseEnv:
         reachable_positions = [(p["x"], p["y"], p["z"]) for p in reachable_positions_]
         return reachable_positions
     
+    def get_cur_reachable_positions_2d(self) -> List[Tuple[float, float]]:
+        reachable_positions_ = self.controller.step(action="GetReachablePositions").metadata["actionReturn"]
+        reachable_positions = [(p["x"], p["z"]) for p in reachable_positions_]
+        return reachable_positions
+    
     def get_agent_rotation(self, agent_id: int) -> str:
         """Return a string describing the agent's rotation."""
         rot = self.event.events[agent_id].metadata["agent"]["rotation"]["y"]
@@ -161,7 +166,7 @@ class BaseEnv:
         self.object_dict = {}
         object_ids = [obj["objectId"] for obj in self.event.metadata["objects"]]
         
-        print('object_ids', object_ids)
+        # print('object_ids', object_ids)
         for full_obj_id in object_ids:
             obj_name, obj_uid = self.parse_object(full_obj_id)
 
@@ -401,6 +406,8 @@ class AI2ThorEnv_cen(BaseEnv):
         self.subtask_success_history = {name: [] for name in self.agent_names}  # save the previous successful subtasks for each agent
         self.subtask_failure_reasons = {name: [] for name in self.agent_names} # save the previous failure subtasks and reason for each agent
         self.agent_failure_acts	= {name: [] for name in self.agent_names} # save 最近失敗過的 atomic action，通常用於偵測是否卡住
+        self.nav_no_plan = {name: False for name in self.agent_names}   # 導航規劃為空的旗標
+        self.last_check_reason = {name: None for name in self.agent_names}  # is_subtask_done 內部最近一次的判斷理由
         
         self.action_history = {name: [] for name in self.agent_names}
         self.action_success_history = {name: [] for name in self.agent_names}
@@ -443,6 +450,8 @@ class AI2ThorEnv_cen(BaseEnv):
         self.subtask_failure_reasons = {name: [] for name in self.agent_names} 
         self.agent_failure_acts = {name: [] for name in self.agent_names}
         self.all_obs_dict = {name: [] for name in self.agent_names}
+        self.nav_no_plan = {name: False for name in self.agent_names}
+        self.last_check_reason = {name: None for name in self.agent_names}
         
         self.open_subtasks = "None" if self.use_plan else None
         self.closed_subtasks = "None" if self.use_plan else None
@@ -488,8 +497,8 @@ class AI2ThorEnv_cen(BaseEnv):
         self.input_dict = {"Task": self.task, "Elapsed Time": f"{self.total_elapsed_time:.2f} seconds"}
         
         for agent_id, agent_name in enumerate(self.agent_names):
-            obs, obs_list = self.generate_obs_text(agent_id)
-            self.input_dict[f"{agent_name}'s observation"] = obs
+            obs, obs_list = self.generate_obs_text(agent_id, mode="mapping") # output: text, list or mapping
+            self.input_dict[f"Agent {agent_id} {agent_name}'s observation"] = obs
             self.input_dict[f"{agent_name}'s state"] = self.get_agent_state(agent_id)
             self.input_dict[f"{agent_name}'s previous action"] = (
                 "I have not taken any action yet" if not self.action_history[agent_name]
@@ -522,14 +531,75 @@ class AI2ThorEnv_cen(BaseEnv):
         detections = self.event.events[agent_id].instance_detections2D
         return list(detections.instance_masks.keys()) if detections else []
     
-    def generate_obs_text(self, agent_id: int, prefix: str = "I see: ") -> Tuple[str, List[str]]:
+    def get_mapping_object_pos_in_view(self, agent_id: int) -> Dict[str, Dict[str, float]]:
+        """
+        以 'Name_Idx' 為鍵，回傳可見物件的 {'x','z'}。
+        """
+        detections = self.event.events[agent_id].instance_detections2D
+        if not detections:
+            return {}
+
+        self.update_object_dict()
+
+        id2xz = {}
+        for obj in self.event.metadata.get("objects", []):
+            pos = obj.get("position")
+            if not pos:
+                continue
+            oid = obj.get("objectId")
+            if oid:
+                id2xz[oid] = (pos.get("x"), pos.get("z"))
+
+        positions: Dict[str, Dict[str, float]] = {}
+
+        for obj_id, mask in detections.instance_masks.items():
+            if mask is None:
+                continue
+            if obj_id not in id2xz:
+                continue
+
+            obj_name, obj_uid = self.parse_object(obj_id)
+
+            name_map = self.object_dict.setdefault(obj_name, {})
+            idx = name_map.get(obj_uid)
+            if idx is None:
+                idx = len(name_map) + 1
+                name_map[obj_uid] = idx
+
+            key = f"{obj_name}_{idx}"
+            x, z = id2xz[obj_id]
+            if x is None or z is None:
+                continue
+            positions[key] = {"x": round(x, 2), "z": round(z, 2)}
+
+        return positions
+
+
+
+    def generate_obs_text(self, agent_id: int, prefix: str = "I see: ", mode="list") -> Tuple[str, List[str]]:
         """Generate observation text and list."""
+        """
+        mode: "list" | "mapping"
+        - "list": 回傳 ['Tomato_1', 'Fridge_1', ...]
+        - "mapping": 回傳 { 'Tomato_1': {'x': .., 'z': ..}, ... }
+                    並產出一段以鍵名為主的摘要文字
+        """
+        if mode == "mapping":
+            mapping = self.get_mapping_object_pos_in_view(agent_id)  # {Name_Idx: {'x','z'}}
+            names = sorted(mapping.keys())
+            obs_text = prefix + str(names)
+            if self.use_obs_summariser:
+                obs_text = prefix + str(self.summarise_obs(names))
+            return obs_text, mapping
+
+        # 預設行為：list
         objects_in_view = self.get_object_in_view(agent_id)
         obs_list = self.get_readable_object_list(objects_in_view)
         if self.use_obs_summariser:
             obs_list = self.summarise_obs(obs_list)
         obs_text = prefix + str(obs_list)
         return obs_text, obs_list
+      
     
     def summarise_obs(self, obs_list: List[str]) -> List[str]:
         """Placeholder for observation summarization. (LLM) """
@@ -549,7 +619,13 @@ class AI2ThorEnv_cen(BaseEnv):
     def get_navigation_step(self, action: str, agent_id: int) -> List[str]:
         object_name = action.split("(")[1].rstrip(")")
         # print(self.object_dict, object_name)
-        obj_id = self.convert_readable_object_to_id(object_name)
+        # obj_id = self.convert_readable_object_to_id(object_name)
+        try:
+            obj_id = self.convert_readable_object_to_id(object_name)
+        except ValueError as e:
+            self._record_subtask_failure(agent_id, reason=f"object({object_name})-not-exist ({e})", at_action=action)
+            self.agent_failure_acts[self.agent_names[agent_id]].append(action)
+            return []
 
         cur_pos = self.get_agent_position_dict(agent_id)
         rot_meta = self.event.events[agent_id].metadata["agent"]["rotation"]
@@ -581,6 +657,8 @@ class AI2ThorEnv_cen(BaseEnv):
             )
 
         if not plan:
+            self.nav_no_plan[self.agent_names[agent_id]] = True
+            self._record_subtask_failure(agent_id, reason="no-path", at_action=action)
             return []
 
         micro_actions: List[str] = []
@@ -672,6 +750,7 @@ class AI2ThorEnv_cen(BaseEnv):
         # self.step_decomp(actions)
         # print("curr action queue: ", self.action_queue)
         act_texts, act_successes = [], []
+        any_terminal_fail = False 
         # print("Executing actions:", actions)
         for aid in range(self.num_agents):
 
@@ -750,6 +829,8 @@ class AI2ThorEnv_cen(BaseEnv):
             if not success:
                 print(f"Failed to Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
                 print(f'errorMessage: {self.event.events[aid].metadata["errorMessage"]}')
+                err = self.event.events[aid].metadata.get("errorMessage") or "unknown-error"
+                self._record_subtask_failure(aid, reason=f"failed-at: {act} ({err})", at_action=act)
                 self.agent_failure_acts[self.agent_names[aid]].append(act)
             else:
                 self.agent_failure_acts[self.agent_names[aid]] = []
@@ -775,7 +856,36 @@ class AI2ThorEnv_cen(BaseEnv):
                     self.current_hl[aid] = None
                     self.action_queue[aid].clear()
                 else:
-                    print(f'subtask: {sub} failed, errorMessage: {self.event.events[aid].metadata["errorMessage"]}')
+                    last_reason = self.last_check_reason[self.agent_names[aid]]
+                    if last_reason:
+                        self._record_subtask_failure(aid, reason=last_reason, at_action=sub)
+                        self.last_check_reason[self.agent_names[aid]] = None  # 用過就清空，避免污染下步
+
+                    if self.nav_no_plan[self.agent_names[aid]]:
+                        self._record_subtask_failure(aid, reason="no-path", at_action=sub)
+                        self.nav_no_plan[self.agent_names[aid]] = False
+                    terminal = False
+                    if last_reason in ("object-not-exist", "no-path"):
+                        terminal = True
+                    elif last_reason and last_reason.startswith("distance-too-far"):
+                        # 視需求：距離過遠你可能想交給 LLM 微控制恢復，不一定視為終止
+                        terminal = False
+                    # 也可把 get_navigation_step 設的旗標納入
+                    if self.nav_no_plan[self.agent_names[aid]]:
+                        terminal = True
+
+                    if terminal:
+                        # 這裡可再記一次失敗（你之前多處已經記過就略過也可）
+                        self._record_subtask_failure(aid, reason=last_reason or "terminal-failure", at_action=sub)
+                        # 把該 subtask 標為「未完成 → 失敗」，退出當前高階
+                        self.current_hl[aid] = None
+                        self.action_queue[aid].clear()
+                        # 標記本 agent 本步失敗，讓外層 loop 跳出
+                        act_successes[aid] = False
+                        any_terminal_fail = True
+                    else:
+                        print(f'subtask: {sub} failed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
+                    print(f'subtask: {sub} failed, errorMessage: {last_reason}')
                 # elif not success:
                 #     self.action_queue[aid].clear()
                 #     # replan TBD
@@ -1084,7 +1194,31 @@ class AI2ThorEnv_cen(BaseEnv):
                 for log in self.logs:
                     f.write(str(log) + "\n")
 
-   
+    def _record_subtask_failure(self, agent_id: int, reason: str, at_action: str | None = None):
+        """
+        將當前 agent 所屬的「自然語言 subtask」記一筆失敗理由。
+        - reason: "no-path" / "failed-at: MoveAhead" / "object-not-in-view" / "distance-too-far (1.73m)" / try/except 錯誤訊息 ...
+        - at_action: 可填入目前的高階或低階動作字串，便於 LLM 重建脈絡
+        """
+        agent_name = self.agent_names[agent_id]
+        nl_subtask = None
+        if self.cur_plan and agent_id < len(self.cur_plan):
+            nl_subtask = self.cur_plan[agent_id].get("subtask")  # 自然語言版本
+
+        # 回退：若拿不到自然語言，就用目前的高階 action 當 key
+        if nl_subtask is None:
+            nl_subtask = self.current_hl.get(agent_id) or "Unknown-Subtask"
+
+        # 紀錄至 per-agent list
+        payload = {"subtask": nl_subtask, "reason": reason}
+        if at_action:
+            payload["at_action"] = at_action
+
+        self.subtask_failure_reasons[agent_name].append(payload)
+
+        # 也更新 failed_acts（已有結構，這裡只保證有 at_action 時也同步放）
+        if at_action:
+            self.agent_failure_acts[agent_name].append(at_action)
 
     def is_subtask_done(self, subtask: str, agent_id: int) -> bool:
         """
@@ -1129,11 +1263,15 @@ class AI2ThorEnv_cen(BaseEnv):
         
         elif name == "PickupObject":
             suc = self.inventory[agent_id] == obj
+            if not suc:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-picked-up"
             # return self.inventory[agent_id] == obj
 
         elif name == "PutObject":
             if self.inventory[agent_id] != "nothing":
                 suc = False
+                if not suc:
+                    self.last_check_reason[self.agent_names[agent_id]] = f"object({self.inventory[agent_id]})-not-put-down"
                 return suc
             else: # TBD: need more test
                 recep_status = self.get_object_status(obj)
@@ -1148,6 +1286,8 @@ class AI2ThorEnv_cen(BaseEnv):
                         break
                 # prev_sub = self.subtask_success_history[self.agent_names[agent_id]][-2] # suppose to be navigateTo() -> pickup()
                 if not prev_sub:
+                    if not suc:
+                        self.last_check_reason[self.agent_names[agent_id]] = "did-not-pickup-any-object-before-put"
                     return False
                 prev_name, prev_obj = prev_sub[:-1].split("(", 1)
                 prev_obj = prev_obj.split("_")[0]
@@ -1158,19 +1298,29 @@ class AI2ThorEnv_cen(BaseEnv):
                         suc = True
                         break
                 print(f"Checking if {prev_obj} is in the container: {contains}: {suc}")
+                if not suc:
+                    self.last_check_reason[self.agent_names[agent_id]] = f"object({prev_obj})-not-put-into-container({obj})"
 
         elif name == "OpenObject":
             suc = self.get_object_status(obj).get("is_open", False)
+            if not suc:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-opened"
             # return self.get_object_status(obj).get("is_open", False)
         elif name == "CloseObject":
             suc = not self.get_object_status(obj).get("is_open", False)
+            if not suc:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-closed"
             # return not self.get_object_status(obj).get("is_open", False)
 
         elif name == "ToggleObjectOn":
             suc = self.get_object_status(obj).get("is_on", False)
+            if not suc:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-toggled-on"
             # return self.get_object_status(obj).get("is_on", False)
         elif name == "ToggleObjectOff":
             suc = not self.get_object_status(obj).get("is_on", False)
+            if not suc:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-toggled-off"
             # return not self.get_object_status(obj).get("is_on", False)
 
         elif name == "BreakObject":
@@ -1178,32 +1328,55 @@ class AI2ThorEnv_cen(BaseEnv):
             if suc:
                 self.update_object_dict()
                 print(self.object_dict)
+            else:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-broken"
             # return self.get_object_status(obj).get("isBroken", False)
         elif name == "SliceObject":
             suc = self.get_object_status(obj).get("isSliced", False)
             if suc:
                 self.update_object_dict()
                 print(self.object_dict)
+            else:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-sliced"
             # print(self.get_all_objects())
             # return self.get_object_status(obj).get("isSliced", False)
 
         elif name == "FillObjectWithLiquid":
             suc = self.get_object_status(obj).get("isFilledWithLiquid", False)
+            if not suc:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-filled-with-liquid"
             # return self.get_object_status(obj).get("isFilledWithLiquid", False)
         elif name == "EmptyLiquidFromObject":
             suc = not self.get_object_status(obj).get("isFilledWithLiquid", True)
+            if not suc:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-emptied-from-liquid"
         elif name == "UseUpObject":
             suc = not self.get_object_status(obj).get("isUsedUp", True)
+            if not suc:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-used-up"
             print(self.get_object_status(obj))
             # return not self.get_object_status(obj).get("isFilledWithLiquid", True)
         elif name == "DirtyObject":
             suc = self.get_object_status(obj).get("isDirty", False)
+            if not suc:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-dirty"
         elif name == "CleanObject":
             suc = not self.get_object_status(obj).get("isDirty", False)
+            if not suc:
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-cleaned"
 
         elif name == "NavigateTo":
             # check if the agent is at the object and if the object is in view (by default visibilty: dist 1.5m)
-            obj_id = self.convert_readable_object_to_id(obj)
+            # obj_id = self.convert_readable_object_to_id(obj)
+            try:
+                obj_id = self.convert_readable_object_to_id(obj)
+            except ValueError:
+                # 記錄失敗並回報 False
+                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-exist"
+                # 用自然語言 subtask 作為 key，並附在 at_action
+                self._record_subtask_failure(agent_id, reason=f"object({obj})-not-exist", at_action=subtask)
+                return False
+
             agent_pos = self.get_agent_position_dict(agent_id)
             obj_metadata = next((o for o in self.event.metadata["objects"] if o["objectId"] == obj_id), None)
             # check distance -> in view -> center 
@@ -1216,6 +1389,7 @@ class AI2ThorEnv_cen(BaseEnv):
             print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
             if dist > 1.0:
                 # error_type += f": distance-too-far ({dist:.2f}m)"
+                self.last_check_reason[self.agent_names[agent_id]] = f"distance-too-far ({dist:.2f}m)"
                 suc = False
                 return suc 
             # elif obj_id in self.get_object_in_view(agent_id):
@@ -1226,7 +1400,7 @@ class AI2ThorEnv_cen(BaseEnv):
             else:
                 if obj_id not in self.get_object_in_view(agent_id) and obj_name not in self.small_objects:
                     # not in view
-                    print(obj, ' is not in view')
+                    self.last_check_reason[self.agent_names[agent_id]] = "object-not-in-view"
                     suc = False
                     return suc
                 else:
@@ -1276,37 +1450,6 @@ class AI2ThorEnv_cen(BaseEnv):
                         # self.pending_high_level[agent_id].appendleft(subtask)
                         self.pending_high_level[agent_id].appendleft('LookDown(30)')
                         print('pending: ',self.pending_high_level[agent_id])
-
-
-
-            # if obj_id not in self.get_object_in_view(agent_id) and not self.action_queue[agent_id]:
-            #     # not in view
-            #     print(obj, ' is not in view')
-            #     suc = False
-            #     # return False
-            # else:
-            #     # check if the object is within 1m distance
-            #     agent_pos = self.get_agent_position_dict(agent_id)
-            #     obj_metadata = next(obj for obj in self.event.metadata["objects"] if obj["objectId"] == obj_id)
-            #     obj_pos = obj_metadata["position"]
-            #     obj_name = obj.split("_")[0]
-        
-            #     dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
-            #     print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
-            #     if dist > 1.0:
-            #         # error_type += f": distance-too-far ({dist:.2f}m)"
-            #         suc = False
-            #         return suc 
-            #     elif obj_name in self.receptacle_objects:
-            #         suc = True
-            #         self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
-            #         return suc
-            #         # return True
-            #     # check if the object is in center view
-            #     agnet_rot = self.event.events[agent_id].metadata["agent"]["rotation"]["y"]
-            #     suc = self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot)
-            #     # print(f'*** is obect {obj} in center view: {suc}')
-            #     # return self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot)
 
         if suc:
             # self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
@@ -1617,7 +1760,7 @@ class AI2ThorEnv_cen(BaseEnv):
         """Update the input dictionary with the current state."""
         self.new_all_obs = []
         for agent_id, agent_name in enumerate(self.agent_names):
-            obs, obs_list = self.generate_obs_text(agent_id)
+            obs, obs_list = self.generate_obs_text(agent_id, mode="mapping")
             self.input_dict[f"{agent_name}'s observation"] = obs
             self.input_dict[f"{agent_name}'s state"] = self.get_agent_state(agent_id)
             self.input_dict[f"{agent_name}'s previous action"] = act_texts[agent_id]
@@ -1989,9 +2132,84 @@ class AI2ThorEnv_cen(BaseEnv):
             "Robots' completed subtasks": self.closed_subtasks,
             "inventory": self.inventory,
         }
-         
-
     
+    # def get_obs_llm_input(self):
+    #     """
+    #     Returns the input to the subtask LLM
+    #     ### INPUT FORMAT ###
+    #     {{
+    #     Task: description of the task the robots are supposed to do,
+    #     Number of agents: number of agents in the environment,
+    #     Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
+    #     Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+    #     Reachable positions: list of reachable positions in the environment,
+    #     {agent_name[i]}'s observation: list of objects the {agent_name[i]} is observing,
+    #     {agent_name[i]}'s state: description of {agent_name[i]}'s state,
+    #     {agent_name[i]}'s previous action: description of what {agent_name[i]} did in the previous time step and whether it was successful,
+    #     {agent_name[i]}'s previous failures: if {agent_name[i]}'s few previous actions failed, description of what failed,
+    #     }}  
+
+    #     """
+    #     reach_pos = self.get_cur_reachable_positions_2d()
+    #     for i in range(2):
+    #         state = env.get_agent_state(i)
+    #         view = env.get_object_in_view(i)
+    #         mapping = env.get_mapping_object_pos_in_view(i)
+    #     return
+
+    def get_obs_llm_input(self):
+        """
+        回傳「當前時間步」可直接給 LLM 使用的一份觀測輸入快照。
+        Returns the input to the subtask LLM
+        ### INPUT FORMAT ###
+        {{
+        Task: description of the task the robots are supposed to do,
+        Number of agents: number of agents in the environment,
+        Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
+        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+        Reachable positions: list of reachable positions in the environment,
+        {agent_name[i]}'s observation: list of objects and its postion the {agent_name[i]} is observing,
+        {agent_name[i]}'s state: description of {agent_name[i]}'s state(position, facing direction and inventory),
+        {agent_name[i]}'s previous action: description of what {agent_name[i]} did in the previous time step and whether it was successful,
+        {agent_name[i]}'s previous failures: if {agent_name[i]}'s few previous actions failed, description of what failed,
+        }}  
+        """
+        reachable_2d = self.get_cur_reachable_positions_2d()
+        reachable_2d = [(round(x, 2), round(z, 2)) for (x, z) in reachable_2d]
+
+        snap: Dict[str, Any] = {
+            "Task": self.task,
+            # "Step": int(self.step_num[0]),                         
+            "Number of agents": self.num_agents,
+            "Reachable positions": reachable_2d,
+            "inventory": list(self.inventory),                     # ['nothing', 'Mug_1', ...]
+            "Robots' open subtasks": self.open_subtasks,
+            "Robots' completed subtasks": self.closed_subtasks,
+        }
+
+        for aid, name in enumerate(self.agent_names):
+            # snap[f"{name}'s observation"]      = self.input_dict.get(f"{name}'s observation", "[]")
+            snap[f"{name}'s observation"] = self.get_mapping_object_pos_in_view(aid)
+            snap[f"{name}'s state"]            = self.input_dict.get(f"{name}'s state", "")
+            snap[f"{name}'s previous action"]  = self.input_dict.get(f"{name}'s previous action", "")
+            if self.use_action_failure:
+                snap[f"{name}'s previous failures"] = self.input_dict.get(f"{name}'s previous failures", "None")
+
+            
+
+        if self.use_shared_subtask:
+            snap["Robots' subtasks"] = self.subtasks[0]
+        elif self.use_separate_subtask:
+            for aid, name in enumerate(self.agent_names):
+                snap[f"{name}'s subtask"] = self.subtasks[aid]
+
+        if self.use_shared_memory:
+            snap["Robots' combined memory"] = self.memory[0]
+        elif self.use_separate_memory:
+            for aid, name in enumerate(self.agent_names):
+                snap[f"{name}'s memory"] = self.memory[aid]
+
+        return snap
 
 
     def convert_to_dict_objprop(self, objs, obj_mass, obj_id):
@@ -2018,17 +2236,6 @@ if __name__ == "__main__":
     print("Initial Observations:\n", obs)
     print("All objects in scene:", env.get_all_objects())
     
-    # success, message = env.simulate_environment_event("break", "Mug_1")
-    # print(f"Break Event: {message}")
-    # # env.save_last_frame(agent_id=0, view="pov", filename="last_break_frame.png")
     
-    # target_pos = {"x": 2.0, "y": 0.9, "z": -1.0}
-    # success, message = env.simulate_environment_event("move", "Bowl_1", target_pos)
-    # print(f"Move Event: {message}")
-    
-    # actions = ["MoveAhead", "MoveAhead"]
-    # obs, successes = env.step(actions)
-    # print("Step Observations:\n", obs)
-    # print("Action Successes:", successes)
     
     env.close()    

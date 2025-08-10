@@ -7,6 +7,86 @@ import json
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.helpers import save_to_video
 
+def run_plan(env, plan):
+    # plan: list per-agent dicts with subtask/actions/steps
+    ok, info = env.stepwise_action_loop(plan)
+    print("OK:", ok)
+    print("INFO:", info)
+    return ok, info
+
+def print_fail(info):
+    print("\n=== Fail Snapshot ===")
+    print("failure_subtasks:", info["failure_subtasks"])
+    print("failed_acts:", info["failed_acts"])
+    print("subtask_failure_reasons:", info["subtask_failure_reasons"])
+
+def main():
+    env = AI2ThorEnv("config/config.json")
+    env.reset()
+
+    # Case A: 物件不存在（觸發 try/except → 例外錯誤/failed-at）
+    # 注意：此名稱必定轉不出 objectId，應該會進到你的 _record_subtask_failure
+    plan_A = [
+        {
+            "subtask": "pick up the GhostApple and put it on the CounterTop",
+            "actions": ["NavigateTo(GhostApple_1)", "PickupObject(GhostApple_1)"],
+            "steps": [["NavigateTo(GhostApple_1)"], ["PickupObject(GhostApple_1)"]]
+        },
+        {
+            "subtask": "Idle",
+            "actions": ["Idle"],
+            "steps": [["Idle"]]
+        }
+    ]
+    okA, infoA = run_plan(env, plan_A)
+    print_fail(infoA)
+
+    # Case B: 導航規劃為空（no-path）
+    # 將某個可見物件移到極端位置，或使用你已知會產生無路徑的目標（如被障礙封死）
+    # 下面示例：把 Tomato_1 挪到不可達座標（這個座標是否不可達依據場景，必要時自己調整）
+    # 先找場景中確實有的 Tomato，若無則改別種常見物件。
+    # objs = env.get_all_objects()
+    # target_name = next((o for o in objs if o.startswith("Tomato_")), None)
+    # if target_name:
+    #     success, msg = env.simulate_environment_event(
+    #         "move", target_name, {"x": 50.0, "y": 0.9, "z": 50.0}
+    #     )
+    #     print("Move for no-path simulation:", success, msg)
+
+    #     plan_B = [
+    #         {
+    #             "subtask": f"navigate to {target_name}",
+    #             "actions": [f"NavigateTo({target_name})"],
+    #             "steps": [[f"NavigateTo({target_name})"]]
+    #         },
+    #         {
+    #             "subtask": "Idle",
+    #             "actions": ["Idle"],
+    #             "steps": [["Idle"]]
+    #         }
+    #     ]
+    #     okB, infoB = run_plan(env, plan_B)
+    #     print_fail(infoB)
+
+    # Case C: object-not-in-view / distance-too-far
+    # 直接下達「PutObject(CounterTop_1)」而不先拾取，或故意在距離>1m時檢查 NavigateTo 判定失敗。
+    # 這裡用 NavigateTo 近但不夠近（必要時調整 agent 初始位置，或先 MoveAhead 一兩步再測）
+    # 若場景有 Fridge_1，就試著 NavigateTo 它一次，觀察 is_subtask_done 的分支理由
+    # target2 = next((o for o in env.get_all_objects() if o.startswith("Fridge_")), None)
+    # if target2:
+    #     plan_C = [
+    #         {
+    #             "subtask": f"navigate to {target2} (close but not centered)",
+    #             "actions": [f"NavigateTo({target2})"],
+    #             "steps": [[f"NavigateTo({target2})"]]
+    #         },
+    #         {"subtask": "Idle","actions": ["Idle"],"steps": [["Idle"]]}
+    #     ]
+    #     okC, infoC = run_plan(env, plan_C)
+    #     print_fail(infoC)
+
+    env.close()
+
 def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
     """
     Run a test case with multiple steps and print results.
@@ -36,6 +116,7 @@ def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
         
 
 if __name__ == "__main__":
+    main()
     '''
     - test all the actions
         -self.move_actions = ["MoveAhead", "MoveBack", "MoveRight", "MoveLeft"]
@@ -52,36 +133,53 @@ if __name__ == "__main__":
     'Pot_1', 'Potato_1', 'SaltShaker_1', 'Shelf_1', 'Shelf_2', 'Shelf_3', 'ShelvingUnit_1', 'Sink_1', 'Sink_2', 'SoapBottle_1', 'Spatula_1', 'Spoon_1', 'Statue_1', 'Stool_1', 'Stool_2', 'StoveBurner_1', 'StoveBurner_2', 'StoveBurner_3', 
     'StoveBurner_4', 'StoveKnob_1', 'StoveKnob_2', 'StoveKnob_3', 'StoveKnob_4', 'Toaster_1', 'Tomato_1', 'Vase_1', 'Vase_2', 'Window_2', 'WineBottle_1']
     
+    may need the mapping of Apple_1 -> position and id
+
     '''
 
-    env = AI2ThorEnv("config/config.json")
-    with open("config/config.json", "r") as f:
-            config = json.load(f)
-            task_name = config["task"]
+    # env = AI2ThorEnv("config/config.json")
+    # with open("config/config.json", "r") as f:
+    #         config = json.load(f)
+    #         task_name = config["task"]
     
 
-    obs = env.reset(test_case_id="17")
+    # obs = env.reset(test_case_id="17")
+    # input_llm = env.get_obs_llm_input()
+    # print("LLM input:\n", input_llm)
+    # reach_pos = env.get_cur_reachable_positions_2d()
+    # print("Initial reachable positions:", reach_pos)
+    # # list of [x,y]
+    # # obs = env.get_observations()
+    
+    # # print("Initial Observations:", obs)
+    # for i in range(2):
+    #     state = env.get_agent_state(i)
+    #     view = env.get_object_in_view(i)
+    #     mapping = env.get_mapping_object_pos_in_view(i)
+    #     print(f"Agent {i} ({env.agent_names[i]}) observation: I see:", mapping) # list of object ids in view
+    #     print(f"Agent {i} ({env.agent_names[i]}) state: {state}") # I am at coordinates: (2.00, -1.50), facing west, holding nothing
+        #  print(f"Agent {i} ({env.agent_names[i]}) can see object:", view) # list of object ids in view
     # objs = env.get_all_objects()
-    # # print(objs)
-    high_level_tasks = [
-        #  ["RotateRight"], ["Idle"]
-        ['NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'NavigateTo(Bread_1)', 'PickupObject(Bread_1)', 'NavigateTo(Fridge_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'],  ['Idle']
-    ]
+    # # # print(objs)
     # high_level_tasks = [
-    #     ['NavigateTo(Pan_1)', 'PickupObject(Pan_1)', 'NavigateTo(StoveBurner_1)', 'PutObject(StoveBurner_1)','NavigateTo(StoveKnob_1)', 'ToggleObjectOn(StoveKnob_1)','NavigateTo(StoveKnob_1)','ToggleObjectOff(StoveKnob_1)'], ['Idle']
-
-    #     #  ['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)', 'NavigateTo(Lettuce_2)', 'PickupObject(Lettuce_2)', 'NavigateTo(Pan_1)', 'PutObject(Pan_1)', 'PickupObject(Pan_1)', 'NavigateTo(StoveBurner_1)', 'PutObject(StoveBurner_1)','NavigateTo(StoveKnob_1)', 'ToggleObjectOn(StoveKnob_1)','NavigateTo(StoveKnob_1)','ToggleObjectOff(StoveKnob_1)'], ['Idle']
+    #     #  ["RotateRight"], ["Idle"]
+    #     ['NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'NavigateTo(Bread_1)', 'PickupObject(Bread_1)', 'NavigateTo(Fridge_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'],  ['Idle']
     # ]
-    
-    run_test(
-        env,
-        high_level_tasks=high_level_tasks,
-        test_name="Test 17",
-        test_id=17,
-        task_name = task_name,
-    )
+    # # high_level_tasks = [
+    # #     ['NavigateTo(Pan_1)', 'PickupObject(Pan_1)', 'NavigateTo(StoveBurner_1)', 'PutObject(StoveBurner_1)','NavigateTo(StoveKnob_1)', 'ToggleObjectOn(StoveKnob_1)','NavigateTo(StoveKnob_1)','ToggleObjectOff(StoveKnob_1)'], ['Idle']
 
-    # env.close()
+    # #     #  ['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)', 'NavigateTo(Lettuce_2)', 'PickupObject(Lettuce_2)', 'NavigateTo(Pan_1)', 'PutObject(Pan_1)', 'PickupObject(Pan_1)', 'NavigateTo(StoveBurner_1)', 'PutObject(StoveBurner_1)','NavigateTo(StoveKnob_1)', 'ToggleObjectOn(StoveKnob_1)','NavigateTo(StoveKnob_1)','ToggleObjectOff(StoveKnob_1)'], ['Idle']
+    # # ]
+    
+    # run_test(
+    #     env,
+    #     high_level_tasks=high_level_tasks,
+    #     test_name="Test 17",
+    #     test_id=17,
+    #     task_name = task_name,
+    # )
+
+    # env.close()   
     # objs = env.get_readable_object_list(env.get_object_in_view(0))
     # print(objs)
     # high_level_tasks = [
