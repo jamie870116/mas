@@ -1,19 +1,26 @@
 '''
 Baseline : Centralized LLM + replanning
 
-wrap up: 
-reachable positions(only x,z), agent states(current position(x,z), inventory, facing direction), 
-objects in view(objectId, position)
+TBD:
+- (v) wrap up: reachable positions(only x,z), agent states(current position(x,z), inventory, facing direction),  objects in view(objectId, position) 
+- (v) wrap up:
+    failure reasons:
+    types of failures:
+    1. navigation failure: cannot reach the target position (too far, blocked path, occluded)
+    2. interaction failure: cannot interact with the target object (too far, occluded, not visible) 
+    3. task failure: the action is not feasible (e.g. trying to open a non-openable object, or put an object inside a non-receptacle object, etc.)
+    4. object not found: the target object is not in view (not visible, occluded, out of reachable range)
+    5. object not exist: the target object is not in the environment
+    6. other unknown reasons
+- (v) ACTION_PROMPT: add more details about the environment, reachable positions, objects in view, etc.
+   reachable position should filter out the positions of each agent.
+- (v) REPLAN_PROMPT: add more details about the environment, reachable positions, objects in view, etc. And failures in order to make more procise intructions,
 
-wrap up:
-failure reasons:
-types of failures:
-1. navigation failure: cannot reach the target position (too far, blocked path, occluded)
-2. interaction failure: cannot interact with the target object (too far, occluded, not visible) 
-3. task failure: the action is not feasible (e.g. trying to open a non-openable object, or put an object inside a non-receptacle object, etc.)
-4. object not found: the target object is not in view (not visible, occluded, out of reachable range)
-5. object not exist: the target object is not in the environment
-6. other unknown reasons
+- () still need to adjust the prompt, 
+- () reset the agent failure subtasks and reasons after replan
+- () testing
+
+model: gpt-4.1-2025-04-14, gpt-4o
 
 structure same as llm_c.py but with more information about the environment and positions, failures, etc.:
 1. initial planning (remain the same as previous method: given task, let planner and editor to generate a list of subtasks (this will be the open subtasks)
@@ -25,6 +32,7 @@ structure same as llm_c.py but with more information about the environment and p
 2.5 verify if the subtask is completed
 2.6 replan: similar to initial planning : given task and closed subtask, let planner and editor to generate a list of subtasks (this will be the new open subtasks)
 '''
+
 import json
 import re
 import os
@@ -54,13 +62,6 @@ with open(args.config_file, "r") as f:
         config = json.load(f)
         NUM_AGENTS = config["num_agents"]
 AGENT_NAMES = AGENT_NAMES_ALL[:NUM_AGENTS]
-
-BASE_PROMPT = f"""
-You are an excellent task planner whose task is to help {NUM_AGENTS} robots to complete the final task of "{config["task"]}" in {config["scene"]}. 
-
-# Task
-Let's work this out in a step by step way to be sure we have the right answer.
-"""
 
 ai2thor_objs = {
     "Kitchen": {
@@ -322,141 +323,163 @@ ai2thor_actions = {
 }
 
 PLANNER_PROMPT = f"""
-You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
-They can perform the following actions: {ai2thor_actions}
+You are a capable planner and robot controller overseeing {len(AGENT_NAMES)} embodied robots, {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}, as they complete a specified task.
 
-### TASK ###
-You will get a description of the task robots are supposed to do.
-You will get the current state of the enviroment, including the list of objects in the environment.
+Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
 
-You need to suggest the decompose the task into several subtasks for that robots to complete in order to achieve the given Task, based on the objects in the environment and the ability of robots. 
+**Available Actions:**
+- move: [MoveAhead, MoveBack, MoveRight, MoveLeft]
+- rotate: [RotateRight, RotateLeft]
+- look: [LookUp<angle>, LookDown<angle>]
+- idle: [Idle]
+- interact_with_object: [NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>, OpenObject<object_name>, CloseObject<object_name>, ToggleObjectOn<object_name>, ToggleObjectOff<object_name>, BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>, DirtyObject<object_name>, CleanObject<object_name>, FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>, UseUpObject<object_name>]
+- interact_without_navigation: [DropHandObject, ThrowObject]
 
-For example, if the task is "Put the vase, tissue box, and remote control on the table", the subtasks could be:
-1. pick up the vase and put it on the table
-2. pick up the tissue box and put it on the table
-3. pick up the remote control and put it on the table 
+**Workflow:**
+- You will be provided with a high-level description of the task, the number of agents, and the list of objects present in the environment.
+- Decompose the main task into subtasks that the robots can complete, taking into account the robots' abilities and the objects available.
+- Subtasks that must occur in sequence should be combined into a single subtask.
 
+**EXAMPLES:**
+If the task is "Put the vase, tissue box, and remote control on the table", example subtasks:
+[
+"pick up the vase and put it on the table",
+"pick up the tissue box and put it on the table",
+"pick up the remote control and put it on the table"
+]
 
+If the task is "Put the lettuce and potato in the fridge", example subtasks:
+[
+"open the fridge",
+"pick up the lettuce and put it in the fridge",
+"pick up the potato and put it in the fridge",
+"close the fridge"
+]
 
-### INPUT FORMAT ###
-{{Task: a high level description of the final goal the robots are supposed to complete,
-Number of agents": the number of robots in the environment,
-Objects: a list of objects in the current enviroment}}
-
-### OUTPUT FORMAT ###
-You will output a list of subtasks for each robot in the following format, in json format:
+**Input Format (JSON):**
 {{
-"Subtasks": [subtask 1, subtask 2, ..., subtask n],
+"Task": "A high-level description of the final goal",
+"Number of agents": <number of robots>,
+"Objects": [list of objects in the environment]
 }}
-example:
+
+**Output Format (JSON):**
 {{
 "Subtasks": [
-    "pick up the vase and put it on the table",
-    "pick up the tissue box and put it on the table",
-    "pick up the remote control and put it on the table"
+"subtask 1",
+"subtask 2",
+...
 ]
 }}
 
+**Guidelines:**
+- Subtasks must be independent unless a specific order is required; sequence-dependent actions must be merged into a single subtask.
+- Only use objects that are present in the environment.
+- Action plans must reflect real-world object affordances.
+- Do not use OpenObject on surfaces such as tables or countertops.
+- For openable receptacles (e.g. drawer, fridge, cabinet):
+    - The container must be opened before placing any object inside.
+    - The robot's hand must be empty before opening or closing any container.
+    - The container should be closed after use.
+- If placing an object inside an openable container: open it first, then pick up the object, then deposit the object.
+- To put an object on a receptacle: pick up the object, navigate to the receptacle, then place the object.
+- To cook an object, the object should be placed in a receptacle (e.g. pan, pot) and the receptacle should be on a stove burner and turn on stove knob.
+- To slice an object, the robot must hold a knife.
+- Robots can hold only one object at a time; ensure actions adhere to this constraint.
+- Objects can be cleaned using CleanObject or by placing them under a running faucet. Only clean when explicitly required.
+- Avoid unnecessary actions—only perform what is strictly required for the task.
+- Do NOT assume or use default receptacles like CounterTop or Table unless they are mentioned in the task description.
+- Output only the subtasks JSON as specified, with no extra explanations or formatting.
 
-### Important Notes ###
-* Note that the subtasks should be independent to each other, i.e. the robots can complete them in any order; 
-* If the subtasks require the robots to complete them in a specific order, these subtask should be combined into one subtask.
-* Make sure that the objects you suggest the robots to interact with are actually in the environment.
-* Plan actions that are consistent with the object's real-world behavior and usage.
-* Do not use OpenObject on surfaces like tables or countertops.
-* For any Openable receptacle (e.g., drawer, fridge, cabinet), you MUST:
-    - Open the container before placing any object inside;
-    - Ensure the robot has empty hands before opening or closing;
-    - Close the container after placing the object.
-* If an object needs to be placed inside an openable container, open it first before pickup the object and then place it inside a container.
-* If you need to put an object on a receptacle, you need to pick it up first, then navigate to the receptacle, and then put it on the receptacle.
-* Robots cannot open objects (e.g., drawers, cabinets, fridge) while holding something. Ensure the robot’s hand is empty before attempting to open or close objects.
-* Openable object like drawers, cabinets, fridge can block the path of the robot. So open objects only when you think it is necessary.
-* When possible do not perform extraneous actions when one action is sufficient (e.g. only do CleanObject to clean an object, nothing else)
-* The robots can hold only one object at a time. Make sure that the actions you suggest do not require the robots to hold more than one object at a time.
-* Do NOT assume or default to common receptacles like CounterTop or Table unless explicitly specified in the task.
+Proceed systematically to ensure the answer is correct.
 
-* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
-Let's work this out in a step by step way to be sure we have the right answer.
 """
 
 EDITOR_PROMPT = f"""
-You are an expert task planner and editor.
+You are an expert task planner and editor responsible for coordinating {len(AGENT_NAMES)} embodied robots ({', '.join(AGENT_NAMES[:-1]) + f', and {AGENT_NAMES[-1]}'}) as they complete a specified task.
+
+Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
 
 You will receive:
-- A high-level task
+- A high-level task description
 - A list of subtasks generated by another agent
-- A list of objects currently in the scene
+- A list of objects currently present in the environment
 
-Your job is to correct any incorrect subtasks so that the result matches the intended goal.
+Your objective is to review and correct the sequence of subtasks to ensure all actions contribute precisely to achieving the given goal.
 
-### Task Interpretation Rules ###
-1. If the task says "put X in the fridge", make sure X is actually placed **inside** the fridge.
-2. If a container Y (like Fridge or Drawer) is used, make sure it is opened before placing an item inside, and closed afterward. For example:
-   - "open the Y, put the X inside, and close the Y"
-3. Never place items on receptacles not mentioned in the task.
-4. Preserve the robot capabilities (e.g. hand constraints, action limits), but you may restructure or combine subtasks if necessary.
+## Task Correction Rules
+1. If instructed to put X in the fridge, verify that X is explicitly placed inside the fridge.
+2. For any openable container (e.g., fridge, drawer), ensure it is opened prior to placing items inside and closed afterward instructions should appear as: "open Y, put X inside, and close Y."
+3. Never place items on receptacles not identified in the original task.
+4. Preserve robot capabilities (e.g., hand constraints, action limits), but restructure or merge subtasks for logical sequencing if required.
+5. Do not specified which exact objects, use only the object names. (e.g. apple, not Apple_1)
 
-### Input Format ###
+## Input Format
 {{
-Task: a high level description of the final goal the robots are supposed to do/complete,
-Number of agents: the number of robots in the environment,
-Subtasks: A list of subtasks generated by another agent.
-Objects:  a list of objects in the current enviroment.
+  Task: Description of the overall goal for the robots,
+  Number of agents: Number of robots,
+  Subtasks: List of subtasks provided by another agent,
+  Objects: List of objects currently available in the environment
 }}
 
-### Output Format ###
-Return only the corrected list of subtasks in the following format,in json format:
+## Output Format
+Return only the corrected subtasks in this exact JSON structure:
 {{
-"Subtasks": [subtask 1, subtask 2, ..., subtask n],
+  "Subtasks": [subtask 1, subtask 2, ..., subtask n]
 }}
 
+## Guidelines
+- Subtasks should be independent unless a specific sequence is required; sequence-dependent operations should be grouped into one subtask.
+- Reference only objects that are actually present in the environment.
+- Plans must realistically account for object affordances.
+- Do not attempt to open surfaces that aren't openable, such as tables or countertops.
+- For openable containers: always open before placing objects, and ensure the robot's hand is empty before opening or closing. Close the container when finished.
+- When placing an object inside an openable container: open the container, pick up the object, then deposit it inside.
+- To place an object on a receptacle: pick up the object, navigate, then place it on the target.
+- For cooking, place the item within a suitable container (e.g., pan, pot), set it on a stove burner, then turn on the stove knob.
+- For slicing tasks, ensure the robot is holding a knife before slicing objects.
+- Each robot can hold only one object at a time—enforce this constraint. At the very beginning, the robot's hand is always empty.
+- Only clean objects when required, using CleanObject or a faucet.
+- Actions should be minimal and strictly task-oriented avoid unnecessary steps.
+- Never assume or use default receptacles (like countertops or tables) unless explicitly mentioned in the task.
+- Output only the subtasks JSON—do not include explanations or extra formatting.
 
-* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
-Let's work this out in a step by step way to be sure we have the right answer.
+
+Proceed methodically to guarantee that your output matches the desired task outcome.
 """
 
 ALLOCATOR_PROMPT = f"""
+You are an expert task allocator, responsible for assigning tasks to a team of {len(AGENT_NAMES)} embodied robots to efficiently achieve a specified goal.
 
-You are an expert task allocator who is tasked with helping {len(AGENT_NAMES)} embodied robots carry out a task. 
+Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
 
-### TASK ###
-You will receive:
-- a description of the overall task goal,
-- the number of available robot agents,
-- a list of open (pending) subtasks and a list of completed subtasks,
-- a list of previously failed subtasks (optional),
-- the failure reasons of those subtasks (optional),
-- a list of failed actions (optional),
-- and the current inventory, inventory[i] corresponds to agent(i+1)'s held object (or "nothing").
+## Allocation Rules
+- Assign at most one executable subtask to each available agent, maximizing overall task progress.
+- A subtask is only executable if all its prerequisite subtasks are present in the list of completed subtasks. If a subtask is blocked by missing prerequisites, do not assign it.
+- If no executable subtasks are available for an agent, assign "Idle" to that agent.
+- Do not assign the same subtask to multiple agents, unless there are multiple same subtasks in the given list.
+- If there are fewer open subtasks than available agents, assign "Idle" to any surplus agents.
+- Do not assign a subtask if the agent's current inventory makes it infeasible.
+- If there are no open subtasks (if open subtasks is None or empty), assign "Idle" to all agents and leave the unassigned subtasks list empty.
+- After allocation, return a list of unassigned subtasks: any remaining open subtasks that are either blocked or unallocated but executable.
 
-Your job is to assign at most one subtask to each available agent at a time, in a way that helps fulfill the overall task.
-If a subtask depends on the completion of another subtask, assign "Idle" to the agent instead, until the prerequisite subtask is completed.
-Also output the subtasks that are not yet been assigned to any robot agent.
-- *Executable* means: all of its prerequisite subtasks (if any) appear in the **Robots' completed subtasks** list.
-- If a subtask is **not yet executable** (blocked by missing prerequisites), do **not** assign it. Instead, assign `"Idle"` to that agent (if no other executable subtask is available).
-- Do not assign the **same subtask** to multiple agents unless the subtask text explicitly indicates it is parallelizable (e.g., contains a marker like `[MULTI]` or specifies distinct targets).
-- If there are fewer open subtasks than agents, assign remaining agents `"Idle"`.
-
-Also return the list of **unassigned subtasks** (these are the open subtasks that remain after this allocation—include both blocked and unallocated-but-executable ones that you did not assign this round).
-
-
-
-### INPUT FORMAT ###
-{{
-  "Task": "High-level description of the task the robots are supposed to do",
-  "Number of agents": <int>,
-  "Robots' open subtasks": [ ... ] or None ,
-  "Robots' completed subtasks": [ ... ] or None,
-  "failure_subtasks": [ ... ] or None,
-  "subtask_failure_reasons": [ ... ] or None,
-  "failed_acts": [ ... ] or None,
-  "inventory": ['obj holding by agent1 or nothing', 'obj holding by agent2 or nothing'] or None
-}}
+## Input Format
+You will receive a JSON object with these required fields:
+- "Task" (string): Main task description.
+- "Number of agents" (integer).
+- "Robots' open subtasks" (list of strings, can be None or empty if not planned).
+- "Robots' completed subtasks" (list of strings, can be None or empty if not started).
+- "Reachable positions" (list).
+- "Agent's observation" (list): Observed objects and their positions.
+- "Agent's state" (dict): Agent's position, facing, and inventory.
+Optional fields:
+- "Agent's subtask_failure_reasons" (string/list): Previous step performance/failures.
+- "Agent's previous failures" (string/list): Previous action failures, if any.
 
 
-### OUTPUT FORMAT ###
-Return a JSON object:
+## Output Format
+Produce a JSON object with this structure:
+
 {{
   "Allocation": {{
     "agent1": "subtask or Idle",
@@ -467,196 +490,260 @@ Return a JSON object:
   "Remain": ["unassigned_subtask1", "unassigned_subtask2", ...]
 }}
 
+## Guidelines
+- Use sequential keys: "agent1", "agent2", ..., matching the agent order in input.
+- If no open subtasks are present/valid, set all agents to "Idle" and "Remain": [].
+- Keep all subtask values unaltered from input.
+- Output only the "Allocation" and "Remain" JSON - do not include any explanatory text or extra fields.
 
-### Important Notes ###
-* Each agent can be assigned at most one subtask.
-* A subtask can only be assigned if all its prerequisites have been completed.
-* Do **not** assign the **same subtask** to multiple agents.
-* If no subtasks are available for an agent, assign `"Idle"`.
-* Do not assign a subtask to an agent if the agent's inventory would make it infeasible.
-* Consider the inventory of agent to assign the right subtask.
-* Consider failure history and avoid repeating problematic assignments.
 
-* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
-Let's work this out in a step by step way to be sure we have the right answer.
+** Think step-by-step internally, but do not show any intermediate thoughts. Output only the JSON.
+** Respond with nothing but the exact JSON object. Any deviation from the format is considered incorrect.
 """
 
 ACTION_PROMPT = f"""
+# Role and Objective
+- Manage {len(AGENT_NAMES)} embodied robots by generating executable action plans to fulfill assigned subtasks. Convert each subtask into an explicit, sequential action list for the agent, based on current state and environmental details.
 
-You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
-They can perform the following actions:
-{ai2thor_actions}
+# Checklist
+- Begin each output with a concise checklist (3-7 bullets) summarizing the planned process before generating the output (e.g., extract subtasks, check object presence, plan concrete actions, verify conditions, format result).
 
-"Idle" is used to let a robot wait in place for one step, if necessary.
+# Planning and Execution
+- For each subtask provided (one per agent), generate an ordered list of executable atomic actions using only the defined action set and schemas.
+- Treat each subtask independently, without inferring new subtasks, changing intent, or considering inter-agent dependencies unless explicitly described in the input.
+- Respect the affordances of objects, preconditions of actions, and environmental constraints in translating subtasks into actions.
+- Assign ["Idle"] only if the subtask is "Idle".
+- Generate a list of action plans (lists), one per agent, in the same order as the input subtasks.
+
+## Action Set
+- **Movement**: [MoveAhead, MoveBack, MoveRight, MoveLeft]
+- **Rotation**: [RotateRight, RotateLeft]
+- **Look**: [LookUp<angle>, LookDown<angle>] where angle is 30 or 60
+- **Idle**: [Idle]
+- **Object Interaction**:
+  - With navigation: [NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>, OpenObject<object_name>, CloseObject<object_name>, ToggleObjectOn<object_name>, ToggleObjectOff<object_name>, BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>, DirtyObject<object_name>, CleanObject<object_name>, FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>, UseUpObject<object_name>]
+  - Without navigation: [DropHandObject, ThrowObject]
+
+# Context
+- Robot names: {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}
+- Inputs include: task description, agent states/observations, open and completed subtasks, reachable positions, all objects in the environment, failed diagnostics (if any), and subtasks to be executed.
+
+# Input Format
+Provide inputs as a JSON object containing:
+- Task (string)
+- Number of agents (int)
+- Robots' open subtasks (list[string]|None)
+- Robots' completed subtasks (list[string]|None)
+- Reachable positions (list[string])
+- Objects in environment (list[string])
+- Agent's observations (list[object/position])
+- Agent's state (location, facing, inventory)
+- Subtasks (list of subtasks to execute)
+- (optional): agent subtask_failure_reasons, previous failures
+
+# Planning and Validation
+- Internally, reason step by step to extract and analyze each subtask, confirm presence of referenced objects, map actions using current environment and agent state, and validate required action conditions for each agent.
+- After generating action plans, validate that each generated plan satisfies the requirements (object existence, feasible actions based on agent state/inventory, and completeness of required fields). If validation fails for a subtask, output as specified in Output Format.
+
+# Guidelines
+- If a referenced object is missing, inventory is full (when pickup is needed), agent state/observation is missing, or Subtask is None: output an empty list for that subtask (or {{ "Actions": [] }} if Subtasks is None).
+- Do not output or format anything beyond the defined JSON.
 
 
-### Task ###
-You will receive:
-- a high-level description of the overall task the robots are supposed to complete,
-- a list of objects present in the environment,
-- a list of subtasks that need to be completed.
+# Output Format
+The output must be a single JSON object, with no extra explanation:
+- Key: "Actions"
+- Value: a list of lists. Each inner list contains the atomic actions for a subtask, matching the order of input subtasks.
+- Do not include failure codes, error objects, or explanations. Encode error states strictly as empty lists at the corresponding subtask index.
+- Output only the specified JSON object. Do not provide explanations or extra responses. Reason in detail internally to maximize output correctness.
 
-Your job is to break down each subtask independently into a list of executable actions that a robot can perform to complete it.
+**Example:**
+Given subtasks: ["pick up apple", "Idle", "slice bread"]
 
-
-### INPUT FORMAT ###
-{{
-  "Task": <string> — description of the overall goal,
-  "Number of agents": <int> — number of available robots,
-  "Objects": <list<string>> — list of object in the environment,
-  "Subtasks": <list<string>> — list of subtasks; each subtask is to be broken down into actions
-}}
-
-### OUTPUT FORMAT ###
-Return a JSON object in the following format:
 {{
   "Actions": [
-    [<action_1_for_subtask_1>, <action_2_for_subtask_1>, ...],
-    [<action_1_for_subtask_2>, <action_2_for_subtask_2>, ...],
-    ...
+    ["NavigateTo(Apple_1)", "PickupObject(Apple_1)"],
+    ["Idle"],
+    ["NavigateTo(Bread_1)", "SliceObject(Bread_1)"]
   ]
 }}
 
-# Note:
-Each action must be a string in the format: ActionName<Object_ID or arguments>
-For example, to pick up an object with ID "Object_1" and place it on a table with ID "Table_1":
-[
-  ["NavigateTo(Object_1)", "PickupObject(Object_1)", "NavigateTo(Table_1)", "PutObject(Table_1)"],
-  ...
-]
-<Object_ID> should match the names in the "Objects" list. If there are multiple objects of the same type, use numbered identifiers like "Book_1", "Book_2", etc. — do not use object names without identifiers.
+** The output must be a valid JSON object with no extra explanation.
 
-
-# Example1:
-if given INPUT subtasks are:
-{{"
-"Subtasks": [
-    ["pick up the vase and put it on the table"],
-    ["pick up the tissue box and put it on the table"],
-],
-}}
-
-* The OUTPUT could be:
-{{
-"Actions": [
-    ["NavigateTo(Vase_1)", "PickupObject(Vase_1)", "NavigateTo(Table_1)", "PutObject(Table_1)"],
-    ["NavigateTo(TissueBox_1)", "PickupObject(TissueBox_1)", "NavigateTo(Table_1)", "PutObject(Table_1)"]
-]
-}}
-
-
-* Example2:
-if given INPUT subtasks are:
-{{
-"Task": "put the Book inside the drawer",
-"Subtasks": ["put the Book inside the drawer", "Idle"]
-}}
-
-* the OUTPUT could be:
-{{ "Actions": 
-[["NavigateTo(Drawer_1)", "OpenObject(Drawer_1)", "NavigateTo(Book_1)", "PickupObject(Book_1)",,"PutObject(Drawer_1)", "CloseObject(Drawer_1)"],["Idle"]]
-}}
-Note: The drawer must be opened before placing the item, and closed afterward. The robot must have empty hands to operate the drawer.
-
-
-### Important Notes ###
-* Each subtask must be broken down into a **sequential list of feasible atomic actions**, based on the available actions defined above.
-* The output must contain one list of actions for each input subtask, in the same order. The i-th subtask must correspond to the i-th action list.
-* Use only objects listed in the "Objects" input. Do not invent object names or assume availability.
-* All object references in the action strings must include the object no. (e.g., "Book_1", not just "Book").
-* If a subtask is "Idle", return a single action ["Idle"].
-* Actions must follow physical and semantic feasibility:
-    - Robots must navigate to an object before interacting with it.
-    - To place an object inside or on another object, the robot must first pick up the object.
-    - Robots can only hold **one object at a time**.
-    - Do not open containers while holding an object—robots must have empty hands to open or close openable objects.
-    - When placing an object inside an openable container (e.g., Drawer, Cabinet, Fridge), the container must be opened first and closed afterward.
-    - Do not use OpenObject on non-openable objects like tables or countertops.
-* Minimize redundant or unnecessary actions. For example:
-    - Use only CleanObject when cleaning is needed—do not combine with unrelated actions.
-    - Do not open containers unless it is required to fulfill the subtask.
-    - Close openable containers only if the robot had opened them earlier in the same sequence.
-* Do not assume default targets (e.g., Table or CounterTop) unless the subtask or task explicitly mentions them.
-* Each subtask’s action list should be complete and self-contained. You should not assume external context, shared memory, or agent collaboration.
-
-* NOTE: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN JSON AS DESCRIBED
-Let's work this out in a step by step way to be sure we have the right answer.
 """
 
 REPLAN_PROMPT = f"""
-You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
-They can perform the following actions: {ai2thor_actions}
+You are a capable planner and multi-robot controller assigned to help {len(AGENT_NAMES)} embodied robots named {', '.join(AGENT_NAMES[:-1]) + f', and {AGENT_NAMES[-1]}'} accomplish a specific goal.
+Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
 
-### TASK ###
-Your job is to reason over the current state of the environment and the progress history of previously executed plans, in order to **replan** the sequence of subtasks necessary to complete the overall goal.
+## Available Actions
+- Movement: MoveAhead, MoveBack, MoveRight, MoveLeft
+- Rotation: RotateRight, RotateLeft
+- Camera: LookUp<angle>, LookDown<angle> (angle: 30, 60)
+- Idle: Idle
+- Object Interaction (with navigation):
+- NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>
+- OpenObject<object_name>, CloseObject<object_name>
+- ToggleObjectOn<object_name>, ToggleObjectOff<object_name>
+- BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>
+- DirtyObject<object_name>, CleanObject<object_name>
+- FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>
+- UseUpObject<object_name>
+- Object Interaction (without navigation): DropHandObject, ThrowObject
 
-This environment is partially observable, and robots may encounter execution failures due to occlusion, distance, blocked paths, or misidentified object locations. Therefore, the replanning should take into account:
-- Which subtasks have already been completed successfully
-- Which subtasks have failed (and the reasons why)
-- The list of failed actions
-- The current objects in the environment
-- The current inventory (objects held by robots)
-- The number of available robots
+## TASK
+You must reason about the current environment state and prior plan history to **replan** a valid, efficient subtask sequence for the robots to achieve the overall goal. Environment is partially observable, and robots may experience execution failures (occlusion, distance, blocked paths, misidentified objects). Plans should:
+- Retain subtasks not yet failed.
+- Revise or replace failed subtasks according to the failure cause.
+- Decompose the main task into executable, atomic subtasks per robot.
+For each subtask in 'open' or 'completed' lists:
+- If open, check feasibility with current state and capabilities; reuse if viable.
+- If completed, acknowledge and adapt the plan accordingly.
+- If failed, determine if circumstances have changed; if not, substitute an alternate strategy.
+After completing the checklist and plan, validate result in 1-2 lines and proceed or self-correct if validation fails, but don't output anything for this self-validation.
 
-Your goal is to **revise or regenerate a valid and efficient sequence of subtasks** for the robots, using all the information above. When possible, retain subtasks that have not yet failed. Otherwise, adjust or replace the failed ones with alternative approaches.
-
-
-### INPUT FORMAT ###
+### INPUT FORMAT
 {{
-Task: a high level description of the final goal the robots are supposed to complete,
-Number of agents": the number of robots in the environment,
-Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
-Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.,
-failure_subtasks: a list of subtasks that have failed,
-subtask_failure_reasons: a list of reasons why the subtasks failed,
-inventory: ['obj holding by agent1 or nothing', 'obj holding by agent2 or nothing'] or None,
-failed_acts: a list of actions that failed,
-Objects: a list of objects in the current enviroment
+Task: description of task,
+Number of agents: int,
+Robots' open subtasks: [list of pending subtasks or None],
+Robots' completed subtasks: [list of completed subtasks or None],
+Reachable positions: [list],
+Objects in environment: [list],
+agent name's observation: [list of perceived objects/positions],
+agent name's state: position, facing, inventory,
+agent name's subtask_failure_reasons: [recent actions, success/failure with explanations],
+agent name's previous failures: [recent failure details],
 }}
 
-### OUTPUT FORMAT ###
-You will output a list of subtasks for each robot in the following format, in json format:
+### OUTPUT FORMAT
+Return only the following JSON:
 {{
-"Subtasks": [subtask 1, subtask 2, ..., subtask n],
+"Subtasks": ["subtask 1", "subtask 2", ..., "subtask n"]
 }}
-example:
+
+Example:
 {{
 "Subtasks": [
-    "pick up the vase and put it on the table",
-    "pick up the tissue box and put it on the table",
-    "pick up the remote control and put it on the table"
+"pick up the vase and put it on the table",
+"pick up the tissue box and put it on the table",
+"pick up the remote control and put it on the table"
 ]
 }}
 
+## Failure Handling
+Possible causes and adjustments for subtask failures:
+- Navigation: "no-path", "object-not-in-view", "distance-too-far": Use micro-movements (MoveAhead, RotateRight, etc.) to get in view/reach, using current/target positions and available observations. For example, you can have subtasks like "look down and navigate to potato" if previous failure reason of "pick up potato" was "object-not-in-view". Or you can have subtask like "use micro-movements to navigate to potato" if previous subtask "navigate to potato" was failured.
+- Object-related: "object-not-found", "object-not-reachable", "object-not-in-inventory", "object(<OBJ>)-not-picked-up":
+- Ensure necessary object prerequisites (e.g., pick up before use, confirm object presence).
 
-### Important Notes ###
-* Each subtask should be atomic and goal-directed (e.g., "pick up the apple and put it in the fridge").
-* Avoid repeating failed subtasks unless their failure cause has been addressed.
-* Ensure the plan is minimal-avoid unnecessary steps.
-* The subtasks should not be robot-specific; centralized planning assigns tasks without binding them to specific agents.
-* You can assume the robots are coordinated and will handle task allocation downstream.
-* Consider object availability, spatial constraints, and object affordances when generating subtasks.
-* Note that the subtasks should be independent to each other, i.e. the robots can complete them in any order; 
-* If the subtasks require the robots to complete them in a specific order, these subtask should be combined into one subtask.
-* Make sure that the objects you suggest the robots to interact with are actually in the environment.
-* Plan actions that are consistent with the object's real-world behavior and usage.
-* Do not use OpenObject on surfaces like tables or countertops.
-* For any Openable receptacle (e.g., drawer, fridge, cabinet), you MUST:
-    - Open the container before placing any object inside;
-    - Ensure the robot has empty hands before opening or closing;
-    - Close the container after placing the object.
-* Robots cannot open objects (e.g., drawers, cabinets, fridge) while holding something. Ensure the robot’s hand is empty before attempting to open or close objects.
-* If an object needs to be placed inside an openable container, open it first before placing the item.
-* Openable object like drawers, cabinets, fridge can block the path of the robot. So open objects only when you think it is necessary.
-* If you open an object, please ensure that you close it before you move to a different place.
-* When possible do not perform extraneous actions when one action is sufficient (e.g. only do CleanObject to clean an object, nothing else)
-* If you need to put an object on a receptacle, you need to pick it up first, then navigate to the receptacle, and then put it on the receptacle.
-* The robots can hold only one object at a time. Make sure that the actions you suggest do not require the robots to hold more than one object at a time.
-* Do NOT assume or default to common receptacles like CounterTop or Table unless explicitly specified in the task.
+## Key Constraints
+- Subtasks must be atomic and goal-directed; combine sequentially dependent actions into one subtask.
+- Avoid repeating failed subtasks unless the situation has changed.
+- Minimize and streamline plan; do only necessary actions.
+- Robots are coordinated; explicit role allocation is not required.
+- Only use objects present in the current environment list.
+- Reflect real world affordances and limitations.
+- Never OpenObject on non-openable surfaces (e.g. tables, countertops).
+- For openable containers (e.g. drawers, fridge, cabinets):
+- Open first; hand must be empty; close after use.
+- To place inside: open → pick up object → deposit object.
+- To put object on a receptacle: pick up → navigate → place.
+- To cook: object must be in a receptacle (e.g. pan/pot), on stove, stove turned on.
+- To slice: robot must hold a knife.
+- Robots can carry one object at a time—enforce this strictly.
+- Clean objects only when explicitly specified, using correct affordances.
+- Do not assume or use default receptacles unless specified in the task.
+- Output **only** the required subtasks JSON. No extra explanations, formatting, or commentary.
 
-* **NOTE**: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
-Let's work this out in a step by step way to be sure we have the right answer.
+**Think step by step internally; return only the specified JSON.**
+
 """
+
+
+# REPLAN_PROMPT = f"""
+# You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
+# They can perform the following actions: 
+# **Available Actions:**
+# - move: [MoveAhead, MoveBack, MoveRight, MoveLeft]
+# - rotate: [RotateRight, RotateLeft]
+# - look: [LookUp<angle>, LookDown<angle>], angle can be chosen from [30, 60]
+# - idle: [Idle]
+# - interact_with_object: [NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>, OpenObject<object_name>, CloseObject<object_name>, ToggleObjectOn<object_name>, ToggleObjectOff<object_name>, BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>, DirtyObject<object_name>, CleanObject<object_name>, FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>, UseUpObject<object_name>]
+# - interact_without_navigation: [DropHandObject, ThrowObject]
+
+# ### TASK ###
+# Your job is to reason over the current state of the environment and the progress history of previously executed plans, in order to **replan** the sequence of subtasks necessary to complete the overall goal.
+
+# This environment is partially observable, and robots may encounter execution failures due to occlusion, distance, blocked paths, or misidentified object locations. Therefore, the replanning should take into account:
+
+
+# Your goal is to **revise or regenerate a valid and efficient sequence of subtasks** for the robots, using all the information above. When possible, retain subtasks that have not yet failed. Otherwise, adjust or replace the failed ones with alternative approaches.
+# Decompose the main task into subtasks that the robots can complete, taking into account the robots' abilities and the objects available.
+# - For each subtask(from Robots' open subtasks and completed subtasks), evaluate its status:
+#   - If it is in open subtask, meaning it has not been executed yet, check if it is feasible to execute it based on the current state of the environment and the robots' capabilities, consider reusing it directly.
+#   - If it has been completed, meaning that this part of task is already been fulfilled and you should take into account to replan.
+#   - If it has failed, evaluate whether the cause has been resolved. If not, replace it with an alternative subtask that circumvents the failure.
+
+# ### INPUT FORMAT ###
+# {{
+#     Task: description of the task the robots are supposed to complete,
+#     Number of agents: number of agents in the environment,
+#     Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
+#     Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+#     Reachable positions: list of reachable positions in the environment,
+#     Objects in environment: list of all objects in the environment,
+#     agent name's observation: list of objects and its postion the agent name is observing,
+#     agent name's state: description of agent name's state(position, facing direction and inventory),
+#     agent name's subtask_failure_reasons: description of what agent name did in the previous time step and whether it was successful and if it failed, why it failed,
+#     agent name's previous failures: if agent name's few previous actions failed, description of what failed,
+# }}  
+
+# ### OUTPUT FORMAT ###
+# You will output a list of subtasks for each robot in the following format, in json format:
+# {{
+# "Subtasks": [subtask 1, subtask 2, ..., subtask n],
+# }}
+# example:
+# {{
+# "Subtasks": [
+#     "pick up the vase and put it on the table",
+#     "pick up the tissue box and put it on the table",
+#     "pick up the remote control and put it on the table"
+# ]
+# }}
+
+# ## Failure reasons:
+# Types of that can cause a subtask to fail:
+# - navigation related: "no-path", "object-not-in-view", or "distance-too-far" etc, when this type of failure occurs, the robot should try to navigate to the object by using micro actions(such as MoveAhead, MoveBack, RotateRight, RotateLeft) to reach the object instead of just NavigateToObject (which this is sometime not feasible by unknow reason). take account of the given reachable positions and the agent's current position and the obect view in the environment.
+# - object related: "object-not-found", "object-not-reachable", "object-not-in-inventory", or "object(<OBJ>)-not-picked-up" etc, when this type of failure occurs, often means that the robot intent to interact with an object but the prior action or reqirement was not met(such as the robot did not pick up the object before trying to put it in a receptacle, or the object is not in the environment).
+
+# ### Important Notes ###
+# * Each subtask should be atomic and goal-directed (e.g., "pick up the apple and put it in the fridge").
+# * Avoid repeating failed subtasks unless their failure cause has been addressed.
+# * Ensure the plan is minimal-avoid unnecessary steps.
+# * You can assume the robots are coordinated and will handle task allocation downstream.
+# * Consider object availability, spatial constraints, and object affordances when generating subtasks.
+# - Subtasks must be independent unless a specific order is required; sequence-dependent actions must be merged into a single subtask.
+# - Only use objects that are present in the environment.
+# - Action plans must reflect real-world object affordances.
+# - Do not use OpenObject on surfaces such as tables or countertops.
+# - For openable receptacles (e.g. drawer, fridge, cabinet):
+#     - The container must be opened before placing any object inside.
+#     - The robot's hand must be empty before opening or closing any container.
+#     - The container should be closed after use.
+# - If placing an object inside an openable container: open it first, then pick up the object, then deposit the object.
+# - To put an object on a receptacle: pick up the object, navigate to the receptacle, then place the object.
+# - To cook an object, the object should be placed in a receptacle (e.g. pan, pot) and the receptacle should be on a stove burner and turn on stove knob.
+# - To slice an object, the robot must hold a knife.
+# - Robots can hold only one object at a time; ensure actions adhere to this constraint.
+# - Objects can be cleaned using CleanObject or by placing them under a running faucet. Only clean when explicitly required.
+# - Avoid unnecessary actions—only perform what is strictly required for the task.
+# - Do NOT assume or use default receptacles like CounterTop or Table unless they are mentioned in the task description.
+# - Output only the subtasks JSON as specified, with no extra explanations or formatting.
+# * **NOTE**: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
+# Let's work this out in a step by step way to be sure we have the right answer.
+# """
 
 
 def convert_dict_to_string(input_dict) -> str:
@@ -701,14 +788,26 @@ def set_env_with_config(config_file: str):
 
 
 def get_llm_response(payload, model = "gpt-4o", temperature= 0.7, max_tokens=1024) -> str:
-    response = client.chat.completions.create(model=model, 
-                                                messages=payload, 
-                                                max_tokens=max_tokens, 
-                                                temperature=temperature,)
-
+    print("using model:", model)
+    # print("payload:", payload)
+    if model.startswith("gpt-4"):
+        # for models: gpt-4.1-2025-04-14, gpt-4o,
+        response = client.chat.completions.create(model=model, 
+                                                    messages=payload, 
+                                                    max_tokens=max_tokens, 
+                                                    temperature=temperature,)
+    else:
+        # for models: gpt-5-2025-08-07
+        # max_tokens is replaced by max_completion_tokens; 
+        # 'temperature' does not support 0.7 with this model. Only the default (1) value is supported."
+        response = client.chat.completions.create(model=model, 
+                                                    messages=payload, 
+                                                    max_completion_tokens=max_tokens,)
     return response, response.choices[0].message.content.strip()
 
 def prepare_payload(system_prompt, user_prompt):
+    print("system_prompt:", system_prompt)
+    print("user_prompt:", user_prompt)
     payload = [
                 {
                     "role": "system",
@@ -731,39 +830,45 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
     """
 
     if mode == "planner":
+        # for initial planning
         system_prompt = PLANNER_PROMPT
         input = env.get_center_llm_input()
         user_prompt = convert_dict_to_string(input)
     elif mode == "editor":
+        # for editing the generated plan
         system_prompt = EDITOR_PROMPT
         input = env.get_center_llm_input()
         input["Subtasks"] = subtasks
         user_prompt = convert_dict_to_string(input)
     elif mode == "action":
+        # for generating automic actions for each robot to perform
         system_prompt = ACTION_PROMPT
         if not subtasks:
             print("No subtasks provided")
             return None, None
-        input = env.get_center_llm_input()
+        input = env.get_obs_llm_input()
         input["Subtasks"] = subtasks
         user_prompt = convert_dict_to_string(input)
 
     elif mode == "allocator":
+        # for allocating subtasks to robots
         system_prompt = ALLOCATOR_PROMPT
-        input = env.get_center_allocator_llm_input()
-        if info:
-            input['failure_subtasks'] = info['failure_subtasks']
-            input['subtask_failure_reasons'] = info['subtask_failure_reasons']
-            input['failed_acts'] = info['failed_acts']
+        input = env.get_obs_llm_input(prev_info=info)
+        # if info:
+        #     input['failure_subtasks'] = info['failure_subtasks']
+        #     input['subtask_failure_reasons'] = info['subtask_failure_reasons']
+        #     input['failed_acts'] = info['failed_acts']
         user_prompt = convert_dict_to_string(input)
 
     elif mode == "replan":
+        # for replanning the subtasks based on the current state of the environment
         system_prompt = REPLAN_PROMPT
-        input = env.get_replan_llm_input()
-        if info:
-            input['failure_subtasks'] = info['failure_subtasks']
-            input['subtask_failure_reasons'] = info['subtask_failure_reasons']
-            input['failed_acts'] = info['failed_acts']
+        try:
+            input = env.get_obs_llm_input(prev_info=info)
+        except KeyError as e:
+            print(f"[Error] Missing key in info for replan: {e}")
+            return None, None
+        
         user_prompt = convert_dict_to_string(input)
 
     user_prompt += addendum
@@ -912,24 +1017,24 @@ def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
 
 def initial_subtask_planning(env, config):
     # ---1. Planner LLM 產生初步 subtasks
-    
-    planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
-    planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
-    res, res_content = get_llm_response(planner_payload, model=config['model'])
+    # planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
+    # planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
+    # res, res_content = get_llm_response(planner_payload, model=config['model'])
     # print('init plan llm output', res_content)
-    subtasks = process_planner_llm_output(res_content)
+    # subtasks = process_planner_llm_output(res_content)
     # print(f"After Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
-    # ---2. Editor LLM 修正 subtasks
-    editor_prompt, editor_user_prompt = prepare_prompt(env, mode="editor", subtasks=subtasks)
-    editor_payload = prepare_payload(editor_prompt, editor_user_prompt)
-    res, res_content = get_llm_response(editor_payload, model=config['model'])
-
-    subtasks = process_planner_llm_output(res_content)
-    print(f"After Editor LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
+    # # ---2. Editor LLM 修正 subtasks
+    # editor_prompt, editor_user_prompt = prepare_prompt(env, mode="editor", subtasks=subtasks)
+    # editor_payload = prepare_payload(editor_prompt, editor_user_prompt)
+    # res, res_content = get_llm_response(editor_payload, model=config['model'])
+    # print('editor llm output', res_content)
+    # subtasks = process_planner_llm_output(res_content)
+    # print(f"After Editor LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
     # for testing
-    # subtasks = ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop', 'pick up the bread and put it on the countertop']
+    # subtasks = ['open the fridge', 'pick up the apple and put it in the fridge', 'pick up the lettuce and put it in the fridge', 'pick up the tomato and put it in the fridge', 'close the fridge']
+    subtasks = ['pick up knife', 'slice apple', 'put down knife',  'slice bread', 'pick up one bread slice', 'insert bread slice into toaster', 'activate toaster']
     return subtasks, []
 
 def allocate_subtasks_to_agents(env, info={}):
@@ -1101,25 +1206,27 @@ def run_main():
         # 2. allocate subtasks to each agent
         agent_assignments, remain = allocate_subtasks_to_agents(env)
         print("agent_assignments: ", agent_assignments)
-        print("remain unassigned subtasks: ", remain)
-
-        # 3. decompose subtask to smaller actions
+        # print("remain unassigned subtasks: ", remain)
+        
+        # # 3. decompose subtask to smaller actions
         actions = decompose_subtask_to_actions(env, agent_assignments)
-        # print("actions: ", actions)
+        print("actions: ", actions)
         decomp_actions = get_steps_by_actions(env, actions)
-
-        # 4. execution
-        # print("decomp_actions: ", decomp_actions)
+        
+        # # 4. execution
+        print("decomp_actions: ", decomp_actions)
         cur_plan = bundle_task_plan(agent_assignments, actions, decomp_actions)
         print("cur_plan: ", cur_plan)
         isSuccess, info = env.stepwise_action_loop(cur_plan)
+        print('info', info)
+        '''
+        {'step': 0, 'actions_success': {'Alice': [], 'Bob': ['Idle']}, 'success_subtasks': ['Idle'], 'failure_subtasks': ['pick up knife'], 'subtask_failure_reasons': {'Alice': [{'subtask': 'pick up knife', 'reason': 'no-path', 'at_action': 'NavigateTo(Knife_1)'}, {'subtask': 'pick up knife', 'reason': 'object-not-in-view', 'at_action': 'NavigateTo(Knife_1)'}], 'Bob': []}, 'inventory': ['nothing', 'nothing'], 'failed_acts': {'Alice': ['NavigateTo(Knife_1)'], 'Bob': []}}
+        '''
+        # break
 
         
-        # for testing
-        # isSuccess = True
-        # info = {'step': 0, 'actions_success': {'Alice': ['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], 'Bob': ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']}, 'success_subtasks': ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop'], 'failure_subtasks': [], 'subtask_failure_reasons': {'Alice': [], 'Bob': []}, 'inventory': ['nothing', 'nothing'], 'failed_acts': {'Alice': [], 'Bob': []}}
-        print('info', info)
-        # 5. verify which subtasks are done 
+
+        # # 5. verify which subtasks are done 
         open_subtasks, completed_subtasks = verify_subtask_completion(env, info)
         print("after verify open_subtasks: ", open_subtasks)
         print("after verify closed_subtasks: ", completed_subtasks)
@@ -1130,10 +1237,11 @@ def run_main():
             print("replan open_subtasks: ", open_subtasks)
             print("replan closed_subtasks: ", completed_subtasks)
             start_time = time.time()
+            # break
         else:
             break
         
-    # env.save_log()
+    env.save_log()
    
     env.close()
 

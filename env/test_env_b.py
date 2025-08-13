@@ -30,7 +30,7 @@ def main():
         {
             "subtask": "pick up the GhostApple and put it on the CounterTop",
             "actions": ["NavigateTo(GhostApple_1)", "PickupObject(GhostApple_1)"],
-            "steps": [["NavigateTo(GhostApple_1)"], ["PickupObject(GhostApple_1)"]]
+            "steps": [["NavigateTo(GhostApple_1)"], ["PickupObject(GhostApple_1)"]] # not used
         },
         {
             "subtask": "Idle",
@@ -39,7 +39,9 @@ def main():
         }
     ]
     okA, infoA = run_plan(env, plan_A)
+    llm_input = env.get_obs_llm_input(prev_info=infoA)
     print_fail(infoA)
+    print("LLM input for Case A:\n", llm_input)
 
     # Case B: 導航規劃為空（no-path）
     # 將某個可見物件移到極端位置，或使用你已知會產生無路徑的目標（如被障礙封死）
