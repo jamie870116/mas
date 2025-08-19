@@ -58,7 +58,7 @@ class BaseEnv:
         ]
         self.small_objects = [
             # kitchen
-            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker"
+            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon",
             # living room
             "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox",
             # bedroom
@@ -249,6 +249,9 @@ class BaseEnv:
             return object_name
         else:
             obj_name, obj_num = object_name.split("_")
+            if 'Sliced' in obj_name:
+                obj_name = obj_name.replace("Sliced", "")
+
             obj_num = int(obj_num)
             for obj_id, num in self.object_dict.get(obj_name, {}).items():
                 if num == obj_num:
@@ -267,6 +270,8 @@ class BaseEnv:
             action_dict["objectId"] = self.convert_readable_object_to_id(object_id)
             if action_name == "PutObject":
                 action_dict["forceAction"] = True
+            if action_name == "PickupObject":
+                print('try to pick up ', object_id)
             # if action_name == "PutObject" and "Fridge" in object_id:
             #     action_dict["forceAction"] = True
         elif action.startswith("DropHandObject"):
@@ -423,7 +428,7 @@ class AI2ThorEnv_cen(BaseEnv):
         
         self.subtasks = ["Initial subtask"] if self.use_shared_subtask else ["Initial subtask"] * self.num_agents
         self.memory = ["Nothing"] if self.use_shared_memory else ["Nothing"] * self.num_agents
-
+        self.suggestion = [""]
         
         self.input_dict = {}
         self.step_num = [0] * self.num_agents
@@ -470,7 +475,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 "renderObjectImage": True,
                 "renderInstanceSegmentation": True,
                 "agentCount": self.num_agents,
-                "visibilityDistance": 40
+                "visibilityDistance": 40,
             }
         )
         self.object_dict = {}
@@ -478,6 +483,7 @@ class AI2ThorEnv_cen(BaseEnv):
         self.inventory = ["nothing"] * self.num_agents
         self.subtasks = ["Initial subtask"] if self.use_shared_subtask else ["Initial subtask"] * self.num_agents
         self.memory = ["Nothing"] if self.use_shared_memory else ["Nothing"] * self.num_agents
+        self.suggestion = [""]
         self.action_history = {name: [] for name in self.agent_names}
         self.action_success_history = {name: [] for name in self.agent_names}
         self.subtask_success_history = {name: [] for name in self.agent_names}  # save the previous successful subtasks for each agent
@@ -526,6 +532,9 @@ class AI2ThorEnv_cen(BaseEnv):
         
         return self.get_observations()
     
+    def get_object_dict(self):
+        return self.object_dict
+
     def get_observations(self) -> str:
         """Generate observation dictionary and return as string."""
         self.input_dict = {"Task": self.task, "Elapsed Time": f"{self.total_elapsed_time:.2f} seconds"}
@@ -562,6 +571,7 @@ class AI2ThorEnv_cen(BaseEnv):
     
     def get_object_in_view(self, agent_id: int) -> List[str]:
         """Get objects in the agent's view."""
+        self.update_object_dict()
         detections = self.event.events[agent_id].instance_detections2D
         return list(detections.instance_masks.keys()) if detections else []
     
@@ -569,11 +579,12 @@ class AI2ThorEnv_cen(BaseEnv):
         """
         以 'Name_Idx' 為鍵，回傳可見物件的 {'x','z'}。
         """
+        self.update_object_dict()
         detections = self.event.events[agent_id].instance_detections2D
         if not detections:
             return {}
 
-        self.update_object_dict()
+        
 
         id2xz = {}
         for obj in self.event.metadata.get("objects", []):
@@ -701,7 +712,7 @@ class AI2ThorEnv_cen(BaseEnv):
             micro_actions.append(action_str)
 
         
-        print(f"nav_actions: {micro_actions}")
+        # print(f"nav_actions: {micro_actions}")
         return micro_actions
 
     # ---For one time planning- replan nav step for every step
@@ -826,6 +837,7 @@ class AI2ThorEnv_cen(BaseEnv):
                         if not success:
                             break
                     self.event = self.controller.step(action_dict)
+                    print(f"Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
                     success = self.event.events[aid].metadata["lastActionSuccess"]
                 else:
                     action_dict = self.parse_action(act, aid)
@@ -889,6 +901,8 @@ class AI2ThorEnv_cen(BaseEnv):
                     self.subtask_success_history[self.agent_names[aid]].append(sub)
                     self.current_hl[aid] = None
                     self.action_queue[aid].clear()
+                    self.last_check_reason[self.agent_names[aid]] = None
+                    self.nav_no_plan[self.agent_names[aid]] = False
                 else:
                     last_reason = self.last_check_reason[self.agent_names[aid]]
                     
@@ -1189,8 +1203,15 @@ class AI2ThorEnv_cen(BaseEnv):
             with open(filename, "a", encoding="utf-8") as f:
                 for log in self.logs:
                     f.write(str(log) + "\n")
+        info = self._get_current_plan_status()
+        # reset after each attempt
+        self.subtask_success_history = {name: [] for name in self.agent_names}  # save the previous successful subtasks for each agent
+        self.subtask_failure_reasons = {name: [] for name in self.agent_names} # save the previous failure subtasks and reason for each agent
+        self.agent_failure_acts	= {name: [] for name in self.agent_names} # save 最近失敗過的 atomic action，通常用於偵測是否卡住
+        self.nav_no_plan = {name: False for name in self.agent_names}   # 導航規劃為空的旗標
+        self.last_check_reason = {name: None for name in self.agent_names}  # is_subtask_done 內部最近一次的判斷理由
 
-        return all(succ), self._get_current_plan_status()
+        return all(succ), info
         
    
     def _get_current_plan_status(self):
@@ -1227,6 +1248,7 @@ class AI2ThorEnv_cen(BaseEnv):
         - reason: "no-path" / "failed-at: MoveAhead" / "object-not-in-view" / "distance-too-far (1.73m)" / try/except 錯誤訊息 ...
         - at_action: 可填入目前的高階或低階動作字串，便於 LLM 重建脈絡
         """
+        print(f'Recording subtask failure for agent {agent_id} ({self.agent_names[agent_id]}): {reason}')
         agent_name = self.agent_names[agent_id]
         nl_subtask = None
         if self.cur_plan and agent_id < len(self.cur_plan):
@@ -1241,11 +1263,14 @@ class AI2ThorEnv_cen(BaseEnv):
         if at_action:
             payload["at_action"] = at_action
 
-        self.subtask_failure_reasons[agent_name].append(payload)
+        # self.subtask_failure_reasons[agent_name].append(payload)
+        self.subtask_failure_reasons[agent_name] = payload
 
         # 也更新 failed_acts（已有結構，這裡只保證有 at_action 時也同步放）
         if at_action:
             self.agent_failure_acts[agent_name].append(at_action)
+
+
 
     def is_subtask_done(self, subtask: str, agent_id: int) -> bool:
         """
@@ -1362,7 +1387,7 @@ class AI2ThorEnv_cen(BaseEnv):
             suc = self.get_object_status(obj).get("isSliced", False)
             if suc:
                 self.update_object_dict()
-                print(self.object_dict)
+                # print(self.object_dict)
             else:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-sliced"
             # print(self.get_all_objects())
@@ -1479,6 +1504,9 @@ class AI2ThorEnv_cen(BaseEnv):
                         self.pending_high_level[agent_id].appendleft('LookDown(30)')
                         print('pending: ',self.pending_high_level[agent_id])
                     else:
+                        print(f'in is_sub_task_done(): naivifate-to-object({obj})-failed')
+                        obj_in_view = self.get_mapping_object_pos_in_view(agent_id)
+                        print(f'agent {agent_id} can see: {obj_in_view}')
                         self.last_check_reason[self.agent_names[agent_id]] = f"naivifate-to-object({obj})-failed"
                         suc = False
 
@@ -1780,12 +1808,7 @@ class AI2ThorEnv_cen(BaseEnv):
         elif self.use_separate_subtask:
             self.subtasks[agent_id] = subtask
     
-    def update_memory(self, memory: str, agent_id: int = 0):
-        """Update memory for shared or per-agent usage."""
-        if self.use_shared_memory:
-            self.memory[0] = memory
-        elif self.use_separate_memory:
-            self.memory[agent_id] = memory
+    
     
     def update_current_state(self, act_texts: List[str]):
         """Update the input dictionary with the current state."""
@@ -1820,6 +1843,19 @@ class AI2ThorEnv_cen(BaseEnv):
         self.input_dict["Robots' open subtasks"] = self.open_subtasks
         self.input_dict["Robots' completed subtasks"] = self.closed_subtasks
     
+    def update_memory(self, memory: str, suggestion="", agent_id: int = 0):
+        """Update memory for shared or per-agent usage."""
+        if self.use_shared_memory:
+            self.memory[0] = memory
+        elif self.use_separate_memory:
+            self.memory[agent_id] = memory
+            
+        if suggestion:
+            self.update_suggestion(suggestion)
+
+    def update_suggestion(self, suggestion):
+        """Update the suggestion for the agent."""
+        self.suggestion = [suggestion]
 
     def _get_ceiling_image(self):
         """Capture an overhead image by toggling map view."""
@@ -2209,6 +2245,7 @@ class AI2ThorEnv_cen(BaseEnv):
             "inventory": list(self.inventory),                     # ['nothing', 'Mug_1', ...]
             "Robots' open subtasks": self.open_subtasks,
             "Robots' completed subtasks": self.closed_subtasks,
+            "Robots' memory": self.memory[0],
         }
 
         for aid, name in enumerate(self.agent_names):
@@ -2217,8 +2254,12 @@ class AI2ThorEnv_cen(BaseEnv):
             snap[f"{name}'s state"]            = self.input_dict.get(f"{name}'s state", "")
             if prev_info:
                 snap[f"{name}'s previous failures"] = self.input_dict.get(f"{name}'s previous failures", "None")
-                snap[f"{name}'s subtask_failure_reasons"] = prev_info['subtask_failure_reasons'].get(name, "None")
-
+                subtask_failure_reasons = prev_info['subtask_failure_reasons'].get(name, "None")
+                if subtask_failure_reasons:
+                    reason_description = self.input_dict.get(f"{name}'s previous failures", "None") + f", because of {subtask_failure_reasons['reason']}"
+                    snap[f"{name}'s subtask_failure_reasons"] = reason_description
+                
+        snap['suggestion'] = self.suggestion[0] if self.suggestion else "None"
             
 
         # if self.use_shared_subtask:
@@ -2236,6 +2277,7 @@ class AI2ThorEnv_cen(BaseEnv):
         return snap
 
   
+    
 
     def convert_to_dict_objprop(self, objs, obj_mass, obj_id):
         objs_dict = []

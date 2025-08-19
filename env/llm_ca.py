@@ -40,7 +40,7 @@ import sys
 import argparse
 from pathlib import Path
 import time
-
+import base64
 from openai import OpenAI
 from env_cen import AI2ThorEnv_cen as AI2ThorEnv
 
@@ -281,6 +281,67 @@ def get_objects_by_floorplan(fpid: str) -> list[str]:
 
 CURRENT_OBJECT_REFERENCE = get_objects_by_floorplan(config["scene"])
 
+EXAMPLE_PLAN = f"""
+#**EXAMPLES:**
+High-level task: "Put the vase, tissue box, and remote control on the table", with 2 agents:
+
+example output:
+[
+"navigate to the vase, pick up the vase, navigate to the table, and put it on the table",
+"navigate to the tissue box, pick up the tissue box, navigate to the table, and put it on the table",
+"navigate to the remote control, pick up the remote control, navigate to the table, and put it on the table",
+]
+
+High-level task: "Put the lettuce and potato in the fridge" with 2 agents, example output:
+[
+"navigate to the fridge and open the fridge, without picking up any objects, before putting anything inside",
+"navigate to the lettece, pick up the lettuce,  navigate to the fridge, put it in the fridge",
+"navigate to the potato, pick up the potato, navigate to the fridge and put it in the fridge",
+"navigate to the fridge and close the fridge, without picking up any objects"
+]
+
+High-level task: "Turn on the laptop and television and turn off the light switch" with 3 agents, example output:
+[
+'navigate to the laptop, open the laptop, turn on the laptop',
+'navigate to the television, turn on the television',
+'navigate to the light switch, turn off the light switch'
+]
+
+High-level task: "slice a tomato" with 2 agents, example output:
+[
+'navigate to the knife, pick up the knife, navigate to the tomato, slice the tomato with the knife',
+]
+
+"""
+
+FALURE_EXAMPLES = f"""
+Example input:
+{{
+  "failure reason": "None",
+  "memory": "Alice is holding ButterKnife_1 and is near the kitchen counter. Bob is holding Apple_1 and is also close to the counter, with Bowl_1 visible nearby on Bob's right. Both robots are in a good position to cooperate. The apple and knife are both held by the robots, ready for slicing.",
+  "reason": "To slice the apple, the robot holding the knife (Alice) must interact with the apple, which is currently held by Bob. Bob should place Apple_1 down on the counter so Alice can perform the slicing action. After slicing, one robot can pick up a slice and put it into the bowl.",
+  "suggestion": "next, Bob should PutObject<CounterTop_2> to place Apple_1 on the counter, and Alice should wait (Idle) until the apple is available for slicing."
+}}
+"""
+
+VERIFY_EXAMPLE = f"""
+Possible failure reasons and how to handle them:
+- Navigation: "no-path", "object-not-in-view", "distance-too-far": Use micro-movements (MoveAhead, RotateRight, etc.) to get in view/reach, using current/target positions and available observations. For example, you can have subtasks like "look down and navigate to potato" if previous failure reason of "pick up potato" was "object-not-in-view". Or you can have subtask like "use micro-movements to navigate to potato" if previous subtask "navigate to potato" was failured.
+example: 
+** when given input shows "no-path to Tomato_1" for subtask "navigate to tomato", and there do have Tomato_1 in the environment, but as shown in the image, the agent is block by the fridge door, then you can have subtask "Rotate twice in same direction and MoveAhead to bypass the firdge door, then try navigate to Tomato_1 again", this should based on not only the input reachable postion but also other input information.
+** when given input shows "object-not-in-view" for subtask "navigate to tomato", and based on other input information, that the distance between the agent and the tomato is already close enough, then you can have subtask "Lookdown" or "Lookup" to find the tomato.
+** when when given input shows "object-not-in-view" for subtask "navigate to tomato and pick up tomato", but you can still see a tomato based on the given point of view image, then try directly pick up the tomato without navigation.
+** for any other unknown reason, you can try assigning subtasks to other agents.
+
+- Object-related: "object-not-found", "object-not-reachable", "object-not-in-inventory", "object(<OBJ>)-not-picked-up":
+
+example:
+** when given input shows "object-not-found" and based on given object list of environment, that there's no target object, you can skipped the related subtask.
+** when given input shows "object-not-in-inventory", means that the current agent didn't not pick up any object to perform the next step, you should have the subtask "pick up xxx, and do xxx". xxx depends on what is the subtask.
+
+- Ensure necessary object prerequisites.
+"""
+
 ai2thor_actions = {
     "move": [
         "MoveAhead",
@@ -293,8 +354,8 @@ ai2thor_actions = {
         "RotateLeft"
     ],
     "look": [
-        "LookUp<angle>",
-        "LookDown<angle>"
+        "LookUp",
+        "LookDown"
     ],
     "idle": [
         "Idle"
@@ -330,7 +391,7 @@ Begin with a concise checklist (3-7 bullets) of what you will do; keep items con
 **Available Actions:**
 - move: [MoveAhead, MoveBack, MoveRight, MoveLeft]
 - rotate: [RotateRight, RotateLeft]
-- look: [LookUp<angle>, LookDown<angle>]
+- look: [LookUp, LookDown]
 - idle: [Idle]
 - interact_with_object: [NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>, OpenObject<object_name>, CloseObject<object_name>, ToggleObjectOn<object_name>, ToggleObjectOff<object_name>, BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>, DirtyObject<object_name>, CleanObject<object_name>, FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>, UseUpObject<object_name>]
 - interact_without_navigation: [DropHandObject, ThrowObject]
@@ -340,21 +401,7 @@ Begin with a concise checklist (3-7 bullets) of what you will do; keep items con
 - Decompose the main task into subtasks that the robots can complete, taking into account the robots' abilities and the objects available.
 - Subtasks that must occur in sequence should be combined into a single subtask.
 
-**EXAMPLES:**
-If the task is "Put the vase, tissue box, and remote control on the table", example subtasks:
-[
-"pick up the vase and put it on the table",
-"pick up the tissue box and put it on the table",
-"pick up the remote control and put it on the table"
-]
-
-If the task is "Put the lettuce and potato in the fridge", example subtasks:
-[
-"open the fridge",
-"pick up the lettuce and put it in the fridge",
-"pick up the potato and put it in the fridge",
-"close the fridge"
-]
+{EXAMPLE_PLAN}
 
 **Input Format (JSON):**
 {{
@@ -449,7 +496,7 @@ Proceed methodically to guarantee that your output matches the desired task outc
 """
 
 ALLOCATOR_PROMPT = f"""
-You are an expert task allocator, responsible for assigning tasks to a team of {len(AGENT_NAMES)} embodied robots to efficiently achieve a specified goal.
+You are an expert task allocator, responsible for assigning tasks to a team of {len(AGENT_NAMES)} embodied robots, with name {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. to efficiently achieve a specified goal.
 
 Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
 
@@ -475,7 +522,8 @@ You will receive a JSON object with these required fields:
 Optional fields:
 - "Agent's subtask_failure_reasons" (string/list): Previous step performance/failures.
 - "Agent's previous failures" (string/list): Previous action failures, if any.
-
+- Robots' memory: [list of important information about the scene that should be remembered for future steps],
+- suggestion: [list of reasoning for what each robot should do next and a description of the next actions each robot should take],
 
 ## Output Format
 Produce a JSON object with this structure:
@@ -518,10 +566,10 @@ ACTION_PROMPT = f"""
 ## Action Set
 - **Movement**: [MoveAhead, MoveBack, MoveRight, MoveLeft]
 - **Rotation**: [RotateRight, RotateLeft]
-- **Look**: [LookUp<angle>, LookDown<angle>] where angle is 30 or 60
+- **Look**: [LookUp, LookDown]
 - **Idle**: [Idle]
 - **Object Interaction**:
-  - With navigation: [NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>, OpenObject<object_name>, CloseObject<object_name>, ToggleObjectOn<object_name>, ToggleObjectOff<object_name>, BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>, DirtyObject<object_name>, CleanObject<object_name>, FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>, UseUpObject<object_name>]
+  - With navigation: [PickupObject<object_name>, PutObject<receptacle_name>, OpenObject<object_name>, CloseObject<object_name>, ToggleObjectOn<object_name>, ToggleObjectOff<object_name>, BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>, DirtyObject<object_name>, CleanObject<object_name>, FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>, UseUpObject<object_name>]
   - Without navigation: [DropHandObject, ThrowObject]
 
 # Context
@@ -532,30 +580,30 @@ ACTION_PROMPT = f"""
 Provide inputs as a JSON object containing:
 - Task (string)
 - Number of agents (int)
-- Robots' open subtasks (list[string]|None)
-- Robots' completed subtasks (list[string]|None)
 - Reachable positions (list[string])
-- Objects in environment (list[string])
+- Objects in environment (list[string]), use only the object list in this list
 - Agent's observations (list[object/position])
 - Agent's state (location, facing, inventory)
 - Subtasks (list of subtasks to execute)
 - (optional): agent subtask_failure_reasons, previous failures
 
 # Planning and Validation
-- Internally, reason step by step to extract and analyze each subtask, confirm presence of referenced objects, map actions using current environment and agent state, and validate required action conditions for each agent.
+- Internally, reason step by step to extract and analyze each subtask, confirm presence of referenced objects, consider the distance and position of agent and object, map actions using current environment and agent state, and validate required action conditions for each agent.
 - After generating action plans, validate that each generated plan satisfies the requirements (object existence, feasible actions based on agent state/inventory, and completeness of required fields). If validation fails for a subtask, output as specified in Output Format.
 
 # Guidelines
 - If a referenced object is missing, inventory is full (when pickup is needed), agent state/observation is missing, or Subtask is None: output an empty list for that subtask (or {{ "Actions": [] }} if Subtasks is None).
-- Do not output or format anything beyond the defined JSON.
+- Assign only objects listed in the provided list. If multiple instances of the same type exist (e.g., Countertop_1, Countertop_2), select the most appropriate one based on the agent's current position and its proximity to the objects.
+- when assigning actions which interact with objects and with navigation, always use NavigateTo<object_name> to approach the object first. Unless the targert obect is close enough and in the view of the agent.
+- If the subtask requires micro-movements to approach an Object_name, use only Movement, Rotation, and Look actions based on position and failure reason—avoid using NavigateTo<Object_name> initially. Try one atomic movement at a time before attempting NavigateTo<Object_name> again.
+    - When failure reason is "object-not-in-view", first try  Lookdown  or Lookup action based on the target object's most likely to be. (you can assume the agent always starts looking front. 
+    - When failure reason is "no-plan", try moving around first—sometimes an obstacle (e.g., a door) may be blocking the path before re-attempting NavigateTo.
 
 
 # Output Format
 The output must be a single JSON object, with no extra explanation:
 - Key: "Actions"
 - Value: a list of lists. Each inner list contains the atomic actions for a subtask, matching the order of input subtasks.
-- Do not include failure codes, error objects, or explanations. Encode error states strictly as empty lists at the corresponding subtask index.
-- Output only the specified JSON object. Do not provide explanations or extra responses. Reason in detail internally to maximize output correctness.
 
 **Example:**
 Given subtasks: ["pick up apple", "Idle", "slice bread"]
@@ -569,6 +617,9 @@ Given subtasks: ["pick up apple", "Idle", "slice bread"]
 }}
 
 ** The output must be a valid JSON object with no extra explanation.
+** Do not include failure codes, error objects, or explanations. Encode error states strictly as empty lists at the corresponding subtask index.
+** Output only the specified JSON object. Do not provide explanations or extra responses.
+
 
 """
 
@@ -579,7 +630,7 @@ Begin with a concise checklist (3-7 bullets) of what you will do; keep items con
 ## Available Actions
 - Movement: MoveAhead, MoveBack, MoveRight, MoveLeft
 - Rotation: RotateRight, RotateLeft
-- Camera: LookUp<angle>, LookDown<angle> (angle: 30, 60)
+- Camera: LookUp, LookDown
 - Idle: Idle
 - Object Interaction (with navigation):
 - NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>
@@ -592,15 +643,20 @@ Begin with a concise checklist (3-7 bullets) of what you will do; keep items con
 - Object Interaction (without navigation): DropHandObject, ThrowObject
 
 ## TASK
-You must reason about the current environment state and prior plan history to **replan** a valid, efficient subtask sequence for the robots to achieve the overall goal. Environment is partially observable, and robots may experience execution failures (occlusion, distance, blocked paths, misidentified objects). Plans should:
-- Retain subtasks not yet failed.
-- Revise or replace failed subtasks according to the failure cause.
-- Decompose the main task into executable, atomic subtasks per robot.
-For each subtask in 'open' or 'completed' lists:
-- If open, check feasibility with current state and capabilities; reuse if viable.
-- If completed, acknowledge and adapt the plan accordingly.
-- If failed, determine if circumstances have changed; if not, substitute an alternate strategy.
-After completing the checklist and plan, validate result in 1-2 lines and proceed or self-correct if validation fails, but don't output anything for this self-validation.
+
+Your goal is to replan a valid and efficient sequence of subtasks based on the current environment state and prior action history. You will be given:
+- The original task description
+- Robots' previous plans (open and completed subtasks)
+- Their current observations and states
+- Objects in environment
+- Failure causes
+- Reasoning and suggestions for next actions
+
+
+
+You should reason step-by-step over the environment, agent memory, failure causes, and suggestions to derive a concise and updated subtask plan.
+After reasoning, return only the updated `"Subtasks"` list in JSON format. Do **not** return any extra explanations or comments.
+
 
 ### INPUT FORMAT
 {{
@@ -614,6 +670,9 @@ agent name's observation: [list of perceived objects/positions],
 agent name's state: position, facing, inventory,
 agent name's subtask_failure_reasons: [recent actions, success/failure with explanations],
 agent name's previous failures: [recent failure details],
+Robots' memory: [list of important information about the scene that should be remembered for future steps],
+suggestion: [list of reasoning for what each robot should do next and a description of the next actions each robot should take],
+
 }}
 
 ### OUTPUT FORMAT
@@ -622,22 +681,12 @@ Return only the following JSON:
 "Subtasks": ["subtask 1", "subtask 2", ..., "subtask n"]
 }}
 
-Example:
-{{
-"Subtasks": [
-"pick up the vase and put it on the table",
-"pick up the tissue box and put it on the table",
-"pick up the remote control and put it on the table"
-]
-}}
 
-## Failure Handling
-Possible causes and adjustments for subtask failures:
-- Navigation: "no-path", "object-not-in-view", "distance-too-far": Use micro-movements (MoveAhead, RotateRight, etc.) to get in view/reach, using current/target positions and available observations. For example, you can have subtasks like "look down and navigate to potato" if previous failure reason of "pick up potato" was "object-not-in-view". Or you can have subtask like "use micro-movements to navigate to potato" if previous subtask "navigate to potato" was failured.
-- Object-related: "object-not-found", "object-not-reachable", "object-not-in-inventory", "object(<OBJ>)-not-picked-up":
-- Ensure necessary object prerequisites (e.g., pick up before use, confirm object presence).
+{EXAMPLE_PLAN}
 
-## Key Constraints
+
+
+## Key Constraints and Guidelines
 - Subtasks must be atomic and goal-directed; combine sequentially dependent actions into one subtask.
 - Avoid repeating failed subtasks unless the situation has changed.
 - Minimize and streamline plan; do only necessary actions.
@@ -646,11 +695,11 @@ Possible causes and adjustments for subtask failures:
 - Reflect real world affordances and limitations.
 - Never OpenObject on non-openable surfaces (e.g. tables, countertops).
 - For openable containers (e.g. drawers, fridge, cabinets):
-- Open first; hand must be empty; close after use.
-- To place inside: open → pick up object → deposit object.
+    - Open first; hand must be empty; close after use.
+    - To place inside: open → pick up object → deposit object.
 - To put object on a receptacle: pick up → navigate → place.
 - To cook: object must be in a receptacle (e.g. pan/pot), on stove, stove turned on.
-- To slice: robot must hold a knife.
+- To slice: robot must hold a knife. Do not pick up the object to be sliced.
 - Robots can carry one object at a time—enforce this strictly.
 - Clean objects only when explicitly specified, using correct affordances.
 - Do not assume or use default receptacles unless specified in the task.
@@ -660,90 +709,128 @@ Possible causes and adjustments for subtask failures:
 
 """
 
+'''
+1. Consider the `"reason"` and `"suggestion"` to drive re-planning decisions.
+2. Retain open subtasks that are still valid and feasible.
+3. Replace or revise subtasks that have clearly failed or become infeasible.
+4. Incorporate suggested next steps into subtasks, using `"suggestion"` as guidance.
+5. Decompose high-level goals into specific, atomic subtasks if necessary.
+6. Do not repeat subtasks that are already in the `"completed subtasks"` list.
+'''
 
-# REPLAN_PROMPT = f"""
-# You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
-# They can perform the following actions: 
-# **Available Actions:**
-# - move: [MoveAhead, MoveBack, MoveRight, MoveLeft]
-# - rotate: [RotateRight, RotateLeft]
-# - look: [LookUp<angle>, LookDown<angle>], angle can be chosen from [30, 60]
-# - idle: [Idle]
-# - interact_with_object: [NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>, OpenObject<object_name>, CloseObject<object_name>, ToggleObjectOn<object_name>, ToggleObjectOff<object_name>, BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>, DirtyObject<object_name>, CleanObject<object_name>, FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>, UseUpObject<object_name>]
-# - interact_without_navigation: [DropHandObject, ThrowObject]
-
-# ### TASK ###
-# Your job is to reason over the current state of the environment and the progress history of previously executed plans, in order to **replan** the sequence of subtasks necessary to complete the overall goal.
-
-# This environment is partially observable, and robots may encounter execution failures due to occlusion, distance, blocked paths, or misidentified object locations. Therefore, the replanning should take into account:
+# identify the failure reason for the last action and suggest what to do next.
+VERIFIER_PROMPT = f"""
+ou are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
 
 
-# Your goal is to **revise or regenerate a valid and efficient sequence of subtasks** for the robots, using all the information above. When possible, retain subtasks that have not yet failed. Otherwise, adjust or replace the failed ones with alternative approaches.
-# Decompose the main task into subtasks that the robots can complete, taking into account the robots' abilities and the objects available.
-# - For each subtask(from Robots' open subtasks and completed subtasks), evaluate its status:
-#   - If it is in open subtask, meaning it has not been executed yet, check if it is feasible to execute it based on the current state of the environment and the robots' capabilities, consider reusing it directly.
-#   - If it has been completed, meaning that this part of task is already been fulfilled and you should take into account to replan.
-#   - If it has failed, evaluate whether the cause has been resolved. If not, replace it with an alternative subtask that circumvents the failure.
+They can perform the following actions:
+- Movement: MoveAhead, MoveBack, MoveRight, MoveLeft
+- Rotation: RotateRight, RotateLeft
+- Camera: LookUp, LookDown
+- Idle: Idle
+- Object Interaction (with navigation):
+- NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>
+- OpenObject<object_name>, CloseObject<object_name>
+- ToggleObjectOn<object_name>, ToggleObjectOff<object_name>
+- BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>
+- DirtyObject<object_name>, CleanObject<object_name>
+- FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>
+- UseUpObject<object_name>
+- Object Interaction (without navigation): DropHandObject, ThrowObject
 
-# ### INPUT FORMAT ###
-# {{
-#     Task: description of the task the robots are supposed to complete,
-#     Number of agents: number of agents in the environment,
-#     Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
-#     Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
-#     Reachable positions: list of reachable positions in the environment,
-#     Objects in environment: list of all objects in the environment,
-#     agent name's observation: list of objects and its postion the agent name is observing,
-#     agent name's state: description of agent name's state(position, facing direction and inventory),
-#     agent name's subtask_failure_reasons: description of what agent name did in the previous time step and whether it was successful and if it failed, why it failed,
-#     agent name's previous failures: if agent name's few previous actions failed, description of what failed,
-# }}  
+You need to verfify the previous failure and suggest the **next single action** that each robot should take in the current timestep.
 
-# ### OUTPUT FORMAT ###
-# You will output a list of subtasks for each robot in the following format, in json format:
-# {{
-# "Subtasks": [subtask 1, subtask 2, ..., subtask n],
-# }}
-# example:
-# {{
-# "Subtasks": [
-#     "pick up the vase and put it on the table",
-#     "pick up the tissue box and put it on the table",
-#     "pick up the remote control and put it on the table"
-# ]
-# }}
+You will get a description of the task robots are supposed to do. You will get an image of the environment from {", ".join([f"{name}'s perspective" for name in AGENT_NAMES[:-1]]) + f", and {AGENT_NAMES[-1]}'s perspective"} as the observation input.
+To help you with detecting objects in the image, you will also get a list objects each agent is able to see in the environment. Here the objects are named as "<object_name>_<object_id>".
+So, along with the image inputs you will get the following information:
+- A task description
+- A list of objects each robot can currently see (formatted as "<object_name>_<object_no>") with positions
+- Observations, failure descriptions, and subtask progress
 
-# ## Failure reasons:
-# Types of that can cause a subtask to fail:
-# - navigation related: "no-path", "object-not-in-view", or "distance-too-far" etc, when this type of failure occurs, the robot should try to navigate to the object by using micro actions(such as MoveAhead, MoveBack, RotateRight, RotateLeft) to reach the object instead of just NavigateToObject (which this is sometime not feasible by unknow reason). take account of the given reachable positions and the agent's current position and the obect view in the environment.
-# - object related: "object-not-found", "object-not-reachable", "object-not-in-inventory", or "object(<OBJ>)-not-picked-up" etc, when this type of failure occurs, often means that the robot intent to interact with an object but the prior action or reqirement was not met(such as the robot did not pick up the object before trying to put it in a receptacle, or the object is not in the environment).
+### INPUT FORMAT ###
+{{Task: description of task,
+Number of agents: int,
+Robots' open subtasks: [list of pending subtasks or None],
+Robots' completed subtasks: [list of completed subtasks or None],
+Robots' memory: [list of important information about the scene that should be remembered for future steps],
+suggestion: [Explanation of the rationale behind each robot’s prior assignment and the actions performed.],
+Objects in environment: [list],
+agent name's observation: [list of perceived objects/positions],
+agent name's state: position, facing, inventory,
+agent name's subtask_failure_reasons: [recent actions, success/failure with explanations] (if any),
+agent name's previous failures: [recent failure details] (if any),
+}}
 
-# ### Important Notes ###
-# * Each subtask should be atomic and goal-directed (e.g., "pick up the apple and put it in the fridge").
-# * Avoid repeating failed subtasks unless their failure cause has been addressed.
-# * Ensure the plan is minimal-avoid unnecessary steps.
-# * You can assume the robots are coordinated and will handle task allocation downstream.
-# * Consider object availability, spatial constraints, and object affordances when generating subtasks.
-# - Subtasks must be independent unless a specific order is required; sequence-dependent actions must be merged into a single subtask.
-# - Only use objects that are present in the environment.
-# - Action plans must reflect real-world object affordances.
-# - Do not use OpenObject on surfaces such as tables or countertops.
-# - For openable receptacles (e.g. drawer, fridge, cabinet):
-#     - The container must be opened before placing any object inside.
-#     - The robot's hand must be empty before opening or closing any container.
-#     - The container should be closed after use.
-# - If placing an object inside an openable container: open it first, then pick up the object, then deposit the object.
-# - To put an object on a receptacle: pick up the object, navigate to the receptacle, then place the object.
-# - To cook an object, the object should be placed in a receptacle (e.g. pan, pot) and the receptacle should be on a stove burner and turn on stove knob.
-# - To slice an object, the robot must hold a knife.
-# - Robots can hold only one object at a time; ensure actions adhere to this constraint.
-# - Objects can be cleaned using CleanObject or by placing them under a running faucet. Only clean when explicitly required.
-# - Avoid unnecessary actions—only perform what is strictly required for the task.
-# - Do NOT assume or use default receptacles like CounterTop or Table unless they are mentioned in the task description.
-# - Output only the subtasks JSON as specified, with no extra explanations or formatting.
-# * **NOTE**: DO NOT OUTPUT ANYTHING EXTRA OTHER THAN WHAT HAS BEEN SPECIFIED
-# Let's work this out in a step by step way to be sure we have the right answer.
-# """
+
+### OUTPUT FORMAT ###
+First of all you are supposed to reason over the image inputs, the robots' observations, previous actions, previous failures, previous memory, subtasks and the available actions the robots can perform, and think step by step and then output the following things:
+* Failure reason: If any robot's previous action failed, use the previous history and your understanding of causality to think and rationalize about why it failed. Output the reason for failure and how to fix this in the next timestep. If the previous action was successful, output "None".
+Common failure reasons to lookout for include: one agent blocking another so must move out of the way, agent can't see an object and must explore to find, agent is doing the same redundant actions, etc.
+* Memory: Whatever important information about the scene you think you should remember for the future as a memory. Remember that this memory will be used in future steps to carry out the task. So, you should not include information that is not relevant to the task. You can also include information that is already present in its memory if you think it might be useful in the future.
+* Reason: The reasoning for what each robot is supposed to do next
+* suggestion: The actions the robots are supposed to take just in the next step such that they make progress towards completing the task. Make sure that this suggested actions make these robots more efficient in completing the task as compared only one agent solving the task.
+Your output should just be in the form of a json  as shown below.
+Examples of output:
+You must output a json dictionary with:
+- "failure reason": explanation of why any previous action failed (or "None" if no failure)
+- "memory": important information about the scene that should be remembered for future steps
+- "reason": reasoning for what each robot should do next
+- "suggestion": a description of the next actions each robot should take, formatted as "next, <robot_name and id> should ..., <robot_name and id> should ..."
+
+
+{VERIFY_EXAMPLE}
+
+Example:
+input:
+{{
+  "Task": "Place the mug and the knife into the cabinet",
+  "Number of agents": 3,
+  "Robots' open subtasks": ["put the knife in the cabinet", "close the cabinet"],
+  "Robots' completed subtasks": ["pick up the knife", "pick up the mug", "open the cabinet", "put the mug in the cabinet"],
+  "Objects in environment": ["Knife_1", "Mug_2", "Cabinet_1"],
+  "Alice's observation": ["Knife_1", "Cabinet_1"],
+  "Alice's state": "position: (1, 0.5), facing: north, inventory: [],
+  "Alice's subtask_failure_reasons": [],
+  "Alice's previous failures": [],
+  "Bob's observation": ["Mug_2", "Cabinet_1"],
+  "Bob's state": "position: (1, 0.25), facing: north, inventory: ["Mug_2"]",
+  "Bob's subtask_failure_reasons": ["Attempted NavigateTo<Cabinet_1> but failed"],
+  "Bob's previous failures": ["Alice and Charlie were blocking access to the cabinet"],
+  "Charlie's observation": ["Cabinet_1"],
+  "Charlie's state": "position: (1, 1), facing: north, inventory: []",
+  "Charlie's subtask_failure_reasons": [],
+  "Charlie's previous failures": []
+}}
+image input: (not available in this text-based interface), which shows point of view of Alice, Bob and Charlie.
+output:
+{{
+  "failure reason": "Bob failed to navigate to the cabinet because Alice and Charlie were blocking access to it while Alice was putting in the knife.",
+  "memory": "Alice has put the knife in the cabinet, and Bob has put the mug in the cabinet. The cabinet is now open.",
+  "reason": "Alice should close the cabinet and move away. Charlie should move to another open space to reduce congestion. Bob should wait until the cabinet is accessible.",
+  "suggestion": "next, Alice should move to other place, Bob should stay idle, Charlie should move to other place"
+}}
+
+### Important Notes ###
+- Each robot can only hold **one object** at a time.
+- If a robot opens an object (e.g., drawer), it should close it before leaving.
+- Open objects (e.g., cabinets) can block paths.
+- Avoid redundant or unnecessary actions.
+- Plan actions to avoid robots blocking or colliding with each other.
+- Reflect real world affordances and limitations.
+- Never OpenObject on non-openable surfaces (e.g. tables, countertops).
+- For openable containers (e.g. drawers, fridge, cabinets):
+    - Open first; hand must be empty; close after use.
+    - To place inside: open → pick up object → deposit object.
+- To put object on a receptacle: pick up → navigate → place.
+- To cook: object must be in a receptacle (e.g. pan/pot), on stove, stove turned on.
+- To slice: robot must hold a knife. Do not pick up the object to be sliced.
+- Robots can carry one object at a time—enforce this strictly.
+- Clean objects only when explicitly specified, using correct affordances.
+- DO NOT output anything beyond the specified dictionary format.
+
+Let's work this out step by step to be sure we have the right answer.
+"""
+
 
 
 def convert_dict_to_string(input_dict) -> str:
@@ -788,10 +875,10 @@ def set_env_with_config(config_file: str):
 
 
 def get_llm_response(payload, model = "gpt-4o", temperature= 0.7, max_tokens=1024) -> str:
-    print("using model:", model)
+    # print("using model:", model)
     # print("payload:", payload)
     if model.startswith("gpt-4"):
-        # for models: gpt-4.1-2025-04-14, gpt-4o,
+        # for models: gpt-4.1, gpt-4.1-2025-04-14, gpt-4o,
         response = client.chat.completions.create(model=model, 
                                                     messages=payload, 
                                                     max_tokens=max_tokens, 
@@ -805,23 +892,36 @@ def get_llm_response(payload, model = "gpt-4o", temperature= 0.7, max_tokens=102
                                                     max_completion_tokens=max_tokens,)
     return response, response.choices[0].message.content.strip()
 
-def prepare_payload(system_prompt, user_prompt):
-    print("system_prompt:", system_prompt)
-    print("user_prompt:", user_prompt)
-    payload = [
+def prepare_payload(system_prompt, user_prompt, img_urls=None) -> list:
+    # print("system_prompt:", system_prompt)
+    # print("user_prompt:", user_prompt)
+    if img_urls:
+        # with image input
+        payload = [
                 {
                     "role": "system",
                     "content": system_prompt
                 },
                 {
                     "role": "user",
-                    "content": user_prompt
+                    "content": [{"type": "text", "text": user_prompt}] + img_urls,
                 }
             ]
+    else:
+        payload = [
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": user_prompt
+                    }
+                ]
     
     return payload
 
-def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subtasks=[], info={}) -> str:
+def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subtasks=[], info={}, verify_info={}) -> str:
     """
     mode: str, choose from planner, action
     planner: for decomposing the task into subtasks
@@ -846,18 +946,16 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         if not subtasks:
             print("No subtasks provided")
             return None, None
-        input = env.get_obs_llm_input()
+        input = env.get_obs_llm_input(prev_info=info)
         input["Subtasks"] = subtasks
+        del input["Robots' open subtasks"]
+        del input["Robots' completed subtasks"]
         user_prompt = convert_dict_to_string(input)
 
     elif mode == "allocator":
         # for allocating subtasks to robots
         system_prompt = ALLOCATOR_PROMPT
         input = env.get_obs_llm_input(prev_info=info)
-        # if info:
-        #     input['failure_subtasks'] = info['failure_subtasks']
-        #     input['subtask_failure_reasons'] = info['subtask_failure_reasons']
-        #     input['failed_acts'] = info['failed_acts']
         user_prompt = convert_dict_to_string(input)
 
     elif mode == "replan":
@@ -865,10 +963,20 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         system_prompt = REPLAN_PROMPT
         try:
             input = env.get_obs_llm_input(prev_info=info)
+            del input['Reachable positions']
         except KeyError as e:
             print(f"[Error] Missing key in info for replan: {e}")
             return None, None
         
+        user_prompt = convert_dict_to_string(input)
+        # print("replan prompt:", system_prompt)
+        # print("replan use prompt:", user_prompt)
+    elif mode == "verifier":
+        # for verifying the actions taken by the robots
+        system_prompt = VERIFIER_PROMPT
+        input = env.get_obs_llm_input(prev_info=info)
+        del input['Reachable positions']
+
         user_prompt = convert_dict_to_string(input)
 
     user_prompt += addendum
@@ -988,6 +1096,53 @@ def process_allocator_llm_output(res_content):
             return None
     
 
+def process_verifier_llm_output(res_content):
+    '''
+    Input:
+    {
+    "failure reason": "None",
+    "memory": "Alice is holding ButterKnife_1 and is near both Apple_1 and Bread_1, which are both on the counter in front of her. Bob is far from the action, not holding anything, and can assist with moving and toasting the bread after it is sliced. Toaster_1 is nearby on the left counter.",
+    "reason": "Alice should slice the apple first since she is already holding the ButterKnife and is close to the apple. Bob should begin moving toward the bread to be ready to pick up a bread slice after Alice slices it, enabling efficient hand-off for toasting.",
+    "suggestion": "next, Alice should SliceObject<Apple_1>, Bob should NavigateTo<Bread_1>"
+    }
+    output:
+    failure_reason: str, memory: str, reason: str, suggestion: str
+    '''
+    try:
+        failure_reason = json.loads(res_content)["failure reason"]
+        memory = json.loads(res_content)["memory"]
+        reason = json.loads(res_content)["reason"]
+        suggestion = json.loads(res_content)["suggestion"]
+        return failure_reason, memory, reason, suggestion
+        
+    except json.JSONDecodeError as e:
+        print(f"[Warning] Initial JSON decode failed: {e}")
+        try:
+            if res_content.startswith("```json"):
+                res_content = res_content.removeprefix("```json").strip()
+            elif res_content.startswith("```"):
+                res_content = res_content.removeprefix("```").strip()
+            elif re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL):
+                match = re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL)
+                res_content = match.group(1)
+            if res_content.endswith("```"):
+                res_content = res_content[:-3].strip()
+            res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
+            res_content = res_content.replace("'", '"')
+            res_content = res_content.strip()
+
+            data = json.loads(res_content)
+            failure_reason = data["failure_reason"]
+            memory = data["memory"]
+            reason = data["reason"]
+            suggestion = data["suggestion"]
+            return failure_reason, memory, reason, suggestion
+        except Exception as e2:
+            print(f"[Error] Failed to parse fixed JSON: {e2}")
+            return None
+    
+    
+
 def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
     """
     Run a test case with multiple steps and print results.
@@ -1017,12 +1172,12 @@ def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
 
 def initial_subtask_planning(env, config):
     # ---1. Planner LLM 產生初步 subtasks
-    # planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
-    # planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
-    # res, res_content = get_llm_response(planner_payload, model=config['model'])
-    # print('init plan llm output', res_content)
-    # subtasks = process_planner_llm_output(res_content)
-    # print(f"After Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
+    planner_prompt, planner_user_prompt = prepare_prompt(env, mode="planner")
+    planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
+    res, res_content = get_llm_response(planner_payload, model=config['model'])
+    print('init plan llm output', res_content)
+    subtasks = process_planner_llm_output(res_content)
+    print(f"After Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
     # # ---2. Editor LLM 修正 subtasks
     # editor_prompt, editor_user_prompt = prepare_prompt(env, mode="editor", subtasks=subtasks)
@@ -1034,7 +1189,7 @@ def initial_subtask_planning(env, config):
 
     # for testing
     # subtasks = ['open the fridge', 'pick up the apple and put it in the fridge', 'pick up the lettuce and put it in the fridge', 'pick up the tomato and put it in the fridge', 'close the fridge']
-    subtasks = ['pick up knife', 'slice apple', 'put down knife',  'slice bread', 'pick up one bread slice', 'insert bread slice into toaster', 'activate toaster']
+    # subtasks = ['pick up knife', 'slice apple', 'put down knife',  'slice bread', 'pick up one bread slice', 'insert bread slice into toaster', 'activate toaster']
     return subtasks, []
 
 def allocate_subtasks_to_agents(env, info={}):
@@ -1044,30 +1199,58 @@ def allocate_subtasks_to_agents(env, info={}):
     # print("allocator system prompt: ", allocator_prompt)
     # print("allocator user prompt: ", allocator_user_prompt)
     res, res_content = get_llm_response(allocator_payload, model=config['model'])
-    print('llm allocator output', res_content)
+    # print('llm allocator output', res_content)
     allocation, remain = process_allocator_llm_output(res_content)
-    print('allocation: ', allocation)
+    # print('allocation: ', allocation)
     # for testing
     # allocation =  ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop']
     # remain =  ['pick up the bread and put it on the countertop']
     
     return allocation, remain
 
-def decompose_subtask_to_actions(env, subtasks):
+def decompose_subtask_to_actions(env, subtasks, info={}):
     """將 subtask 拆解成 atomic actions（LLM）"""
-    action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks)
+    action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks, info=info)
     action_payload = prepare_payload(action_prompt, action_user_prompt)
     # print("action prompt:", action_prompt)
     # print("action user prompt:", action_user_prompt)
     res, res_content = get_llm_response(action_payload, model=config['model'])
-    # print('llm output', res_content)
+    print('action llm output', res_content)
     actions = process_actions_llm_output(res_content)
 
     # For testing 
     # actions = [['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']]
     return actions
 
+def encode_image(image_path: str):
+    # if not os.path.exists()
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
+
+
+def verify_actions(env, info):
+    verify_prompt, verify_user_prompt = prepare_prompt(env, mode="verifier", info=info)
+    base64_image = [encode_image(env.get_frame(i)) for i in range(len(AGENT_NAMES))]
+
+    image_urls = [
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}"}}
+        for image in base64_image
+    ]
+    verify_payload = prepare_payload(verify_prompt, verify_user_prompt, img_urls=image_urls)
+    print("verify prompt: ", verify_user_prompt)
+    res, res_content = get_llm_response(verify_payload, model=config['model'])
+    print('verify llm output', res_content)
+    failure_reason, memory, reason, suggestion = process_verifier_llm_output(res_content)
+    verify_res = {
+        "failure reason": failure_reason,
+        "memory": memory,
+        "reason": reason,
+        "suggestion": suggestion
+    }
+    return verify_res
+
 def get_steps_by_actions(env, actions):
+    print("get_steps_by_actions: ", actions)
     steps = env.actions_decomp(actions)
     return steps
 
@@ -1097,15 +1280,15 @@ def verify_subtask_completion(env, info):
             closed_subtasks.append(c)
     return open_subtasks, closed_subtasks
 
-def replan_open_subtasks(env, info, completed_subtasks):
-    replan_prompt, replan_user_prompt = prepare_prompt(env, mode="replan", info=info)
+def replan_open_subtasks(env, info, completed_subtasks, verify_info):
+    replan_prompt, replan_user_prompt = prepare_prompt(env, mode="replan", info=info, verify_info=verify_info)
     # print("replan system prompt: ", replan_prompt)
     # print("replan user prompt: ", replan_user_prompt)
     replan_payload = prepare_payload(replan_prompt, replan_user_prompt)
     res, res_content = get_llm_response(replan_payload, model=config['model'])
-    print('replan llm output', res_content)
+    # print('replan llm output', res_content)
     subtasks = process_planner_llm_output(res_content)
-    print(f"After Re-Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
+    # print(f"After Re-Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
     return subtasks, completed_subtasks
 
@@ -1195,54 +1378,102 @@ def run_main():
     obs = env.reset(test_case_id=config['test_id'])
     # --- initial subtask planning
     open_subtasks, completed_subtasks = initial_subtask_planning(env, config)
-
+    info = {}
     # --- loop start
+    cnt = 0
     start_time = time.time()
+    logs = []
+    filename = env.base_path / "logs_llm.txt"
     while open_subtasks and (time.time() - start_time < timeout):
+        print(f"\n--- Loop {cnt + 1} ---")
+        logs.append(f"\n--- Loop {cnt + 1} ---")
+
         env.update_plan(open_subtasks, completed_subtasks)
-        print("open_subtasks: ", env.open_subtasks)
-        print("closed_subtasks: ", env.closed_subtasks)
+        logs.append(f"----")
+        logs.append(f"open_subtasks: {env.open_subtasks}")
+        logs.append(f'completed_subtasks: {env.closed_subtasks}')
+        # print("open_subtasks: ", env.open_subtasks)
+        # print("closed_subtasks: ", env.closed_subtasks)
 
         # 2. allocate subtasks to each agent
+        logs.append(f"----allocating subtasks to agents----")
         agent_assignments, remain = allocate_subtasks_to_agents(env)
         print("agent_assignments: ", agent_assignments)
+        logs.append(f"agent_assignments: {agent_assignments}")
         # print("remain unassigned subtasks: ", remain)
         
         # # 3. decompose subtask to smaller actions
-        actions = decompose_subtask_to_actions(env, agent_assignments)
-        print("actions: ", actions)
+        logs.append(f"----decomposing subtasks to agents----")
+        if info:
+            actions = decompose_subtask_to_actions(env, agent_assignments, info)
+        else:
+            actions = decompose_subtask_to_actions(env, agent_assignments)
+        # print("actions: ", actions)
+        logs.append(f"actions: {actions}")
         decomp_actions = get_steps_by_actions(env, actions)
         
         # # 4. execution
-        print("decomp_actions: ", decomp_actions)
+        # print("decomp_actions: ", decomp_actions)
+        logs.append(f"decomp_actions: {decomp_actions}")
         cur_plan = bundle_task_plan(agent_assignments, actions, decomp_actions)
-        print("cur_plan: ", cur_plan)
+        # print("cur_plan: ", cur_plan)
+        logs.append(f"cur_plan: {cur_plan}")
+        logs.append(f"----executing subtasks to agents----")
         isSuccess, info = env.stepwise_action_loop(cur_plan)
-        print('info', info)
+        # print('info', info)
+        logs.append(f"info: {info}")
         '''
         {'step': 0, 'actions_success': {'Alice': [], 'Bob': ['Idle']}, 'success_subtasks': ['Idle'], 'failure_subtasks': ['pick up knife'], 'subtask_failure_reasons': {'Alice': [{'subtask': 'pick up knife', 'reason': 'no-path', 'at_action': 'NavigateTo(Knife_1)'}, {'subtask': 'pick up knife', 'reason': 'object-not-in-view', 'at_action': 'NavigateTo(Knife_1)'}], 'Bob': []}, 'inventory': ['nothing', 'nothing'], 'failed_acts': {'Alice': ['NavigateTo(Knife_1)'], 'Bob': []}}
         '''
         # break
-
-        
-
+        logs.append(f"----verifying subtasks to agents----")
         # # 5. verify which subtasks are done 
         open_subtasks, completed_subtasks = verify_subtask_completion(env, info)
         print("after verify open_subtasks: ", open_subtasks)
         print("after verify closed_subtasks: ", completed_subtasks)
+        logs.append(f"after verify open_subtasks: {open_subtasks}")
+        logs.append(f"after verify closed_subtasks: {completed_subtasks}")
         env.update_plan(open_subtasks, completed_subtasks)
         # 6. replan if needed
         if open_subtasks or not isSuccess:
-            open_subtasks, completed_subtasks = replan_open_subtasks(env, info, completed_subtasks)
-            print("replan open_subtasks: ", open_subtasks)
-            print("replan closed_subtasks: ", completed_subtasks)
+            logs.append(f"----replanning subtasks to agents----")
+            verify_res = verify_actions(env, info)
+            # print("verify result: ", verify_res)
+            logs.append(f"verify result: {verify_res}")
+            env.update_memory(verify_res['memory'], suggestion=verify_res['reason'] + " Suggestion to do for next step: " + verify_res['suggestion'])
+            open_subtasks, completed_subtasks = replan_open_subtasks(env, info, completed_subtasks, verify_res)
+            # print("replan open_subtasks: ", open_subtasks)
+            # print("replan closed_subtasks: ", completed_subtasks)
+            logs.append(f"replan open_subtasks: {open_subtasks}")
+            logs.append(f"replan closed_subtasks: {completed_subtasks}")
+            
             start_time = time.time()
+            get_object_dict = env.get_object_dict()
+            logs.append(f"current Object dictionary: {get_object_dict}")
+            # print("current Object dictionary:", get_object_dict)
+            for i in range(len(env.agent_names)):
+                state = env.get_agent_state(i)
+                view = env.get_object_in_view(i)
+                mapping = env.get_mapping_object_pos_in_view(i)
+
+                # print(f"Agent {i} ({env.agent_names[i]}) observation: I see:", mapping) # list of object ids in view
+                # print(f"Agent {i} ({env.agent_names[i]}) state: {state}") # I am at coordinates: (2.00, -1.50), facing west, holding nothing
+                # print(f"Agent {i} ({env.agent_names[i]}) can see object:", view) # list of object ids in view
+                logs.append(f"Agent {i} ({env.agent_names[i]}) observation: I see: {mapping}")
+                logs.append(f"Agent {i} ({env.agent_names[i]}) state: {state}")
+                logs.append(f"Agent {i} ({env.agent_names[i]}) can see object: {view}")
+
             # break
-        else:
-            break
+            with open(filename, "a", encoding="utf-8") as f:
+                for log in logs:
+                    f.write(str(log) + "\n")
+            logs = []
+       
         
+        cnt += 1 
     env.save_log()
-   
+    
+    
     env.close()
 
 if __name__ == "__main__":

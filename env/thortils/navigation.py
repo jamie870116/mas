@@ -516,7 +516,7 @@ def get_shortest_path_to_object(controller, object_id,
     reachable_positions = [
         tuple(map(lambda x: roundany(x, grid_size), pos))
         for pos in thor_reachable_positions(controller)]
-    
+    original_reachable_positions = reachable_positions.copy()
     # if other agent exist, remove the position of other_agent from reachable positions
     if other_agent_position:
         tuplize=lambda p : (p['x'], p['y'], p['z'])
@@ -541,11 +541,11 @@ def get_shortest_path_to_object(controller, object_id,
                     #   continue
                     non_reachable_positions.append(add(p, (deltax*grid_size,deltaz*grid_size)))
         mannual_block_positions = []
-        if mannual_block_pos:
-            # print('mannual_block_pos ', mannual_block_pos)
-            mannual_block_positions = [
-                tuple(map(lambda x: roundany(x, grid_size), tuplize_xz(pos))) for pos in mannual_block_pos
-            ]
+        # if mannual_block_pos:
+        #     # print('mannual_block_pos ', mannual_block_pos)
+        #     mannual_block_positions = [
+        #         tuple(map(lambda x: roundany(x, grid_size), tuplize_xz(pos))) for pos in mannual_block_pos
+        #     ]
 
             # add=lambda p,delta: (p[0]+delta[0],p[1]+delta[1])
             # sweep=[-1,0,1]
@@ -589,6 +589,13 @@ def get_shortest_path_to_object(controller, object_id,
     target_position = thor_object_pose(controller, object_id, as_tuple=True)
     start_pose = (start_position, start_rotation)
     navigation_actions = get_navigation_actions(movement_params)
+    # if object_id.startswith('Bread'):
+    #     print(f'Finding navigation plan from {start_pose} to {object_id} position: {target_position}')
+    #     print(f'with reachable positions: {original_reachable_positions}')
+    #     print(f'non-reachable positions: {non_reachable_positions}')
+    #     print(f'filtered reachable positions: {reachable_positions}')
+    #     print(f'agent_position_formatted: {agent_position_formatted}')
+    #     print(f'other agent position: {other_agent_position}')
 
     params = dict(goal_distance=goal_distance,
                   grid_size=grid_size,
