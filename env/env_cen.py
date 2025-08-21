@@ -2167,7 +2167,7 @@ class AI2ThorEnv_cen(BaseEnv):
         return {
             "Task": self.task,
             "Number of agents": self.num_agents,
-            "Objects": obj_list,
+            "Objects in environment": obj_list,
         }
     
     def get_replan_llm_input(self):
@@ -2178,7 +2178,7 @@ class AI2ThorEnv_cen(BaseEnv):
             "Robots' open subtasks": self.open_subtasks,
             "Robots' completed subtasks": self.closed_subtasks,
             "inventory": self.inventory,
-            "Objects": obj_list,
+            "Objects in environment": obj_list,
         }
     
     def get_center_allocator_llm_input(self):

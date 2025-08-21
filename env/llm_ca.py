@@ -337,61 +337,154 @@ example:
 ** when given input shows "object-not-in-inventory", means that the current agent didn't not pick up any object to perform the next step, you should have the subtask "pick up xxx, and do xxx". xxx depends on what is the subtask.
 
 - Ensure necessary object prerequisites.
+
+Example:
+input:
+{{
+  "Task": "Place the mug and the knife into the cabinet",
+  "Number of agents": 3,
+  "Robots' open subtasks": ["put the knife in the cabinet", "close the cabinet"],
+  "Robots' completed subtasks": ["pick up the knife", "pick up the mug", "open the cabinet", "put the mug in the cabinet"],
+  "Objects in environment": ["Knife_1", "Mug_2", "Cabinet_1"],
+  "Alice's observation": ["Knife_1", "Cabinet_1"],
+  "Alice's state": "position: (1, 0.5), facing: north, inventory: [],
+  "Alice's subtask_failure_reasons": [],
+  "Alice's previous failures": [],
+  "Bob's observation": ["Mug_2", "Cabinet_1"],
+  "Bob's state": "position: (1, 0.25), facing: north, inventory: ["Mug_2"]",
+  "Bob's subtask_failure_reasons": ["Attempted NavigateTo<Cabinet_1> but failed"],
+  "Bob's previous failures": ["Alice and Charlie were blocking access to the cabinet"],
+  "Charlie's observation": ["Cabinet_1"],
+  "Charlie's state": "position: (1, 1), facing: north, inventory: []",
+  "Charlie's subtask_failure_reasons": [],
+  "Charlie's previous failures": []
+}}
+image input: (not available in this text-based interface), which shows point of view of Alice, Bob and Charlie.
+output:
+{{
+  "failure reason": "Bob failed to navigate to the cabinet because Alice and Charlie were blocking access to it while Alice was putting in the knife.",
+  "memory": "Alice has put the knife in the cabinet, and Bob has put the mug in the cabinet. The cabinet is now open.",
+  "reason": "Alice should close the cabinet and move away. Charlie should move to another open space to reduce congestion. Bob should wait until the cabinet is accessible.",
+  "suggestion": "next, Alice should move to other place, Bob should stay idle, Charlie should move to other place"
+}}
+
 """
 
-ai2thor_actions = {
-    "move": [
-        "MoveAhead",
-        "MoveBack",
-        "MoveRight",
-        "MoveLeft"
-    ],
-    "rotate": [
-        "RotateRight",
-        "RotateLeft"
-    ],
-    "look": [
-        "LookUp",
-        "LookDown"
-    ],
-    "idle": [
-        "Idle"
-    ],
-    "interact_with_object": [
-        "NavigateTo<object_name>",
-        "PickupObject<object_name>",
-        "PutObject<receptacle_name>",
-        "OpenObject<object_name>",
-        "CloseObject<object_name>",
-        "ToggleObjectOn<object_name>",
-        "ToggleObjectOff<object_name>",
-        "BreakObject<object_name>",
-        "CookObject<object_name>",
-        "SliceObject<object_name>",
-        "DirtyObject<object_name>",
-        "CleanObject<object_name>",
-        "FillObjectWithLiquname<object_name>",
-        "EmptyLiquidFromObject<object_name>",
-        "UseUpObject<object_name>"
-    ],
-    "interact_without_navigation": [
-        "DropHandObject",
-        "ThrowObject"
-    ]
-}
+ACTION_EXAMPLES = f"""
 
-PLANNER_PROMPT = f"""
-You are a capable planner and robot controller overseeing {len(AGENT_NAMES)} embodied robots, {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}, as they complete a specified task.
+Example 1: Given Assignement subtask:
+[
+"navigate to the vase, pick up the vase, navigate to the table, and put it on the table",
+"wait in the current position.",
+]
+Output:
+{{
+  "Actions": [
+    ["NavigateTo(Vase_1)", "PickupObject(Vase_1)", "NavigateTo(Table_1)", "PutObject(Table_1)"],
+    ["Idle"],
+  ]
+}}
 
-Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
+Example 2: Given Assignement:
+[
+"navigate to the fridge and open the fridge, without picking up any objects, before putting anything inside",
+"navigate to the lettece, pick up the lettuce, and wait until the firde is openned",
+]
+Output:
+{{
+  "Actions": [
+    ["NavigateTo(Fridge_1)", "OpenObject(Fridge_1)"],
+    ["Idle"],
+    ["NavigateTo(Lettece_1)", "PickupObject(Lettece_1)"]
+  ]
+}}
 
+Example 3: Given Assignement:
+[
+'navigate to the laptop, open the laptop, turn on the laptop',
+'rotates right to scan the main room for the Television'
+]
+Output:
+{{
+  "Actions": [
+    ["NavigateTo(Laptop_1)", "ToggleObjectOn(Laptop_1)"],
+    ["RotateRight"],
+  ]
+}}
+
+"""
+
+AI2THOR_ACTIONS = f"""
 **Available Actions:**
+A robot can perform the following actions:
 - move: [MoveAhead, MoveBack, MoveRight, MoveLeft]
 - rotate: [RotateRight, RotateLeft]
 - look: [LookUp, LookDown]
 - idle: [Idle]
 - interact_with_object: [NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>, OpenObject<object_name>, CloseObject<object_name>, ToggleObjectOn<object_name>, ToggleObjectOff<object_name>, BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>, DirtyObject<object_name>, CleanObject<object_name>, FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>, UseUpObject<object_name>]
 - interact_without_navigation: [DropHandObject, ThrowObject]
+"""
+
+OUTPUT_FORMAT_PLAN = """
+**Output Format (JSON):**
+Return only a valid JSON object with this structure. 
+Do not include explanations, comments, or markdown formatting.
+{
+    "Subtasks": [
+    "subtask 1",
+    "subtask 2",
+    ...
+    ]
+}
+"""
+
+BASE_INPUT_FORMAT = """You will receive a JSON object with these fields:"""
+
+TASK_INPUT_FORMAT = """
+- "Task":  (string) A high-level description of the final goal.
+- "Number of agents": (integer) Number of robots.
+- "Objects in environment": List of objects currently available in the environment.
+"""
+
+SUBTASK_INPUT_FORMAT = """- "Subtasks": List of subtasks provided by another agent.
+"""
+
+ASSINMENG_INPUT_FORMAT = """- "Assignment": a list of subtasks, each corresponding to the action that an agent should perform in the upcoming step.
+"""
+
+REACABLE_POSITION_INPUT_FORMAT = """- "Reachable positions" (list of (x, z)) reachable positions in the environment.
+"""
+
+ROBOTS_SUBTASKS_INPUT_FORMAT = """- "Robots' open subtasks": (list of strings) list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
+- "Robots' completed subtasks": (list of strings) list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+"""
+
+AGENT_INPUT_FORMAT = """- "Agent's observation" (list):  list of objects and its postion the agent is observing.
+- "Agent's state": Agent's position, facing, and inventory.
+"""
+
+MEMORY_HISTORY_INPUT_FORMAT = """- "Robots' memory": string of important information about the scene and action history that should be remembered for future steps,
+- "suggestion": a string of reasoning for what each robot should do next and a description of the next actions each robot should take,
+"""
+
+FAILURES_INPUT_FORMAT = """- "Agent's subtask_failure_reasons": Previous step performance/failures, if any,
+- "Agent's previous failures": Previous action failures, if any,
+"""
+
+PLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT
+EDITOR_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + SUBTASK_INPUT_FORMAT
+ALLOCATOR_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + REACABLE_POSITION_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT + FAILURES_INPUT_FORMAT
+ACTION_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + REACABLE_POSITION_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT + ASSINMENG_INPUT_FORMAT
+VERIFIER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT
+REPLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT
+
+
+PLANNER_PROMPT = f"""
+You are a capable planner and robot controller overseeing {len(AGENT_NAMES)} embodied robots, {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}, as they complete a specified task.
+Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
+
+{AI2THOR_ACTIONS}
+
 
 **Workflow:**
 - You will be provided with a high-level description of the task, the number of agents, and the list of objects present in the environment.
@@ -401,20 +494,9 @@ Begin with a concise checklist (3-7 bullets) of what you will do; keep items con
 {EXAMPLE_PLAN}
 
 **Input Format (JSON):**
-{{
-"Task": "A high-level description of the final goal",
-"Number of agents": <number of robots>,
-"Objects": [list of objects in the environment]
-}}
+{PLANNER_INPUT_FORMAT}
 
-**Output Format (JSON):**
-{{
-"Subtasks": [
-"subtask 1",
-"subtask 2",
-...
-]
-}}
+{OUTPUT_FORMAT_PLAN}
 
 **Guidelines:**
 - Subtasks must be independent unless a specific order is required; sequence-dependent actions must be merged into a single subtask.
@@ -436,7 +518,6 @@ Begin with a concise checklist (3-7 bullets) of what you will do; keep items con
 - Output only the subtasks JSON as specified, with no extra explanations or formatting.
 
 Proceed systematically to ensure the answer is correct.
-
 """
 
 EDITOR_PROMPT = f"""
@@ -444,10 +525,6 @@ You are an expert task planner and editor responsible for coordinating {len(AGEN
 
 Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
 
-You will receive:
-- A high-level task description
-- A list of subtasks generated by another agent
-- A list of objects currently present in the environment
 
 Your objective is to review and correct the sequence of subtasks to ensure all actions contribute precisely to achieving the given goal.
 
@@ -459,18 +536,9 @@ Your objective is to review and correct the sequence of subtasks to ensure all a
 5. Do not specified which exact objects, use only the object names. (e.g. apple, not Apple_1)
 
 ## Input Format
-{{
-  Task: Description of the overall goal for the robots,
-  Number of agents: Number of robots,
-  Subtasks: List of subtasks provided by another agent,
-  Objects: List of objects currently available in the environment
-}}
+{EDITOR_INPUT_FORMAT}
 
-## Output Format
-Return only the corrected subtasks in this exact JSON structure:
-{{
-  "Subtasks": [subtask 1, subtask 2, ..., subtask n]
-}}
+{OUTPUT_FORMAT_PLAN}
 
 ## Guidelines
 - Subtasks should be independent unless a specific sequence is required; sequence-dependent operations should be grouped into one subtask.
@@ -508,19 +576,7 @@ Begin with a concise checklist (3-7 bullets) of what you will do; keep items con
 - After allocation, return a list of unassigned subtasks: any remaining open subtasks that are either blocked or unallocated but executable.
 
 ## Input Format
-You will receive a JSON object with these required fields:
-- "Task" (string): Main task description.
-- "Number of agents" (integer).
-- "Robots' open subtasks" (list of strings, can be None or empty if not planned).
-- "Robots' completed subtasks" (list of strings, can be None or empty if not started).
-- "Reachable positions" (list).
-- "Agent's observation" (list): Observed objects and their positions.
-- "Agent's state" (dict): Agent's position, facing, and inventory.
-Optional fields:
-- "Agent's subtask_failure_reasons" (string/list): Previous step performance/failures.
-- "Agent's previous failures" (string/list): Previous action failures, if any.
-- Robots' memory: [list of important information about the scene that should be remembered for future steps],
-- suggestion: [list of reasoning for what each robot should do next and a description of the next actions each robot should take],
+{ALLOCATOR_INPUT_FORMAT}
 
 ## Output Format
 Produce a JSON object with this structure:
@@ -548,44 +604,29 @@ Produce a JSON object with this structure:
 
 ACTION_PROMPT = f"""
 # Role and Objective
-- Manage {len(AGENT_NAMES)} embodied robots by generating executable action plans to fulfill assigned subtasks. Convert each subtask into an explicit, sequential action list for the agent, based on current state and environmental details.
+- Manage {len(AGENT_NAMES)} embodied robots by generating executable action plans to fulfill assigned subtasks. Convert each Assignment subtask into an explicit, sequential action list for the agent, based on current state and environmental details.
 
 # Checklist
 - Begin each output with a concise checklist (3-7 bullets) summarizing the planned process before generating the output (e.g., extract subtasks, check object presence, plan concrete actions, verify conditions, format result).
 
 # Planning and Execution
-- For each subtask provided (one per agent), generate an ordered list of executable atomic actions using only the defined action set and schemas.
+- For each "Assignment" subtask provided (one per agent), generate an ordered list of executable atomic actions using only the defined action set and schemas.
 - Treat each subtask independently, without inferring new subtasks, changing intent, or considering inter-agent dependencies unless explicitly described in the input.
 - Respect the affordances of objects, preconditions of actions, and environmental constraints in translating subtasks into actions.
 - Assign ["Idle"] only if the subtask is "Idle".
 - Generate a list of action plans (lists), one per agent, in the same order as the input subtasks.
 
-## Action Set
-- **Movement**: [MoveAhead, MoveBack, MoveRight, MoveLeft]
-- **Rotation**: [RotateRight, RotateLeft]
-- **Look**: [LookUp, LookDown]
-- **Idle**: [Idle]
-- **Object Interaction**:
-  - With navigation: [PickupObject<object_name>, PutObject<receptacle_name>, OpenObject<object_name>, CloseObject<object_name>, ToggleObjectOn<object_name>, ToggleObjectOff<object_name>, BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>, DirtyObject<object_name>, CleanObject<object_name>, FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>, UseUpObject<object_name>]
-  - Without navigation: [DropHandObject, ThrowObject]
+{AI2THOR_ACTIONS}
 
 # Context
 - Robot names: {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}
 - Inputs include: task description, agent states/observations, open and completed subtasks, reachable positions, all objects in the environment, failed diagnostics (if any), and subtasks to be executed.
 
 # Input Format
-Provide inputs as a JSON object containing:
-- Task (string)
-- Number of agents (int)
-- Reachable positions (list[string])
-- Objects in environment (list[string]), use only the object list in this list
-- Agent's observations (list[object/position])
-- Agent's state (location, facing, inventory)
-- Subtasks (list of subtasks to execute)
-- (optional): agent subtask_failure_reasons, previous failures
+{ACTION_INPUT_FORMAT}
 
 # Planning and Validation
-- Internally, reason step by step to extract and analyze each subtask, confirm presence of referenced objects, consider the distance and position of agent and object, map actions using current environment and agent state, and validate required action conditions for each agent.
+- Internally, reason step by step to extract and analyze each Assignment, confirm presence of referenced objects, consider the distance and position of agent and object, map actions using current environment and agent state, and validate required action conditions for each agent.
 - After generating action plans, validate that each generated plan satisfies the requirements (object existence, feasible actions based on agent state/inventory, and completeness of required fields). If validation fails for a subtask, output as specified in Output Format.
 
 # Guidelines
@@ -603,15 +644,7 @@ The output must be a single JSON object, with no extra explanation:
 - Value: a list of lists. Each inner list contains the atomic actions for a subtask, matching the order of input subtasks.
 
 **Example:**
-Given subtasks: ["pick up apple", "Idle", "slice bread"]
-
-{{
-  "Actions": [
-    ["NavigateTo(Apple_1)", "PickupObject(Apple_1)"],
-    ["Idle"],
-    ["NavigateTo(Bread_1)", "SliceObject(Bread_1)"]
-  ]
-}}
+{ACTION_EXAMPLES}
 
 ** The output must be a valid JSON object with no extra explanation.
 ** Do not include failure codes, error objects, or explanations. Encode error states strictly as empty lists at the corresponding subtask index.
@@ -624,20 +657,8 @@ REPLAN_PROMPT = f"""
 You are a capable planner and multi-robot controller assigned to help {len(AGENT_NAMES)} embodied robots named {', '.join(AGENT_NAMES[:-1]) + f', and {AGENT_NAMES[-1]}'} accomplish a specific goal.
 Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
 
-## Available Actions
-- Movement: MoveAhead, MoveBack, MoveRight, MoveLeft
-- Rotation: RotateRight, RotateLeft
-- Camera: LookUp, LookDown
-- Idle: Idle
-- Object Interaction (with navigation):
-- NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>
-- OpenObject<object_name>, CloseObject<object_name>
-- ToggleObjectOn<object_name>, ToggleObjectOff<object_name>
-- BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>
-- DirtyObject<object_name>, CleanObject<object_name>
-- FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>
-- UseUpObject<object_name>
-- Object Interaction (without navigation): DropHandObject, ThrowObject
+{AI2THOR_ACTIONS}
+
 
 ## TASK
 
@@ -656,27 +677,10 @@ After reasoning, return only the updated `"Subtasks"` list in JSON format. Do **
 
 
 ### INPUT FORMAT
-{{
-Task: description of task,
-Number of agents: int,
-Robots' open subtasks: [list of pending subtasks or None],
-Robots' completed subtasks: [list of completed subtasks or None],
-Reachable positions: [list],
-Objects in environment: [list],
-agent name's observation: [list of perceived objects/positions],
-agent name's state: position, facing, inventory,
-agent name's subtask_failure_reasons: [recent actions, success/failure with explanations],
-agent name's previous failures: [recent failure details],
-Robots' memory: [list of important information about the scene that should be remembered for future steps],
-suggestion: [list of reasoning for what each robot should do next and a description of the next actions each robot should take],
+{REPLANNER_INPUT_FORMAT}
 
-}}
 
-### OUTPUT FORMAT
-Return only the following JSON:
-{{
-"Subtasks": ["subtask 1", "subtask 2", ..., "subtask n"]
-}}
+{OUTPUT_FORMAT_PLAN}
 
 
 {EXAMPLE_PLAN}
@@ -706,27 +710,12 @@ Return only the following JSON:
 
 """
 
-
-
 # identify the failure reason for the last action and suggest what to do next.
 VERIFIER_PROMPT = f"""
-ou are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
+You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
 
 
-They can perform the following actions:
-- Movement: MoveAhead, MoveBack, MoveRight, MoveLeft
-- Rotation: RotateRight, RotateLeft
-- Camera: LookUp, LookDown
-- Idle: Idle
-- Object Interaction (with navigation):
-- NavigateTo<object_name>, PickupObject<object_name>, PutObject<receptacle_name>
-- OpenObject<object_name>, CloseObject<object_name>
-- ToggleObjectOn<object_name>, ToggleObjectOff<object_name>
-- BreakObject<object_name>, CookObject<object_name>, SliceObject<object_name>
-- DirtyObject<object_name>, CleanObject<object_name>
-- FillObjectWithLiquid<object_name>, EmptyLiquidFromObject<object_name>
-- UseUpObject<object_name>
-- Object Interaction (without navigation): DropHandObject, ThrowObject
+{AI2THOR_ACTIONS}
 
 You need to verfify the previous failure and suggest the **next single action** that each robot should take in the current timestep.
 
@@ -738,18 +727,7 @@ So, along with the image inputs you will get the following information:
 - Observations, failure descriptions, and subtask progress
 
 ### INPUT FORMAT ###
-{{Task: description of task,
-Number of agents: int,
-Robots' open subtasks: [list of pending subtasks or None],
-Robots' completed subtasks: [list of completed subtasks or None],
-Robots' memory: [list of important information about the scene that should be remembered for future steps],
-suggestion: [Explanation of the rationale behind each robot's prior assignment and the actions performed.],
-Objects in environment: [list],
-agent name's observation: [list of perceived objects/positions],
-agent name's state: position, facing, inventory,
-agent name's subtask_failure_reasons: [recent actions, success/failure with explanations] (if any),
-agent name's previous failures: [recent failure details] (if any),
-}}
+{VERIFIER_INPUT_FORMAT}
 
 
 ### OUTPUT FORMAT ###
@@ -770,35 +748,7 @@ You must output a json dictionary with:
 
 {VERIFY_EXAMPLE}
 
-Example:
-input:
-{{
-  "Task": "Place the mug and the knife into the cabinet",
-  "Number of agents": 3,
-  "Robots' open subtasks": ["put the knife in the cabinet", "close the cabinet"],
-  "Robots' completed subtasks": ["pick up the knife", "pick up the mug", "open the cabinet", "put the mug in the cabinet"],
-  "Objects in environment": ["Knife_1", "Mug_2", "Cabinet_1"],
-  "Alice's observation": ["Knife_1", "Cabinet_1"],
-  "Alice's state": "position: (1, 0.5), facing: north, inventory: [],
-  "Alice's subtask_failure_reasons": [],
-  "Alice's previous failures": [],
-  "Bob's observation": ["Mug_2", "Cabinet_1"],
-  "Bob's state": "position: (1, 0.25), facing: north, inventory: ["Mug_2"]",
-  "Bob's subtask_failure_reasons": ["Attempted NavigateTo<Cabinet_1> but failed"],
-  "Bob's previous failures": ["Alice and Charlie were blocking access to the cabinet"],
-  "Charlie's observation": ["Cabinet_1"],
-  "Charlie's state": "position: (1, 1), facing: north, inventory: []",
-  "Charlie's subtask_failure_reasons": [],
-  "Charlie's previous failures": []
-}}
-image input: (not available in this text-based interface), which shows point of view of Alice, Bob and Charlie.
-output:
-{{
-  "failure reason": "Bob failed to navigate to the cabinet because Alice and Charlie were blocking access to it while Alice was putting in the knife.",
-  "memory": "Alice has put the knife in the cabinet, and Bob has put the mug in the cabinet. The cabinet is now open.",
-  "reason": "Alice should close the cabinet and move away. Charlie should move to another open space to reduce congestion. Bob should wait until the cabinet is accessible.",
-  "suggestion": "next, Alice should move to other place, Bob should stay idle, Charlie should move to other place"
-}}
+
 
 ### Important Notes ###
 - Each robot can only hold **one object** at a time.
@@ -821,6 +771,7 @@ output:
 
 Let's work this out step by step to be sure we have the right answer.
 """
+
 
 
 
