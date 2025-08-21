@@ -60,7 +60,7 @@ class BaseEnv:
             # kitchen
             "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon",
             # living room
-            "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox",
+            "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox","LightSwitch","DeskLamp"
             # bedroom
             "CD", "CellPhone", "Pencil", "Pen", "Watch", "AlarmClock", "CreditCard","TeddyBear"
             # Bathroom
@@ -2204,7 +2204,6 @@ class AI2ThorEnv_cen(BaseEnv):
 
     def get_obs_llm_input(self, prev_info={}) -> Dict[str, Any]:
         """
-        回傳「當前時間步」可直接給 LLM 使用的一份觀測輸入快照。
         info:
         {
             "step": self.action_step_num,

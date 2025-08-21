@@ -1,5 +1,5 @@
 '''
-Baseline : Centralized LLM + replanning
+Baseline : Centralized LLM + replanning + shared memory(llm based)
 
 TBD:
 - (v) wrap up: reachable positions(only x,z), agent states(current position(x,z), inventory, facing direction),  objects in view(objectId, position) 
@@ -16,11 +16,8 @@ TBD:
    reachable position should filter out the positions of each agent.
 - (v) REPLAN_PROMPT: add more details about the environment, reachable positions, objects in view, etc. And failures in order to make more procise intructions,
 
-- () still need to adjust the prompt, 
-- () reset the agent failure subtasks and reasons after replan
-- () testing
+- () more test 
 
-model: gpt-4.1-2025-04-14, gpt-4o
 
 structure same as llm_c.py but with more information about the environment and positions, failures, etc.:
 1. initial planning (remain the same as previous method: given task, let planner and editor to generate a list of subtasks (this will be the open subtasks)
@@ -29,8 +26,8 @@ structure same as llm_c.py but with more information about the environment and p
 2.2 allocate subtask to robot agents in the environment with llm
 2.3 break down each assigned subtasks with llm into a list of smaller available actions
 2.4 execute one subtask per agents
-2.5 verify if the subtask is completed
-2.6 replan: similar to initial planning : given task and closed subtask, let planner and editor to generate a list of subtasks (this will be the new open subtasks)
+2.5 verify if the subtask is completed and identify the failure reason and collect the history and suggest the next step
+2.6 replan: similar to initial planning : given task and closed subtask
 '''
 
 import json
@@ -709,14 +706,7 @@ Return only the following JSON:
 
 """
 
-'''
-1. Consider the `"reason"` and `"suggestion"` to drive re-planning decisions.
-2. Retain open subtasks that are still valid and feasible.
-3. Replace or revise subtasks that have clearly failed or become infeasible.
-4. Incorporate suggested next steps into subtasks, using `"suggestion"` as guidance.
-5. Decompose high-level goals into specific, atomic subtasks if necessary.
-6. Do not repeat subtasks that are already in the `"completed subtasks"` list.
-'''
+
 
 # identify the failure reason for the last action and suggest what to do next.
 VERIFIER_PROMPT = f"""
@@ -753,7 +743,7 @@ Number of agents: int,
 Robots' open subtasks: [list of pending subtasks or None],
 Robots' completed subtasks: [list of completed subtasks or None],
 Robots' memory: [list of important information about the scene that should be remembered for future steps],
-suggestion: [Explanation of the rationale behind each robot’s prior assignment and the actions performed.],
+suggestion: [Explanation of the rationale behind each robot's prior assignment and the actions performed.],
 Objects in environment: [list],
 agent name's observation: [list of perceived objects/positions],
 agent name's state: position, facing, inventory,
@@ -824,6 +814,7 @@ output:
 - To put object on a receptacle: pick up → navigate → place.
 - To cook: object must be in a receptacle (e.g. pan/pot), on stove, stove turned on.
 - To slice: robot must hold a knife. Do not pick up the object to be sliced.
+- Don't use remote control to turn on or off the television.
 - Robots can carry one object at a time—enforce this strictly.
 - Clean objects only when explicitly specified, using correct affordances.
 - DO NOT output anything beyond the specified dictionary format.
@@ -1095,7 +1086,6 @@ def process_allocator_llm_output(res_content):
             print(f"[Error] Failed to parse fixed JSON: {e2}")
             return None
     
-
 def process_verifier_llm_output(res_content):
     '''
     Input:
@@ -1422,10 +1412,7 @@ def run_main():
         isSuccess, info = env.stepwise_action_loop(cur_plan)
         # print('info', info)
         logs.append(f"info: {info}")
-        '''
-        {'step': 0, 'actions_success': {'Alice': [], 'Bob': ['Idle']}, 'success_subtasks': ['Idle'], 'failure_subtasks': ['pick up knife'], 'subtask_failure_reasons': {'Alice': [{'subtask': 'pick up knife', 'reason': 'no-path', 'at_action': 'NavigateTo(Knife_1)'}, {'subtask': 'pick up knife', 'reason': 'object-not-in-view', 'at_action': 'NavigateTo(Knife_1)'}], 'Bob': []}, 'inventory': ['nothing', 'nothing'], 'failed_acts': {'Alice': ['NavigateTo(Knife_1)'], 'Bob': []}}
-        '''
-        # break
+  
         logs.append(f"----verifying subtasks to agents----")
         # # 5. verify which subtasks are done 
         open_subtasks, completed_subtasks = verify_subtask_completion(env, info)
@@ -1469,7 +1456,6 @@ def run_main():
                     f.write(str(log) + "\n")
             logs = []
        
-        
         cnt += 1 
     env.save_log()
     

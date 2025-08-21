@@ -1,6 +1,6 @@
 {
     "num_agents": 2,
-    "scene": "FloorPlan201",
+    "scene": "FloorPlan1",
     "task": "Turn off all the light in the room, and turn on the Television",
     "timeout": 60,
     "model": "gpt-4.1-2025-04-14",
@@ -15,6 +15,6 @@
     "force_action": false,
     "temperature": 0.7,
     "overhead": true,
-    "test_id" : 2,
+    "test_id" : 6,
     "save_logs" : true
 }
