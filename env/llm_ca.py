@@ -2,20 +2,8 @@
 Baseline : Centralized LLM + replanning + shared memory(llm based)
 
 TBD:
-- (v) wrap up: reachable positions(only x,z), agent states(current position(x,z), inventory, facing direction),  objects in view(objectId, position) 
-- (v) wrap up:
-    failure reasons:
-    types of failures:
-    1. navigation failure: cannot reach the target position (too far, blocked path, occluded)
-    2. interaction failure: cannot interact with the target object (too far, occluded, not visible) 
-    3. task failure: the action is not feasible (e.g. trying to open a non-openable object, or put an object inside a non-receptacle object, etc.)
-    4. object not found: the target object is not in view (not visible, occluded, out of reachable range)
-    5. object not exist: the target object is not in the environment
-    6. other unknown reasons
-- (v) ACTION_PROMPT: add more details about the environment, reachable positions, objects in view, etc.
-   reachable position should filter out the positions of each agent.
-- (v) REPLAN_PROMPT: add more details about the environment, reachable positions, objects in view, etc. And failures in order to make more procise intructions,
-
+- (-) modulize the prompt
+- 
 - () more test 
 
 
@@ -279,7 +267,6 @@ def get_objects_by_floorplan(fpid: str) -> list[str]:
 CURRENT_OBJECT_REFERENCE = get_objects_by_floorplan(config["scene"])
 
 EXAMPLE_PLAN = f"""
-#**EXAMPLES:**
 High-level task: "Put the vase, tissue box, and remote control on the table", with 2 agents:
 
 example output:
@@ -415,7 +402,7 @@ Output:
 """
 
 AI2THOR_ACTIONS = f"""
-**Available Actions:**
+# Available Actions:
 A robot can perform the following actions:
 - move: [MoveAhead, MoveBack, MoveRight, MoveLeft]
 - rotate: [RotateRight, RotateLeft]
@@ -426,7 +413,6 @@ A robot can perform the following actions:
 """
 
 OUTPUT_FORMAT_PLAN = """
-**Output Format (JSON):**
 Return only a valid JSON object with this structure. 
 Do not include explanations, comments, or markdown formatting.
 {
@@ -436,6 +422,25 @@ Do not include explanations, comments, or markdown formatting.
     ...
     ]
 }
+"""
+
+COMMON_GUIDELINES = """- Use only objects listed in the current environment and reflect real-world affordances.
+- Never use OpenObject on non-openable surfaces (e.g., tables, countertops).
+- For openable containers (e.g., fridge, drawer, cabinet):
+  - Open before use; the robot's hand must be empty before opening or closing.
+  - Close after use.
+  - To place an object inside: open → pick up the object → deposit it inside → close.
+- To place on a receptacle: pick up → navigate/approach → place.
+- Cooking: item in a pan/pot → pan/pot on a stove burner → turn on the stove knob (turn off if the task requires).
+- Slicing: the robot must be holding a knife, and do **not** pick up the item being sliced.
+- Each robot can hold only one object at a time. When holding an item, the robot **cannot** perform interactions that require a free hand (e.g., OpenObject, CloseObject, ToggleObjectOn/Off); empty the hand first (put on a surface or drop) before such actions.
+- Clean only when explicitly required, using CleanObject or put it under a running faucet.
+- Avoid unnecessary/redundant actions; minimize steps.
+- Do not assume default receptacles (e.g., CounterTop, Table) unless explicitly mentioned/present.
+- Close any opened object before leaving when appropriate.
+- Avoid agents blocking each other where possible.
+- Unless otherwise specified, assume robots start with empty hands.
+- For electronic items (e.g., television, laptop, phone), toggle power directly on the device; **do not use remote controls** unless explicitly required.
 """
 
 BASE_INPUT_FORMAT = """You will receive a JSON object with these fields:"""
@@ -478,109 +483,103 @@ ACTION_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + REACABLE_POSITION_
 VERIFIER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT
 REPLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT
 
-
 PLANNER_PROMPT = f"""
+# Role and Objective
 You are a capable planner and robot controller overseeing {len(AGENT_NAMES)} embodied robots, {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}, as they complete a specified task.
 Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
 
 {AI2THOR_ACTIONS}
 
-
-**Workflow:**
+# Instructions
 - You will be provided with a high-level description of the task, the number of agents, and the list of objects present in the environment.
 - Decompose the main task into subtasks that the robots can complete, taking into account the robots' abilities and the objects available.
-- Subtasks that must occur in sequence should be combined into a single subtask.
-
-{EXAMPLE_PLAN}
-
-**Input Format (JSON):**
-{PLANNER_INPUT_FORMAT}
-
-{OUTPUT_FORMAT_PLAN}
-
-**Guidelines:**
-- Subtasks must be independent unless a specific order is required; sequence-dependent actions must be merged into a single subtask.
-- Only use objects that are present in the environment.
-- Action plans must reflect real-world object affordances.
-- Do not use OpenObject on surfaces such as tables or countertops.
-- For openable receptacles (e.g. drawer, fridge, cabinet):
-    - The container must be opened before placing any object inside.
-    - The robot's hand must be empty before opening or closing any container.
-    - The container should be closed after use.
-- If placing an object inside an openable container: open it first, then pick up the object, then deposit the object.
-- To put an object on a receptacle: pick up the object, navigate to the receptacle, then place the object.
-- To cook an object, the object should be placed in a receptacle (e.g. pan, pot) and the receptacle should be on a stove burner and turn on stove knob.
-- To slice an object, the robot must hold a knife.
-- Robots can hold only one object at a time; ensure actions adhere to this constraint.
-- Objects can be cleaned using CleanObject or by placing them under a running faucet. Only clean when explicitly required.
-- Avoid unnecessary actions—only perform what is strictly required for the task.
-- Do NOT assume or use default receptacles like CounterTop or Table unless they are mentioned in the task description.
+- Make sure to cover all the subtasks to complete the final goal.
+- Merge steps that must occur in a strict sequence into a **single** subtask.
+{COMMON_GUIDELINES}
 - Output only the subtasks JSON as specified, with no extra explanations or formatting.
 
-Proceed systematically to ensure the answer is correct.
+# Reasoning Steps
+- Internally derive a concise checklist besed on the instruction and the given context.
+- Verify objects exist in the provided environment list.
+- Ensure each subtask is atomic yet sequence-consistent when required.
+
+# Output Format
+{OUTPUT_FORMAT_PLAN}
+
+# Examples
+{EXAMPLE_PLAN}
+
+# Input Context 
+{PLANNER_INPUT_FORMAT}
+
+# Final instructions
+First, think carefully step by step about the **subtask decomposition**, closely adhering to the **Instructions and Available Actions**. Then, **output only the required Subtasks JSON with no extra text**.
 """
 
 EDITOR_PROMPT = f"""
+# Role and Objective
 You are an expert task planner and editor responsible for coordinating {len(AGENT_NAMES)} embodied robots ({', '.join(AGENT_NAMES[:-1]) + f', and {AGENT_NAMES[-1]}'}) as they complete a specified task.
 
-Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
+# Instructions
+- Review and correct the sequence of subtasks to ensure all actions contribute precisely to achieving the given goal.
+{COMMON_GUIDELINES}
 
+## Sub-categories
+- Task Correction Rules:
+  1) If asked to put X in fridge, ensure X is **inside** fridge.
+  2) For openables: **open Y → put X → close Y**.
+  3) Never place on receptacles not in the task.
+  4) Preserve constraints; merge/reorder when logical.
+  5) Use generic names (e.g., apple), **not** instance IDs (Apple_1).
+- Minimality: only essential steps; hands start empty.
 
-Your objective is to review and correct the sequence of subtasks to ensure all actions contribute precisely to achieving the given goal.
+{AI2THOR_ACTIONS}
 
-## Task Correction Rules
-1. If instructed to put X in the fridge, verify that X is explicitly placed inside the fridge.
-2. For any openable container (e.g., fridge, drawer), ensure it is opened prior to placing items inside and closed afterward instructions should appear as: "open Y, put X inside, and close Y."
-3. Never place items on receptacles not identified in the original task.
-4. Preserve robot capabilities (e.g., hand constraints, action limits), but restructure or merge subtasks for logical sequencing if required.
-5. Do not specified which exact objects, use only the object names. (e.g. apple, not Apple_1)
+# Reasoning Steps
+- Internally validate order/dependencies; guard affordances and constraints.
 
-## Input Format
-{EDITOR_INPUT_FORMAT}
-
+# Output Format
 {OUTPUT_FORMAT_PLAN}
 
-## Guidelines
-- Subtasks should be independent unless a specific sequence is required; sequence-dependent operations should be grouped into one subtask.
-- Reference only objects that are actually present in the environment.
-- Plans must realistically account for object affordances.
-- Do not attempt to open surfaces that aren't openable, such as tables or countertops.
-- For openable containers: always open before placing objects, and ensure the robot's hand is empty before opening or closing. Close the container when finished.
-- When placing an object inside an openable container: open the container, pick up the object, then deposit it inside.
-- To place an object on a receptacle: pick up the object, navigate, then place it on the target.
-- For cooking, place the item within a suitable container (e.g., pan, pot), set it on a stove burner, then turn on the stove knob.
-- For slicing tasks, ensure the robot is holding a knife before slicing objects.
-- Each robot can hold only one object at a time—enforce this constraint. At the very beginning, the robot's hand is always empty.
-- Only clean objects when required, using CleanObject or a faucet.
-- Actions should be minimal and strictly task-oriented avoid unnecessary steps.
-- Never assume or use default receptacles (like countertops or tables) unless explicitly mentioned in the task.
-- Output only the subtasks JSON—do not include explanations or extra formatting.
 
+# Examples
+{EXAMPLE_PLAN}
 
-Proceed methodically to guarantee that your output matches the desired task outcome.
+# Input Context 
+{EDITOR_INPUT_FORMAT}
+
+# Final instructions
+First, think carefully step by step about the **plan correction** per the rules, closely adhering to the **Common Guidelines**. Then, **output only the corrected Subtasks JSON with no extra text**.
 """
 
 ALLOCATOR_PROMPT = f"""
+# Role and Objective
 You are an expert task allocator, responsible for assigning tasks to a team of {len(AGENT_NAMES)} embodied robots, with name {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. to efficiently achieve a specified goal.
 
-Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
 
-## Allocation Rules
-- Assign at most one executable subtask to each available agent, maximizing overall task progress.
-- A subtask is only executable if all its prerequisite subtasks are present in the list of completed subtasks. If a subtask is blocked by missing prerequisites, do not assign it.
-- If no executable subtasks are available for an agent, assign "Idle" to that agent.
-- Do not assign the same subtask to multiple agents, unless there are multiple same subtasks in the given list.
-- If there are fewer open subtasks than available agents, assign "Idle" to any surplus agents.
-- Do not assign a subtask if the agent's current inventory makes it infeasible.
-- If there are no open subtasks (if open subtasks is None or empty), assign "Idle" to all agents and leave the unassigned subtasks list empty.
-- After allocation, return a list of unassigned subtasks: any remaining open subtasks that are either blocked or unallocated but executable.
+# Instructions
+- Assign at most one executable subtask to each available agent to maximize overall progress.
+- A subtask is executable only if all its prerequisites are in the completed list; if blocked by missing prerequisites, do not assign it.
+- Do not assign a subtask if the agent’s current inventory/state makes it infeasible.
+- Do not assign the same subtask to multiple agents, unless the list contains multiple identical subtasks.
+- If an agent has no executable subtask (e.g., when open subtasks are fewer than agents), assign “Idle” to that agent.
+- If no open/valid subtasks exist, assign “Idle” to all agents and return "Remain": [].
+- After allocation, set "Remain" to any open subtasks that are blocked or unallocated but executable.
+- Use sequential keys “agent1”, “agent2”, … in input order, and keep subtask strings unaltered.
+- Output only the "Allocation" and "Remain" JSON—no extra text or fields.
 
-## Input Format
+# Guidlines
+{COMMON_GUIDELINES}
+
+
+# Reasoning Steps
+- Internally test executability (prereqs, inventory, object existence).
+
+# Context Input
 {ALLOCATOR_INPUT_FORMAT}
 
 ## Output Format
 Produce a JSON object with this structure:
-
 {{
   "Allocation": {{
     "agent1": "subtask or Idle",
@@ -591,43 +590,30 @@ Produce a JSON object with this structure:
   "Remain": ["unassigned_subtask1", "unassigned_subtask2", ...]
 }}
 
-## Guidelines
-- Use sequential keys: "agent1", "agent2", ..., matching the agent order in input.
-- If no open subtasks are present/valid, set all agents to "Idle" and "Remain": [].
-- Keep all subtask values unaltered from input.
-- Output only the "Allocation" and "Remain" JSON - do not include any explanatory text or extra fields.
 
-
-** Think step-by-step internally, but do not show any intermediate thoughts. Output only the JSON.
-** Respond with nothing but the exact JSON object. Any deviation from the format is considered incorrect.
+# Final instructions
+First, think carefully step by step about **which subtasks are executable now**, closely adhering to the **Allocation Rules**. Then, **return only the Allocation/Remain JSON with no extra text**.
 """
 
 ACTION_PROMPT = f"""
 # Role and Objective
-- Manage {len(AGENT_NAMES)} embodied robots by generating executable action plans to fulfill assigned subtasks. Convert each Assignment subtask into an explicit, sequential action list for the agent, based on current state and environmental details.
+You are an expert multi-robot controller, managing {len(AGENT_NAMES)} embodied robots, {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}, by generating executable action plans to fulfill assigned subtasks. Convert each Assignment subtask into an explicit, sequential action list for the agent, based on current state and environmental details.
 
-# Checklist
-- Begin each output with a concise checklist (3-7 bullets) summarizing the planned process before generating the output (e.g., extract subtasks, check object presence, plan concrete actions, verify conditions, format result).
-
-# Planning and Execution
+# Instructions
+- Treat each assignment independently; do not invent new subtasks.
 - For each "Assignment" subtask provided (one per agent), generate an ordered list of executable atomic actions using only the defined action set and schemas.
 - Treat each subtask independently, without inferring new subtasks, changing intent, or considering inter-agent dependencies unless explicitly described in the input.
 - Respect the affordances of objects, preconditions of actions, and environmental constraints in translating subtasks into actions.
 - Assign ["Idle"] only if the subtask is "Idle".
 - Generate a list of action plans (lists), one per agent, in the same order as the input subtasks.
-
-{AI2THOR_ACTIONS}
-
-# Context
-- Robot names: {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}
-- Inputs include: task description, agent states/observations, open and completed subtasks, reachable positions, all objects in the environment, failed diagnostics (if any), and subtasks to be executed.
-
-# Input Format
-{ACTION_INPUT_FORMAT}
-
-# Planning and Validation
-- Internally, reason step by step to extract and analyze each Assignment, confirm presence of referenced objects, consider the distance and position of agent and object, map actions using current environment and agent state, and validate required action conditions for each agent.
-- After generating action plans, validate that each generated plan satisfies the requirements (object existence, feasible actions based on agent state/inventory, and completeness of required fields). If validation fails for a subtask, output as specified in Output Format.
+- Navigation/Interaction:
+  - Prefer NavigateTo<Object> before interaction unless object is near and in view.
+  - For micro-approach, try Move/Rotate/Look first; then retry NavigateTo.
+  - On "object-not-in-view": try LookDown/LookUp based on likely vertical location.
+  - On "no-plan": move around to clear obstacles then retry.
+- Feasibility:
+  - If missing object/observation/inventory invalid/Subtask None → empty list at that index.
+  - Prefer closest suitable instance if multiple exist.
 
 # Guidelines
 - If a referenced object is missing, inventory is full (when pickup is needed), agent state/observation is missing, or Subtask is None: output an empty list for that subtask (or {{ "Actions": [] }} if Subtasks is None).
@@ -636,6 +622,21 @@ ACTION_PROMPT = f"""
 - If the subtask requires micro-movements to approach an Object_name, use only Movement, Rotation, and Look actions based on position and failure reason—avoid using NavigateTo<Object_name> initially. Try one atomic movement at a time before attempting NavigateTo<Object_name> again.
     - When failure reason is "object-not-in-view", first try  Lookdown  or Lookup action based on the target object's most likely to be. (you can assume the agent always starts looking front. 
     - When failure reason is "no-plan", try moving around first—sometimes an obstacle (e.g., a door) may be blocking the path before re-attempting NavigateTo.
+{COMMON_GUIDELINES}
+
+
+# Context
+- Robot names: {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}
+{AI2THOR_ACTIONS}
+
+# Input Context
+- Inputs include: task description, agent states/observations, open and completed subtasks, reachable positions, all objects in the environment, failed diagnostics (if any), and subtasks to be executed.
+{ACTION_INPUT_FORMAT}
+
+# Reasoning Steps
+- Internally, reason step by step to extract and analyze each Assignment, confirm presence of referenced objects, consider the distance and position of agent and object, map actions using current environment and agent state, and validate required action conditions for each agent.
+- After generating action plans, validate that each generated plan satisfies the requirements (object existence, feasible actions based on agent state/inventory, and completeness of required fields). If validation fails for a subtask, output as specified in Output Format.
+
 
 
 # Output Format
@@ -646,22 +647,14 @@ The output must be a single JSON object, with no extra explanation:
 **Example:**
 {ACTION_EXAMPLES}
 
-** The output must be a valid JSON object with no extra explanation.
-** Do not include failure codes, error objects, or explanations. Encode error states strictly as empty lists at the corresponding subtask index.
-** Output only the specified JSON object. Do not provide explanations or extra responses.
 
-
+# Final instructions
+First, think carefully step by step about **mapping each assignment to atomic actions**, closely adhering to the **Instruction and Global Constraints and Navigation rules**. Then, **output only the Actions JSON with no explanations**.
 """
 
 REPLAN_PROMPT = f"""
+# Role and Objective
 You are a capable planner and multi-robot controller assigned to help {len(AGENT_NAMES)} embodied robots named {', '.join(AGENT_NAMES[:-1]) + f', and {AGENT_NAMES[-1]}'} accomplish a specific goal.
-Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
-
-{AI2THOR_ACTIONS}
-
-
-## TASK
-
 Your goal is to replan a valid and efficient sequence of subtasks based on the current environment state and prior action history. You will be given:
 - The original task description
 - Robots' previous plans (open and completed subtasks)
@@ -670,55 +663,93 @@ Your goal is to replan a valid and efficient sequence of subtasks based on the c
 - Failure causes
 - Reasoning and suggestions for next actions
 
+# Instructions
+- Avoid repeating failed subtasks unless conditions have changed; minimize steps.
+{COMMON_GUIDELINES}
+
+## Sub-categories
+- Plan Update Rules: atomic subtasks; combine strictly sequential steps; only necessary actions.
+
+# Reasoning Steps
+- Internally analyze failures, memory, suggestions, and observations to adjust plan.
 
 
-You should reason step-by-step over the environment, agent memory, failure causes, and suggestions to derive a concise and updated subtask plan.
-After reasoning, return only the updated `"Subtasks"` list in JSON format. Do **not** return any extra explanations or comments.
-
-
-### INPUT FORMAT
-{REPLANNER_INPUT_FORMAT}
-
-
+# Output Format
 {OUTPUT_FORMAT_PLAN}
 
-
+# Examples
 {EXAMPLE_PLAN}
 
+# INPUT Context
+{REPLANNER_INPUT_FORMAT}
+{AI2THOR_ACTIONS}
 
 
-## Key Constraints and Guidelines
-- Subtasks must be atomic and goal-directed; combine sequentially dependent actions into one subtask.
-- Avoid repeating failed subtasks unless the situation has changed.
-- Minimize and streamline plan; do only necessary actions.
-- Robots are coordinated; explicit role allocation is not required.
-- Only use objects present in the current environment list.
-- Reflect real world affordances and limitations.
-- Never OpenObject on non-openable surfaces (e.g. tables, countertops).
-- For openable containers (e.g. drawers, fridge, cabinets):
-    - Open first; hand must be empty; close after use.
-    - To place inside: open → pick up object → deposit object.
-- To put object on a receptacle: pick up → navigate → place.
-- To cook: object must be in a receptacle (e.g. pan/pot), on stove, stove turned on.
-- To slice: robot must hold a knife. Do not pick up the object to be sliced.
-- Robots can carry one object at a time—enforce this strictly.
-- Clean objects only when explicitly specified, using correct affordances.
-- Do not assume or use default receptacles unless specified in the task.
-- Output **only** the required subtasks JSON. No extra explanations, formatting, or commentary.
-
-**Think step by step internally; return only the specified JSON.**
-
+# Final instructions
+First, think carefully step by step about the **shortest valid subtask sequence** given the state, memory and failures, closely adhering to the **Common Guidelines**. Then, **return only the Subtasks JSON**.
 """
+
+# REPLAN_PROMPT = f"""
+# You are a capable planner and multi-robot controller assigned to help {len(AGENT_NAMES)} embodied robots named {', '.join(AGENT_NAMES[:-1]) + f', and {AGENT_NAMES[-1]}'} accomplish a specific goal.
+# Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
+
+# {AI2THOR_ACTIONS}
+
+
+# ## TASK
+
+# Your goal is to replan a valid and efficient sequence of subtasks based on the current environment state and prior action history. You will be given:
+# - The original task description
+# - Robots' previous plans (open and completed subtasks)
+# - Their current observations and states
+# - Objects in environment
+# - Failure causes
+# - Reasoning and suggestions for next actions
+
+
+
+# You should reason step-by-step over the environment, agent memory, failure causes, and suggestions to derive a concise and updated subtask plan.
+# After reasoning, return only the updated `"Subtasks"` list in JSON format. Do **not** return any extra explanations or comments.
+
+
+# ### INPUT FORMAT
+# {REPLANNER_INPUT_FORMAT}
+
+
+# {OUTPUT_FORMAT_PLAN}
+
+
+# {EXAMPLE_PLAN}
+
+
+
+# ## Key Constraints and Guidelines
+# - Subtasks must be atomic and goal-directed; combine sequentially dependent actions into one subtask.
+# - Avoid repeating failed subtasks unless the situation has changed.
+# - Minimize and streamline plan; do only necessary actions.
+# - Robots are coordinated; explicit role allocation is not required.
+# - Only use objects present in the current environment list.
+# - Reflect real world affordances and limitations.
+# - Never OpenObject on non-openable surfaces (e.g. tables, countertops).
+# - For openable containers (e.g. drawers, fridge, cabinets):
+#     - Open first; hand must be empty; close after use.
+#     - To place inside: open → pick up object → deposit object.
+# - To put object on a receptacle: pick up → navigate → place.
+# - To cook: object must be in a receptacle (e.g. pan/pot), on stove, stove turned on.
+# - To slice: robot must hold a knife. Do not pick up the object to be sliced.
+# - Robots can carry one object at a time—enforce this strictly.
+# - Clean objects only when explicitly specified, using correct affordances.
+# - Do not assume or use default receptacles unless specified in the task.
+# - Output **only** the required subtasks JSON. No extra explanations, formatting, or commentary.
+
+# **Think step by step internally; return only the specified JSON.**
+
+# """
 
 # identify the failure reason for the last action and suggest what to do next.
 VERIFIER_PROMPT = f"""
+# Role and Objective
 You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
-
-
-{AI2THOR_ACTIONS}
-
-You need to verfify the previous failure and suggest the **next single action** that each robot should take in the current timestep.
-
 You will get a description of the task robots are supposed to do. You will get an image of the environment from {", ".join([f"{name}'s perspective" for name in AGENT_NAMES[:-1]]) + f", and {AGENT_NAMES[-1]}'s perspective"} as the observation input.
 To help you with detecting objects in the image, you will also get a list objects each agent is able to see in the environment. Here the objects are named as "<object_name>_<object_id>".
 So, along with the image inputs you will get the following information:
@@ -726,51 +757,110 @@ So, along with the image inputs you will get the following information:
 - A list of objects each robot can currently see (formatted as "<object_name>_<object_no>") with positions
 - Observations, failure descriptions, and subtask progress
 
-### INPUT FORMAT ###
-{VERIFIER_INPUT_FORMAT}
+You need to verfify the previous failure and suggest the **next single action** that each robot should take in the current timestep.
 
 
-### OUTPUT FORMAT ###
+# Instructions
+- Use observations, failure descriptions, memory, and progress to infer causes.
+{COMMON_GUIDELINES}
+
+## Sub-categories
+- Environment Hazards: open objects can block paths; avoid mutual blocking/collisions.
+- Electronics: operate directly on the device—do not use remotes unless required.
+
+# Reasoning Steps
+- Internally reason over images/observations/states/failures to isolate the cause and fix.
+
+
+#OUTPUT FORMAT
 First of all you are supposed to reason over the image inputs, the robots' observations, previous actions, previous failures, previous memory, subtasks and the available actions the robots can perform, and think step by step and then output the following things:
 * Failure reason: If any robot's previous action failed, use the previous history and your understanding of causality to think and rationalize about why it failed. Output the reason for failure and how to fix this in the next timestep. If the previous action was successful, output "None".
 Common failure reasons to lookout for include: one agent blocking another so must move out of the way, agent can't see an object and must explore to find, agent is doing the same redundant actions, etc.
 * Memory: Whatever important information about the scene you think you should remember for the future as a memory. Remember that this memory will be used in future steps to carry out the task. So, you should not include information that is not relevant to the task. You can also include information that is already present in its memory if you think it might be useful in the future.
 * Reason: The reasoning for what each robot is supposed to do next
 * suggestion: The actions the robots are supposed to take just in the next step such that they make progress towards completing the task. Make sure that this suggested actions make these robots more efficient in completing the task as compared only one agent solving the task.
-Your output should just be in the form of a json  as shown below.
-Examples of output:
-You must output a json dictionary with:
-- "failure reason": explanation of why any previous action failed (or "None" if no failure)
-- "memory": important information about the scene that should be remembered for future steps
-- "reason": reasoning for what each robot should do next
-- "suggestion": a description of the next actions each robot should take, formatted as "next, <robot_name and id> should ..., <robot_name and id> should ..."
+
+You must output a JSON dictionary with:
+- "failure reason": string or "None"
+- "memory": string
+- "reason": string
+- "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...")
 
 
+# Examples
 {VERIFY_EXAMPLE}
 
+# Context
+{VERIFIER_INPUT_FORMAT}
+{AI2THOR_ACTIONS}
 
 
-### Important Notes ###
-- Each robot can only hold **one object** at a time.
-- If a robot opens an object (e.g., drawer), it should close it before leaving.
-- Open objects (e.g., cabinets) can block paths.
-- Avoid redundant or unnecessary actions.
-- Plan actions to avoid robots blocking or colliding with each other.
-- Reflect real world affordances and limitations.
-- Never OpenObject on non-openable surfaces (e.g. tables, countertops).
-- For openable containers (e.g. drawers, fridge, cabinets):
-    - Open first; hand must be empty; close after use.
-    - To place inside: open → pick up object → deposit object.
-- To put object on a receptacle: pick up → navigate → place.
-- To cook: object must be in a receptacle (e.g. pan/pot), on stove, stove turned on.
-- To slice: robot must hold a knife. Do not pick up the object to be sliced.
-- Don't use remote control to turn on or off the television.
-- Robots can carry one object at a time—enforce this strictly.
-- Clean objects only when explicitly specified, using correct affordances.
-- DO NOT output anything beyond the specified dictionary format.
 
-Let's work this out step by step to be sure we have the right answer.
+# Final instructions
+First, think carefully step by step about the **most likely failure cause and immediate fix**, closely adhering to the **Important Notes and Common Guidelines**. Then, **output only the specified dictionary**.
 """
+
+
+# VERIFIER_PROMPT = f"""
+# You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
+
+
+# {AI2THOR_ACTIONS}
+
+# You need to verfify the previous failure and suggest the **next single action** that each robot should take in the current timestep.
+
+# You will get a description of the task robots are supposed to do. You will get an image of the environment from {", ".join([f"{name}'s perspective" for name in AGENT_NAMES[:-1]]) + f", and {AGENT_NAMES[-1]}'s perspective"} as the observation input.
+# To help you with detecting objects in the image, you will also get a list objects each agent is able to see in the environment. Here the objects are named as "<object_name>_<object_id>".
+# So, along with the image inputs you will get the following information:
+# - A task description
+# - A list of objects each robot can currently see (formatted as "<object_name>_<object_no>") with positions
+# - Observations, failure descriptions, and subtask progress
+
+# ### INPUT FORMAT ###
+# {VERIFIER_INPUT_FORMAT}
+
+
+# ### OUTPUT FORMAT ###
+# First of all you are supposed to reason over the image inputs, the robots' observations, previous actions, previous failures, previous memory, subtasks and the available actions the robots can perform, and think step by step and then output the following things:
+# * Failure reason: If any robot's previous action failed, use the previous history and your understanding of causality to think and rationalize about why it failed. Output the reason for failure and how to fix this in the next timestep. If the previous action was successful, output "None".
+# Common failure reasons to lookout for include: one agent blocking another so must move out of the way, agent can't see an object and must explore to find, agent is doing the same redundant actions, etc.
+# * Memory: Whatever important information about the scene you think you should remember for the future as a memory. Remember that this memory will be used in future steps to carry out the task. So, you should not include information that is not relevant to the task. You can also include information that is already present in its memory if you think it might be useful in the future.
+# * Reason: The reasoning for what each robot is supposed to do next
+# * suggestion: The actions the robots are supposed to take just in the next step such that they make progress towards completing the task. Make sure that this suggested actions make these robots more efficient in completing the task as compared only one agent solving the task.
+# Your output should just be in the form of a json  as shown below.
+# Examples of output:
+# You must output a json dictionary with:
+# - "failure reason": explanation of why any previous action failed (or "None" if no failure)
+# - "memory": important information about the scene that should be remembered for future steps
+# - "reason": reasoning for what each robot should do next
+# - "suggestion": a description of the next actions each robot should take, formatted as "next, <robot_name and id> should ..., <robot_name and id> should ..."
+
+
+# {VERIFY_EXAMPLE}
+
+
+
+# ### Important Notes ###
+# - Each robot can only hold **one object** at a time.
+# - If a robot opens an object (e.g., drawer), it should close it before leaving.
+# - Open objects (e.g., cabinets) can block paths.
+# - Avoid redundant or unnecessary actions.
+# - Plan actions to avoid robots blocking or colliding with each other.
+# - Reflect real world affordances and limitations.
+# - Never OpenObject on non-openable surfaces (e.g. tables, countertops).
+# - For openable containers (e.g. drawers, fridge, cabinets):
+#     - Open first; hand must be empty; close after use.
+#     - To place inside: open → pick up object → deposit object.
+# - To put object on a receptacle: pick up → navigate → place.
+# - To cook: object must be in a receptacle (e.g. pan/pot), on stove, stove turned on.
+# - To slice: robot must hold a knife. Do not pick up the object to be sliced.
+# - Don't use remote control to turn on or off the television.
+# - Robots can carry one object at a time—enforce this strictly.
+# - Clean objects only when explicitly specified, using correct affordances.
+# - DO NOT output anything beyond the specified dictionary format.
+
+# Let's work this out step by step to be sure we have the right answer.
+# """
 
 
 
