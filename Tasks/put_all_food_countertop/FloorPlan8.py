@@ -1,10 +1,10 @@
 """
-Pre-initalization for FloorPlan1 task.
-FloorPlan
-move the egg out of the fridge
+Pre-initalization for FloorPlan5 task.
+FloorPlan8 needs to move the tomato and potato out of the fridge
+
+need to change the position of agent initialization
 
 """
-
 
 class SceneInitializer:
     def __init__(self) -> None:
@@ -20,11 +20,6 @@ class SceneInitializer:
         Returns:
             event: env.event object
         """
-        event=controller.step(
-        action='PlaceObjectAtPoint',
-        objectId='Egg|-02.04|+00.81|+01.24',
-        position={'x': 0.7374373412132263, 'y': 0.9000352835655212, 'z': -2.4200352835655212}
-        )
 
-
+        
         return event

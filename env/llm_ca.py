@@ -14,6 +14,7 @@ structure same as llm_c.py but with more information about the environment and p
 2.4 execute one subtask per agents
 2.5 verify if the subtask is completed and identify the failure reason and collect the history and suggest the next step
 2.6 replan: similar to initial planning : given task and closed subtask
+
 '''
 
 import json
@@ -310,10 +311,11 @@ VERIFY_EXAMPLE = f"""
 # Error and Faulures handling
 - Navigation: "no-path", "object-not-in-view", "distance-too-far": Use micro-movements (MoveAhead, RotateRight, etc.) to get in view/reach, using current/target positions and available observations. For example, you can have subtasks like "look down and navigate to potato" if previous failure reason of "pick up potato" was "object-not-in-view". Or you can have subtask like "use micro-movements to navigate to potato" if previous subtask "navigate to potato" was failured.
 example: 
-** when given input shows "no-path to Tomato_1" for subtask "navigate to tomato", and there do have Tomato_1 in the environment, but as shown in the image, the agent is block by the fridge door, then you can have subtask "Rotate twice in same direction and MoveAhead to bypass the firdge door, then try navigate to Tomato_1 again", this should based on not only the input reachable postion but also other input information.
-** when given input shows "object-not-in-view" for subtask "navigate to tomato", and based on other input information, that the distance between the agent and the tomato is already close enough, then you can have subtask "Lookdown" or "Lookup" to find the tomato.
+** If the input reports "no-path" to <Obj> while <Obj> exists and the images/observations indicate a physical occluder (e.g., an open fridge door between the agent and the target or blocked by other agent), issue a short detour macro before retrying. For example: RotateRight twice, then MoveAhead once, then retry NavigateTo(<Obj>).This decision must use multiple signals—images/2D detections, object states (e.g., isOpen for doors), recent actions, and visible objects—not just the Reachable positions list. Or navigate to somewhere far away to clean the paht.
+** When the input shows "no-path" and a likely cause is another agent blocking the aisle or target approach (same narrow corridor, same target, or the other agent is on the planned route), assign a yield/wait behavior to avoid deadlock: have the blocked agent Idle for 1 or 2 steps or take a small lateral/back step (MoveRight/MoveLeft/MoveBack) to clear space, or temporarily reassign the blocking agent to a different subtask/movement. After the yielding action, retry NavigateTo(<Obj>).
+** when given input shows "object-not-in-view" for subtask "navigate to tomato", and based on other input information, that the distance between the agent and the tomato is already close enough, then you can have subtask "Lookdown" or "Lookup" to find the tomato or "RotateRight" or "RotateLetf".
 ** when when given input shows "object-not-in-view" for subtask "navigate to tomato and pick up tomato", but you can still see a tomato based on the given point of view image, then try directly pick up the tomato without navigation.
-** for any other unknown reason, you can try assigning subtasks to other agents.
+** for any other unknown reason or repeating failures, you can suggest assigning subtasks to other agents.
 
 - Object-related: "object-not-found", "object-not-reachable", "object-not-in-inventory", "object(<OBJ>)-not-picked-up", "object cannot be interacted":
 example:
@@ -388,13 +390,13 @@ Output:
 Example 3: Given Assignement:
 [
 'navigate to the laptop, open the laptop, turn on the laptop',
-'rotates right to scan the main room for the Television'
+'rotates right and move forward to clear the path for other'
 ]
 Output:
 {{
   "Actions": [
     ["NavigateTo(Laptop_1)", "ToggleObjectOn(Laptop_1)"],
-    ["RotateRight"],
+    ["RotateRight", "MoveAhead"],
   ]
 }}
 
@@ -425,6 +427,7 @@ Do not include explanations, comments, or markdown formatting.
 
 COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that mirrors real-world physics and affordances, but with explicit constraints enumerated below.
 - Use only objects listed in the current environment and reflect real-world affordances.
+- Do not search inside containers unless the task explicitly requires it.
 - Never use OpenObject on non-openable surfaces (e.g., tables, countertops).
 - For openable containers (e.g., fridge, drawer, cabinet):
   - Open before use; the robot's hand must be empty before opening or closing.
@@ -453,6 +456,7 @@ TASK_INPUT_FORMAT = """
 - "Task":  (string) A high-level description of the final goal.
 - "Number of agents": (integer) Number of robots.
 - "Objects in environment": List of objects currently available in the environment.
+- "Objects in containers": A dictionary where each key is a container object (e.g., Fridge, Drawer), and its value is a list of objects currently inside that container.
 """
 
 SUBTASK_INPUT_FORMAT = """- "Subtasks": List of subtasks provided by another agent.
@@ -472,20 +476,40 @@ AGENT_INPUT_FORMAT = """- "Agent's observation" (list):  list of objects and its
 - "Agent's state": Agent's position, facing, and inventory.
 """
 
+MEMORY_AGENT_INPUT_FORMAT = """
+For each agent:
+- "name": (string) The agent's name.
+- "Agent's state": Agent's position, facing, and inventory.
+- "Agent's last_action": The most recent action the agent attempted.
+- "Agent's last_action_success": (boolean) Whether the last action succeeded.
+- "Agent's recent_actions": (list) The last N actions the agent attempted.
+- "Agent's recent_success_flags": (list[bool]) Whether those recent actions succeeded.
+- "Agent's subtask_failure_reasons": Previous step performance/failures, if any.
+- "Agent's previous failures": Action-level failures, if any.
+- "Agent's last_check_reason": Latest environment-based failure diagnosis, if any.
+- "Agent's observation": (list) List of visible objects with positions.
+"""
+
 MEMORY_HISTORY_INPUT_FORMAT = """- "Robots' memory": string of important information about the scene and action history that should be remembered for future steps,
 - "suggestion": a string of reasoning for what each robot should do next and a description of the next actions each robot should take,
 """
 
+HISTORY_INPUT_FORMAT = """
+- "subtask_success_history": (dict) Mapping from agent name to list of past successful subtasks.
+- "subtask_failure_reasons": (dict) Mapping from agent name to failure reason payloads.
+"""
+
+
 FAILURES_INPUT_FORMAT = """- "Agent's subtask_failure_reasons": Previous step performance/failures, if any,
 - "Agent's previous failures": Previous action failures, if any,
 """
-
 PLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT
 EDITOR_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + SUBTASK_INPUT_FORMAT
 ALLOCATOR_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + REACABLE_POSITION_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT + FAILURES_INPUT_FORMAT
 ACTION_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + REACABLE_POSITION_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT + ASSINMENG_INPUT_FORMAT
 VERIFIER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT
 REPLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT
+MEMORY_GATE_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + MEMORY_AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT + HISTORY_INPUT_FORMAT
 
 PLANNER_PROMPT = f"""
 # Role and Objective
@@ -564,12 +588,13 @@ You are an expert task allocator, responsible for assigning tasks to a team of {
 # Instructions
 - Assign at most one executable subtask to each available agent to maximize overall progress.
 - A subtask is executable only if all its prerequisites are in the completed list; if blocked by missing prerequisites, do not assign it.
-- Do not assign a subtask if the agent’s current inventory/state makes it infeasible.
+- Do not assign a subtask if the agent's current inventory/state makes it infeasible.
 - Do not assign the same subtask to multiple agents, unless the list contains multiple identical subtasks.
 - If an agent has no executable subtask (e.g., when open subtasks are fewer than agents), assign “Idle” to that agent.
 - If no open/valid subtasks exist, assign “Idle” to all agents and return "Remain": [].
 - After allocation, set "Remain" to any open subtasks that are blocked or unallocated but executable.
 - Use sequential keys “agent1”, “agent2”, … in input order, and keep subtask strings unaltered.
+- Do not change any word of each subtask.
 - Output only the "Allocation" and "Remain" JSON—no extra text or fields.
 
 # Guidlines
@@ -578,6 +603,8 @@ You are an expert task allocator, responsible for assigning tasks to a team of {
 
 # Reasoning Steps
 - Internally test executability (prereqs, inventory, object existence).
+- Object visibility is not a prerequisite—avoid search-related subtasks like “find” or “scan.” Use navigate to object.
+- Consider primarily the open subtasks and the suggestions when deciding which agent should take which subtask.
 
 # Context Input
 {ALLOCATOR_INPUT_FORMAT}
@@ -669,10 +696,13 @@ Your goal is to replan a valid and efficient sequence of subtasks based on the c
 
 # Instructions
 - Avoid repeating success subtasks unless conditions have changed; minimize steps.
-- Object visibility is not a prerequisite—avoid search-related subtasks like “find” or “scan.” Use navigate to object.
+- Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. 
+- By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
 {COMMON_GUIDELINES}
 
 - Plan Update Rules: atomic subtasks; combine strictly sequential steps; only necessary actions.
+- Please retain open subtasks that are not yet completed and are still required to accomplish the task.
+
 
 # Reasoning Steps
 - Internally analyze failures, memory, suggestions, and observations to adjust plan.
@@ -766,7 +796,8 @@ You need to verfify the previous failure and suggest the **next single action** 
 
 # Instructions
 - Use observations, failure descriptions, memory, and progress to infer causes.
-- Object visibility is not a prerequisite—avoid search-related subtasks like “find” or “scan.” Use navigate to object.
+- Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. 
+- By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
 {COMMON_GUIDELINES}
 
 - Environment Hazards: open objects can block paths; avoid mutual blocking/collisions.
@@ -865,7 +896,67 @@ First, think carefully step by step about the **most likely failure cause and im
 # Let's work this out step by step to be sure we have the right answer.
 # """
 
+MEMORY_PROMPT = f"""
+# Role and Objective
+You are a lightweight memory gate for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
+Your sole job is to decide whether the **current memory and recent history** should be **carried into the next planning round**, and if so, to output a concise shared memory string plus compact success/failure highlights. 
+You do **not** plan actions.
 
+You will receive:
+- The task description
+- Open/closed subtasks
+- Per-agent observations/states
+- Recent action history and failure reasons
+- a verifier summary already containing a short narrative memory
+
+# Instructions
+- Judge whether the provided memory/history materially improves **next-step planning**.
+- Prefer including memory when it captures:
+  - Dynamic world changes (objects moved/broken/opened; blocked paths/doorways)
+  - Stable object locations or containment relations critical to the goal
+  - Repeated/navigation-structural failures (e.g., no-path, distance-too-far) that change strategy
+  - Tool/device states (e.g., appliance on/off, door open/closed) that alter reachable space
+  - Cross-agent dependencies (handoffs, role assignments)
+- Exclude noisy/ephemeral facts (one-off view lists, transient distances, obvious successes that don't change strategy).
+- Object visibility is **not** a prerequisite—avoid “find/scan/explore” phrasing; prefer “NavigateTo(<object>)”.
+- Be concise. If memory is carried, keep it to a **short, task-relevant** string.
+
+# Reasoning Steps
+- Internally analyze task, observations, inventories, success/failure patterns, verifier summary, and subtask progress. 
+- Decide if including memory benefits replanning.
+- If yes, produce a compact `common_memory` capturing only strategic, reusable facts (locations, device states, constraints, dependencies).
+- Summarize **recent key failures** and **notable successes** per agent to help the planner avoid repeats.
+
+# OUTPUT FORMAT
+You must output a JSON dictionary with:
+{{
+  "use_in_next_plan": <true|false>,        
+  "why": "<≤50 words reason>",        
+  "common_memory": "<string or empty>",     // concise, shared memory if included; else ""
+  "failure_history": {{                      // compact per-agent failures using natural language
+    "<AgentName>": [""],
+    ...
+  }},
+  "success_history": {{                      // compact per-agent successes using natural language
+    "<AgentName>": [""],
+    ...
+  }}
+}}
+
+# Input Context
+{MEMORY_GATE_INPUT_FORMAT}
+
+# Notes:
+- Available atomic actions: {AI2THOR_ACTIONS}
+- Environment hazards: open objects may block paths; avoid mutual blocking/collisions.
+- Electronics: operate devices directly; avoid remotes unless required.
+- Prefer NavigateTo(<object>) unless navigation is structurally failing (no-path, distance-too-far, obstructed).
+{COMMON_GUIDELINES}
+
+# Final instructions
+First, think carefully step by step about whether carrying memory helps the next plan and what minimal facts are worth persisting. 
+Then, **output only the specified JSON dictionary**.
+"""
 
 
 def convert_dict_to_string(input_dict) -> str:
@@ -1013,168 +1104,102 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         del input['Reachable positions']
 
         user_prompt = convert_dict_to_string(input)
+    elif mode == "memory":
+        system_prompt = MEMORY_PROMPT
+        snap = env.get_memory_snapshot()
 
+        input = {
+            "Task": snap["task"],
+            "Scene": snap["scene"],
+            "Step": snap["step"],
+            "Number of agents": snap["num_agents"],
+            "Robots' open subtasks": snap["open_subtasks"],
+            "Robots' completed subtasks": snap["closed_subtasks"],
+            "Robots' memory": snap.get("shared_memory", "None"),
+            "suggestion": snap.get("suggestion", ""),
+
+            "Agents": [
+                {
+                    "name": a["name"],
+                    "Agent's state": a["state"],
+                    "Agent's last_action": a["last_action"],
+                    "Agent's last_action_success": a["last_action_success"],
+                    "Agent's recent_actions": a["recent_actions"],
+                    "Agent's recent_success_flags": a["recent_success_flags"],
+                    "Agent's subtask_failure_reasons": a["recent_fail_reasons"],
+                    "Agent's previous failures": env.agent_failure_acts.get(a["name"], []),
+                    "Agent's last_check_reason": a["last_check_reason"],
+                    "Agent's observation": a["visible_objects"],
+                }
+                for a in snap["agents"]
+            ],
+
+            "subtask_success_history": snap.get("subtask_success_history", {}),
+            "subtask_failure_reasons": snap.get("subtask_failure_reasons", {}),
+        }
+
+        user_prompt = json.dumps(input, ensure_ascii=False)
     user_prompt += addendum
     return system_prompt, user_prompt
+  
 
-
-def process_planner_llm_output(res_content):
-    try:
-        return json.loads(res_content)["Subtasks"]
-    except json.JSONDecodeError as e:
-        print(f"[Warning] Initial JSON decode failed: {e}")
-
-        try:
-            if res_content.startswith("```json"):
-                res_content = res_content.removeprefix("```json").strip()
-            elif res_content.startswith("```"):
-                res_content = res_content.removeprefix("```").strip()
-            elif re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL):
-                match = re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL)
-                res_content = match.group(1)
-            if res_content.endswith("```"):
-                res_content = res_content[:-3].strip()
-            res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
-            # 單引號換雙引號（簡單處理）
-            res_content = res_content.replace("'", '"')
-            # 移除前後空白
-            res_content = res_content.strip()
-
-            data = json.loads(res_content)
-            return data["Subtasks"]
-        except Exception as e2:
-            print(f"[Error] Failed to parse fixed JSON: {e2}")
-            return None
-
-def process_actions_llm_output(res_content):
-    try:
-        return json.loads(res_content)["Actions"]
-    except json.JSONDecodeError as e:
-        print(f"[Warning] Initial JSON decode failed: {e}")
-
-        try:
-            if res_content.startswith("```json"):
-                res_content = res_content.removeprefix("```json").strip()
-            elif res_content.startswith("```"):
-                res_content = res_content.removeprefix("```").strip()
-            elif re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL):
-                match = re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL)
-                res_content = match.group(1)
-            if res_content.endswith("```"):
-                res_content = res_content[:-3].strip()
-            res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
-            res_content = res_content.replace("'", '"')
-            res_content = res_content.strip()
-
-            data = json.loads(res_content)
-            return data["Actions"]
-        except Exception as e2:
-            print(f"[Error] Failed to parse fixed JSON: {e2}")
-            return None
-
-def process_allocator_llm_output(res_content):
+def process_llm_output(res_content, mode):
     """
-    Input:
-    {
-        "Allocation": {
-            "agent1": "pick up the tomato and put it on the countertop",
-            "agent2": "pick up the lettuce and put it on the countertop"
-        },
-        "Remain": [
-            "pick up the bread and put it on the countertop"
-        ]
-    }
-    Output:
-    allocation: [subtask, subtask]
-    remain: []
+    mode in {"planner","action","allocator","verifier"}
+    return 
+      - planner  -> list[str]
+      - action  -> list[str]
+      - allocator-> (list[str], list[str])    # (allocations_by_agent, remain)
+      - verifier -> (failure_reason, memory, reason, suggestion)
     """
-    try:
-        remain = json.loads(res_content)["Remain"]
-        allocations = json.loads(res_content)["Allocation"]
-        res = []
-        for i in range(NUM_AGENTS):
-            key = 'agent' + str(i+1)
-            if key in allocations:
-                res.append(allocations[key].strip('"\''))
-            else:
-                res.append("Idle")
+    data = _to_json(res_content)
+    if mode == "planner":
+        return _get(data, "Subtasks") or []
+
+    if mode == "action":
+        return _get(data, "Actions") or []
+
+    if mode == "allocator":
+        alloc = _get(data, "Allocation") or {}
+        remain = _get(data, "Remain") or []
+        res = [(alloc.get(f"agent{i+1}", "Idle") or "Idle").strip('"\'' ) for i in range(NUM_AGENTS)]
         return res, remain
-    except json.JSONDecodeError as e:
-        print(f"[Warning] Initial JSON decode failed: {e}")
-        try:
-            if res_content.startswith("```json"):
-                res_content = res_content.removeprefix("```json").strip()
-            elif res_content.startswith("```"):
-                res_content = res_content.removeprefix("```").strip()
-            elif re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL):
-                match = re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL)
-                res_content = match.group(1)
-            if res_content.endswith("```"):
-                res_content = res_content[:-3].strip()
-            res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
-            res_content = res_content.replace("'", '"')
-            res_content = res_content.strip()
 
-            data = json.loads(res_content)
-            remain = data["Remain"]
-            allocations = data["Allocation"]
-            res = []
-            for i in range(NUM_AGENTS):
-                key = 'agent' + str(i+1)
-                if key in allocations:
-                    res.append(allocations[key].strip('"\''))
-                else:
-                    res.append("Idle")
-            return res, remain
-        except Exception as e2:
-            print(f"[Error] Failed to parse fixed JSON: {e2}")
-            return None
-    
-def process_verifier_llm_output(res_content):
-    '''
-    Input:
-    {
-    "failure reason": "None",
-    "memory": "Alice is holding ButterKnife_1 and is near both Apple_1 and Bread_1, which are both on the counter in front of her. Bob is far from the action, not holding anything, and can assist with moving and toasting the bread after it is sliced. Toaster_1 is nearby on the left counter.",
-    "reason": "Alice should slice the apple first since she is already holding the ButterKnife and is close to the apple. Bob should begin moving toward the bread to be ready to pick up a bread slice after Alice slices it, enabling efficient hand-off for toasting.",
-    "suggestion": "next, Alice should SliceObject<Apple_1>, Bob should NavigateTo<Bread_1>"
-    }
-    output:
-    failure_reason: str, memory: str, reason: str, suggestion: str
-    '''
+    if mode == "verifier":
+        return (
+            _get(data, "failure_reason", ["failure reason","Failure Reason","failureReason"]),
+            _get(data, "memory"),
+            _get(data, "reason"),
+            _get(data, "suggestion"),
+        )
+    if mode == "memory":
+        return bool(data["use_in_next_plan"]), data
+    return data
+
+def _get(d: dict, key: str, aliases=None):
+        if key in d: return d[key]
+        if aliases:
+            for a in aliases:
+                if a in d: return d[a]
+        return None
+
+def _to_json(res_content):
     try:
-        failure_reason = json.loads(res_content)["failure reason"]
-        memory = json.loads(res_content)["memory"]
-        reason = json.loads(res_content)["reason"]
-        suggestion = json.loads(res_content)["suggestion"]
-        return failure_reason, memory, reason, suggestion
-        
-    except json.JSONDecodeError as e:
-        print(f"[Warning] Initial JSON decode failed: {e}")
-        try:
-            if res_content.startswith("```json"):
-                res_content = res_content.removeprefix("```json").strip()
-            elif res_content.startswith("```"):
-                res_content = res_content.removeprefix("```").strip()
-            elif re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL):
-                match = re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL)
-                res_content = match.group(1)
-            if res_content.endswith("```"):
-                res_content = res_content[:-3].strip()
-            res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
-            res_content = res_content.replace("'", '"')
-            res_content = res_content.strip()
-
-            data = json.loads(res_content)
-            failure_reason = data["failure_reason"]
-            memory = data["memory"]
-            reason = data["reason"]
-            suggestion = data["suggestion"]
-            return failure_reason, memory, reason, suggestion
-        except Exception as e2:
-            print(f"[Error] Failed to parse fixed JSON: {e2}")
-            return None
-    
+        return json.loads(res_content)
+    except json.JSONDecodeError:
+        if res_content.startswith("```json"):
+            res_content = res_content.removeprefix("```json").strip()
+        elif res_content.startswith("```"):
+            res_content = res_content.removeprefix("```").strip()
+        elif re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL):
+            match = re.search(r"```json\s*(\{.*?\})\s*```", res_content, re.DOTALL)
+            res_content = match.group(1)
+        if res_content.endswith("```"):
+            res_content = res_content[:-3].strip()
+        res_content = re.sub(r",\s*([\]}])", r"\1", res_content)
+        res_content = res_content.replace("'", '"')
+        res_content = res_content.strip()
+        return json.loads(res_content)
 
 def initial_subtask_planning(env, config):
     # ---1. Planner LLM 產生初步 subtasks
@@ -1182,7 +1207,7 @@ def initial_subtask_planning(env, config):
     planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
     res, res_content = get_llm_response(planner_payload, model=config['model'])
     print('init plan llm output', res_content)
-    subtasks = process_planner_llm_output(res_content)
+    subtasks = process_llm_output(res_content, "planner")
     print(f"After Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
     # # ---2. Editor LLM 修正 subtasks
@@ -1206,7 +1231,7 @@ def allocate_subtasks_to_agents(env, info={}):
     # print("allocator user prompt: ", allocator_user_prompt)
     res, res_content = get_llm_response(allocator_payload, model=config['model'])
     # print('llm allocator output', res_content)
-    allocation, remain = process_allocator_llm_output(res_content)
+    allocation, remain = process_llm_output(res_content, "allocator")
     # print('allocation: ', allocation)
     # for testing
     # allocation =  ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop']
@@ -1222,7 +1247,7 @@ def decompose_subtask_to_actions(env, subtasks, info={}):
     # print("action user prompt:", action_user_prompt)
     res, res_content = get_llm_response(action_payload, model=config['model'])
     print('action llm output', res_content)
-    actions = process_actions_llm_output(res_content)
+    actions = process_llm_output(res_content, mode="action")
 
     # For testing 
     # actions = [['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']]
@@ -1246,7 +1271,7 @@ def verify_actions(env, info):
     # print("verify prompt: ", verify_user_prompt)
     res, res_content = get_llm_response(verify_payload, model=config['model'])
     # print('verify llm output', res_content)
-    failure_reason, memory, reason, suggestion = process_verifier_llm_output(res_content)
+    failure_reason, memory, reason, suggestion = process_llm_output(res_content, mode="verifier")
     verify_res = {
         "failure reason": failure_reason,
         "memory": memory,
@@ -1262,18 +1287,6 @@ def get_steps_by_actions(env, actions):
 
 
 def verify_subtask_completion(env, info):
-    '''
-    info:
-        {
-            "step": self.action_step_num,
-            "actions_success": self.subtask_success_history,
-            "success_subtasks": succ,
-            "failure_subtasks": fail,
-            "subtask_failure_reasons": self.subtask_failure_reasons,
-            "inventory": self.inventory.copy(),
-            "failed_acts": self.agent_failure_acts,
-        }
-    '''
     open_subtasks = env.open_subtasks
     closed_subtasks = env.closed_subtasks
     completed_subtasks = info['success_subtasks']
@@ -1286,6 +1299,91 @@ def verify_subtask_completion(env, info):
             closed_subtasks.append(c)
     return open_subtasks, closed_subtasks
 
+import difflib
+
+def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
+    """
+    用寬鬆比對把已完成的 subtasks 從 open_subtasks 中剔除，並加入 closed_subtasks。
+    - 先做正規化（去掉 'Alice:' 這類 agent 前綴、strip）
+    - 再嘗試：精確比對 → 子字串 / 前綴 → 相似度比對（difflib）
+
+    Args:
+        env: 你的環境物件
+        info: dict，至少包含 "success_subtasks"
+        similarity_cutoff: 相似度比對的門檻（0~1），預設 0.62
+
+    Returns:
+        (open_subtasks, closed_subtasks)
+    """
+
+    def _normalize(s: str) -> str:
+        if not isinstance(s, str):
+            return s
+        s = s.strip()
+        if ":" in s:
+            head, tail = s.split(":", 1)
+            if head.strip() in env.agent_names:
+                return tail.strip()
+        return s
+
+    def _best_fuzzy_match(query_norm: str, candidates_norm: list[str]) -> int | None:
+        """
+        回傳最佳匹配的索引（在 candidates_norm 的索引），找不到回傳 None。
+        優先序：
+          1) 完全等於
+          2) startswith / in（子字串）
+          3) difflib 相似度（>= similarity_cutoff）
+        """
+        # 1) 完全等於
+        for i, cand in enumerate(candidates_norm):
+            if query_norm == cand:
+                return i
+
+        # 2) 子字串 / 前綴（雙向嘗試，以覆蓋少字省略或附加狀況）
+        for i, cand in enumerate(candidates_norm):
+            if cand.startswith(query_norm) or query_norm.startswith(cand) or (query_norm in cand) or (cand in query_norm):
+                return i
+
+        # 3) difflib 相似度
+        best_i, best_score = None, -1.0
+        for i, cand in enumerate(candidates_norm):
+            score = difflib.SequenceMatcher(None, query_norm, cand).ratio()
+            if score > best_score:
+                best_i, best_score = i, score
+        if best_score >= similarity_cutoff:
+            return best_i
+
+        return None
+
+    # 取列表副本避免原地修改帶來的索引問題
+    open_subtasks = list(env.open_subtasks or [])
+    closed_subtasks = list(env.closed_subtasks or [])
+    completed_subtasks = list(info.get("success_subtasks", []))
+
+    # 維護一份正規化後的 open_subtasks（同步更新）
+    open_norm = [_normalize(s) for s in open_subtasks]
+
+    for c in completed_subtasks:
+        if c == "Idle":
+            continue
+        c_norm = _normalize(c)
+
+        # 在 open_norm 裡找最佳匹配
+        match_idx = _best_fuzzy_match(c_norm, open_norm)
+
+        if match_idx is not None:
+            removed_original = open_subtasks.pop(match_idx)
+            open_norm.pop(match_idx)
+            closed_subtasks.append(removed_original)
+            if env.verbose:
+                print(f"[verify_subtask_completion] Matched & closed: '{c}'  →  '{removed_original}'")
+        else:
+            if env.verbose:
+                print(f"[verify_subtask_completion] No relaxed match for: '{c}' (norm='{c_norm}') "
+                      f"in open={open_subtasks}")
+
+    return open_subtasks, closed_subtasks
+
 def replan_open_subtasks(env, info, completed_subtasks, verify_info):
     replan_prompt, replan_user_prompt = prepare_prompt(env, mode="replan", info=info, verify_info=verify_info)
     # print("replan system prompt: ", replan_prompt)
@@ -1293,11 +1391,19 @@ def replan_open_subtasks(env, info, completed_subtasks, verify_info):
     replan_payload = prepare_payload(replan_prompt, replan_user_prompt)
     res, res_content = get_llm_response(replan_payload, model=config['model'])
     # print('replan llm output', res_content)
-    subtasks = process_planner_llm_output(res_content)
+    subtasks = process_llm_output(res_content, "planner")
     # print(f"After Re-Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
     return subtasks, completed_subtasks
 
+def memory_gate(env):
+    """決定是否在下一輪規劃把 shared memory 餵給 LLM"""
+    gate_prompt, gate_user_prompt = prepare_prompt(env, mode="memory")
+    gate_payload = prepare_payload(gate_prompt, gate_user_prompt)
+    res, res_content = get_llm_response(gate_payload, model=config['model'])
+
+    should_use, data = process_llm_output(res_content, 'memory')
+    return should_use, data
 
      
 def bundle_task_plan(subtasks, actions, decomp_actions):
@@ -1438,12 +1544,20 @@ def run_main():
         logs.append(f"after verify closed_subtasks: {completed_subtasks}")
         env.update_plan(open_subtasks, completed_subtasks)
         # 6. replan if needed
+
+       
+
         if open_subtasks or not isSuccess:
             logs.append(f"----replanning subtasks to agents----")
             verify_res = verify_actions(env, info)
             print("verify result: ", verify_res)
             logs.append(f"verify result: {verify_res}")
-            env.update_memory(verify_res['memory'], suggestion=verify_res['reason'] + " Suggestion to do for next step: " + verify_res['suggestion'])
+            
+            should_use_memory, memory_res = memory_gate(env)
+            print("[MemoryGate] ", should_use_memory, memory_res)
+            if should_use_memory:
+                env.update_memory(verify_res['memory'], suggestion=verify_res['reason'] + " Suggestion to do for next step: " + verify_res['suggestion'])
+
             open_subtasks, completed_subtasks = replan_open_subtasks(env, info, completed_subtasks, verify_res)
             # print("replan open_subtasks: ", open_subtasks)
             # print("replan closed_subtasks: ", completed_subtasks)

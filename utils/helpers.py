@@ -93,4 +93,4 @@ def save_to_video(file_name: str, fps: int = 10, project_root: str = None):
 
 if __name__ == "__main__":
     # Example usage with relative path
-    save_to_video("logs/put_all_food_on_the_countertop/test_3")
+    save_to_video("logs/put_all_food_on_the_dinig_table/test_8")

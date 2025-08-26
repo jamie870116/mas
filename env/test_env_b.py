@@ -144,8 +144,9 @@ if __name__ == "__main__":
             config = json.load(f)
             task_name = config["task"]
     
-
+    
     obs = env.reset(test_case_id="18")
+    
     # input_llm = env.get_obs_llm_input()
     # print("LLM input:\n", input_llm)
     # reach_pos = env.get_cur_reachable_positions_2d()
@@ -155,6 +156,8 @@ if __name__ == "__main__":
     
     get_object_dict = env.get_object_dict()
     print("Object dictionary:", get_object_dict)
+    contain = env.get_obj_in_containers()
+    print(contain)
     # for i in range(2):
     #     state = env.get_agent_state(i)
     #     view = env.get_object_in_view(i)
@@ -168,17 +171,17 @@ if __name__ == "__main__":
     #     #  ["RotateRight"], ["Idle"]
     #     ['NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'NavigateTo(Bread_1)', 'PickupObject(Bread_1)', 'NavigateTo(Fridge_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'],  ['Idle']
     # ]
-    # high_level_tasks = [
-    #     ['Idle']
-    #     # ["NavigateTo(Bread_1)", "PickupObject(Bread_1)", "NavigateTo(CounterTop_1)", "PutObject(CounterTop_1)"]
-    #     #  ['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)', 'NavigateTo(Lettuce_2)', 'PickupObject(Lettuce_2)', 'NavigateTo(Pan_1)', 'PutObject(Pan_1)', 'PickupObject(Pan_1)', 'NavigateTo(StoveBurner_1)', 'PutObject(StoveBurner_1)','NavigateTo(StoveKnob_1)', 'ToggleObjectOn(StoveKnob_1)','NavigateTo(StoveKnob_1)','ToggleObjectOff(StoveKnob_1)'], ['Idle']
-    # ]
+    high_level_tasks = [
+        ['Idle'],
+        ["Idle"]
+        #  ['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)', 'NavigateTo(Lettuce_2)', 'PickupObject(Lettuce_2)', 'NavigateTo(Pan_1)', 'PutObject(Pan_1)', 'PickupObject(Pan_1)', 'NavigateTo(StoveBurner_1)', 'PutObject(StoveBurner_1)','NavigateTo(StoveKnob_1)', 'ToggleObjectOn(StoveKnob_1)','NavigateTo(StoveKnob_1)','ToggleObjectOff(StoveKnob_1)'], ['Idle']
+    ]
     
     # run_test(
     #     env,
     #     high_level_tasks=high_level_tasks,
-    #     test_name="Test 10",
-    #     test_id=10,
+    #     test_name="Test 18",
+    #     test_id=18,
     #     task_name = task_name,
     # )
     # input_llm = env.get_obs_llm_input()

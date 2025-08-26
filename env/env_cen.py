@@ -277,6 +277,7 @@ class BaseEnv:
         action_dict = {"agentId": agent_id}
         if action in ["Done", "Idle"] + self.move_actions + self.rotate_actions + self.look_actions:
             action_dict["action"] = action
+            action_dict["forceAction"] = True
         elif action.startswith(tuple(self.object_interaction_actions)):
             action_name = action.split("(")[0]
             object_id = action.split("(")[1].rstrip(")")
@@ -286,6 +287,7 @@ class BaseEnv:
                 action_dict["forceAction"] = True
             if action_name == "PickupObject":
                 print('try to pick up ', object_id)
+                action_dict["forceAction"] = True
             # if action_name == "PutObject" and "Fridge" in object_id:
             #     action_dict["forceAction"] = True
         elif action.startswith("DropHandObject"):
@@ -947,7 +949,6 @@ class AI2ThorEnv_cen(BaseEnv):
                         self.current_hl[aid] = None
                         self.action_queue[aid].clear()
                         act_successes[aid] = False
-                        any_terminal_fail = True
 
                         self.last_check_reason[self.agent_names[aid]] = None  # 清空
                         self.nav_no_plan[self.agent_names[aid]] = False
@@ -1221,7 +1222,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 self.logs.append(f"Step {self.step_num[0]}: {obs}")
                 self.logs.append(f"Action success: {succ}")
 
-            # 若有 agent 失敗，立即跳出
+            # # 若有 agent 失敗，立即跳出
             if not all(succ):
                 break
             start_time = time.time()
@@ -1467,15 +1468,15 @@ class AI2ThorEnv_cen(BaseEnv):
     
             dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
             print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
-            if dist > 1.0 and dist < 3.0 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id) and not self.action_queue[agent_id]:
+            if dist > 1.0 and dist < 2.0 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
                 
-            if dist > 1.0:
+            elif dist > 1.0:
                 # error_type += f": distance-too-far ({dist:.2f}m)"
                 if not self.action_queue[agent_id]:
-                    self.last_check_reason[self.agent_names[agent_id]] = f"distance-too-far ({dist:.2f}m)"
+                    self.last_check_reason[self.agent_names[agent_id]] = f"no path to object {obj_id} with distance ({dist:.2f}m), may be block by other agent, should wait for one step"
                 suc = False
                 return suc 
             # elif obj_id in self.get_object_in_view(agent_id):
@@ -1516,7 +1517,7 @@ class AI2ThorEnv_cen(BaseEnv):
                             self.pending_high_level[agent_id].appendleft(act_pitch+"(" + str(p_degree) + ")")
                         # suc = self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot, agent_cam)
                         # print(f'*** is obect {obj} in center view: {suc}')
-                    elif obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id):
+                    elif obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id) and not self.action_queue[agent_id]:
                         suc = True
                         self.current_hl[agent_id] = None
                         self.action_queue[agent_id].clear()
@@ -1540,7 +1541,17 @@ class AI2ThorEnv_cen(BaseEnv):
             
         return suc
     
-
+    def get_obj_in_containers(self):
+        res = {}
+        obj_list = self.get_all_objects()
+        for obj in obj_list:
+            obj_name, obj_id = obj.split("_")
+            if obj_name in self.large_receptacles:
+                recep_status = self.get_object_status(obj)
+                contains = recep_status.get("contains") or []
+                res[obj] = contains
+        return res
+    
     def get_pitch_reset_command(self, cur_deg):
         p_degree = closest_angles(V_ANGLES, abs(cur_deg))
         print(f'Need to change pitch to {p_degree}')
@@ -2186,14 +2197,17 @@ class AI2ThorEnv_cen(BaseEnv):
     # ----own
     def get_center_llm_input(self):
         obj_list = self.get_all_objects()
+        contains_list = self.get_obj_in_containers()
         return {
             "Task": self.task,
             "Number of agents": self.num_agents,
             "Objects in environment": obj_list,
+            "Objects in containers": contains_list,
         }
     
     def get_replan_llm_input(self):
         obj_list = self.get_all_objects()
+        contains_list = self.get_obj_in_containers()
         return {
             "Task": self.task,
             "Number of agents": self.num_agents,
@@ -2201,6 +2215,7 @@ class AI2ThorEnv_cen(BaseEnv):
             "Robots' completed subtasks": self.closed_subtasks,
             "inventory": self.inventory,
             "Objects in environment": obj_list,
+            "Objects in containers": contains_list,
         }
     
     def get_center_allocator_llm_input(self):
@@ -2256,6 +2271,7 @@ class AI2ThorEnv_cen(BaseEnv):
         """
         reachable_2d = self.get_cur_reachable_positions_2d(is_filter=True, mannual_block_pos=self.mannual_block_pos)
         reachable_2d = [(round(x, 2), round(z, 2)) for (x, z) in reachable_2d]
+        contains_list = self.get_obj_in_containers()
         obj_list = self.get_all_objects()
         snap: Dict[str, Any] = {
             "Task": self.task,
@@ -2263,6 +2279,7 @@ class AI2ThorEnv_cen(BaseEnv):
             "Number of agents": self.num_agents,
             "Reachable positions": reachable_2d,
             "Objects in environment": obj_list,  # list of all objects in the scene
+            "Objects in containers": contains_list,
             # "inventory": list(self.inventory),                     # ['nothing', 'Mug_1', ...]
             "Robots' open subtasks": self.open_subtasks,
             "Robots' completed subtasks": self.closed_subtasks,
@@ -2297,7 +2314,47 @@ class AI2ThorEnv_cen(BaseEnv):
 
         return snap
 
-  
+    def get_memory_snapshot(self, recent_steps: int = 20, is_central=True) -> dict:
+   
+        # 每個 agent 的最近紀錄
+        contains_list = self.get_obj_in_containers()
+        obj_list = self.get_all_objects()
+        agents = []
+        for aid, name in enumerate(self.agent_names):
+            acts = self.action_history.get(name, [])
+            succs = self.action_success_history.get(name, [])
+            fails = self.subtask_failure_reasons.get(name, {})
+            # 取尾段
+            recent_actions = acts[-recent_steps:]
+            recent_success = succs[-recent_steps:]
+            agents.append({
+                "name": name,
+                "state": self.get_agent_state(aid),
+                "last_action": acts[-1] if acts else "Idle",
+                "last_action_success": succs[-1] if succs else True,
+                "recent_actions": recent_actions,
+                "recent_success_flags": recent_success,
+                "recent_fail_reasons": fails,  # 你目前存的是單筆 payload，這裡直接放
+                "last_check_reason": self.last_check_reason.get(name),
+                "visible_objects": list(self.get_mapping_object_pos_in_view(aid).keys()),
+            })
+
+        snapshot = {
+            "task": self.task,
+            "scene": self.scene,
+            "step": max(self.step_num) if self.step_num else 0,
+            "num_agents": self.num_agents,
+            "agents": agents,
+            "Objects in environment": obj_list if is_central else [],
+            "Objects in containers": contains_list if is_central else [],
+            "open_subtasks": list(self.open_subtasks or []),
+            "closed_subtasks": list(self.closed_subtasks or []),
+            "shared_memory": self.memory[0] if self.memory else "None",
+            "suggestion": self.suggestion[0] if self.suggestion else "",
+            "subtask_success_history": self.subtask_success_history,
+            "subtask_failure_reasons": self.subtask_failure_reasons,
+        }
+        return snapshot
     
 
     def convert_to_dict_objprop(self, objs, obj_mass, obj_id):
