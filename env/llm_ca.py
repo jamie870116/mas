@@ -3,9 +3,7 @@ Baseline : Centralized LLM + replanning + shared memory(llm based)
 
 TBD:
 - (-) modulize the prompt
-- 
 - () more test 
-
 
 structure same as llm_c.py but with more information about the environment and positions, failures, etc.:
 1. initial planning (remain the same as previous method: given task, let planner and editor to generate a list of subtasks (this will be the open subtasks)
@@ -309,7 +307,7 @@ Example input:
 """
 
 VERIFY_EXAMPLE = f"""
-Possible failure reasons and how to handle them:
+# Error and Faulures handling
 - Navigation: "no-path", "object-not-in-view", "distance-too-far": Use micro-movements (MoveAhead, RotateRight, etc.) to get in view/reach, using current/target positions and available observations. For example, you can have subtasks like "look down and navigate to potato" if previous failure reason of "pick up potato" was "object-not-in-view". Or you can have subtask like "use micro-movements to navigate to potato" if previous subtask "navigate to potato" was failured.
 example: 
 ** when given input shows "no-path to Tomato_1" for subtask "navigate to tomato", and there do have Tomato_1 in the environment, but as shown in the image, the agent is block by the fridge door, then you can have subtask "Rotate twice in same direction and MoveAhead to bypass the firdge door, then try navigate to Tomato_1 again", this should based on not only the input reachable postion but also other input information.
@@ -317,15 +315,16 @@ example:
 ** when when given input shows "object-not-in-view" for subtask "navigate to tomato and pick up tomato", but you can still see a tomato based on the given point of view image, then try directly pick up the tomato without navigation.
 ** for any other unknown reason, you can try assigning subtasks to other agents.
 
-- Object-related: "object-not-found", "object-not-reachable", "object-not-in-inventory", "object(<OBJ>)-not-picked-up":
-
+- Object-related: "object-not-found", "object-not-reachable", "object-not-in-inventory", "object(<OBJ>)-not-picked-up", "object cannot be interacted":
 example:
 ** when given input shows "object-not-found" and based on given object list of environment, that there's no target object, you can skipped the related subtask.
 ** when given input shows "object-not-in-inventory", means that the current agent didn't not pick up any object to perform the next step, you should have the subtask "pick up xxx, and do xxx". xxx depends on what is the subtask.
+** when given input shows "object cannot be interacted", means that the target object maybe  broken/disabled/locked, you should skip the related subtask, or try replan/choose an alternative..
+** when given error shows "NullReferenceException: Target object not found within the specified visibility.", means that the target object may be inside the container and is not visiable to the agent, you should try open the container to find the target object.
 
 - Ensure necessary object prerequisites.
 
-Example:
+# Example:
 input:
 {{
   "Task": "Place the mug and the knife into the cabinet",
@@ -424,7 +423,8 @@ Do not include explanations, comments, or markdown formatting.
 }
 """
 
-COMMON_GUIDELINES = """- Use only objects listed in the current environment and reflect real-world affordances.
+COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that mirrors real-world physics and affordances, but with explicit constraints enumerated below.
+- Use only objects listed in the current environment and reflect real-world affordances.
 - Never use OpenObject on non-openable surfaces (e.g., tables, countertops).
 - For openable containers (e.g., fridge, drawer, cabinet):
   - Open before use; the robot's hand must be empty before opening or closing.
@@ -433,14 +433,18 @@ COMMON_GUIDELINES = """- Use only objects listed in the current environment and 
 - To place on a receptacle: pick up → navigate/approach → place.
 - Cooking: item in a pan/pot → pan/pot on a stove burner → turn on the stove knob (turn off if the task requires).
 - Slicing: the robot must be holding a knife, and do **not** pick up the item being sliced.
+- After Slicing: When an object is sliced, it becomes multiple pieces that keep the same base name but receive new indices/unique IDs. E.g., slicing Apple_1 yields Apple_1, Apple_2, …
+- Toasting (bread): first slice the bread using a butterknife or knife (do not pick up the bread before slicing); then pick up one slice(it should be Bread_1 ~ Bread_9 not BreadSliced), navigate to the toaster, put the slice into the toaster, and turn on the toaster.
 - Each robot can hold only one object at a time. When holding an item, the robot **cannot** perform interactions that require a free hand (e.g., OpenObject, CloseObject, ToggleObjectOn/Off); empty the hand first (put on a surface or drop) before such actions.
 - Clean only when explicitly required, using CleanObject or put it under a running faucet.
 - Avoid unnecessary/redundant actions; minimize steps.
 - Do not assume default receptacles (e.g., CounterTop, Table) unless explicitly mentioned/present.
 - Close any opened object before leaving when appropriate.
 - Avoid agents blocking each other where possible.
+- Object cannot be given to other agent.
 - Unless otherwise specified, assume robots start with empty hands.
 - For electronic items (e.g., television, laptop, phone), toggle power directly on the device; **do not use remote controls** unless explicitly required.
+- **Irreversible actions (non-repeatable per object):** `BreakObject(<object_name>)`, `CookObject(<object_name>)`, and `SliceObject(<object_name>)` are irreversible; each can be performed **at most once** on the same object. If the object is already broken/cooked/sliced, **skip** the related subtask and, if applicable, replan with an alternative instance.
 """
 
 BASE_INPUT_FORMAT = """You will receive a JSON object with these fields:"""
@@ -480,7 +484,7 @@ PLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT
 EDITOR_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + SUBTASK_INPUT_FORMAT
 ALLOCATOR_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + REACABLE_POSITION_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT + FAILURES_INPUT_FORMAT
 ACTION_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + REACABLE_POSITION_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT + ASSINMENG_INPUT_FORMAT
-VERIFIER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT
+VERIFIER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT
 REPLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT
 
 PLANNER_PROMPT = f"""
@@ -658,16 +662,16 @@ You are a capable planner and multi-robot controller assigned to help {len(AGENT
 Your goal is to replan a valid and efficient sequence of subtasks based on the current environment state and prior action history. You will be given:
 - The original task description
 - Robots' previous plans (open and completed subtasks)
-- Their current observations and states
+- Robots' current observations and states
 - Objects in environment
 - Failure causes
 - Reasoning and suggestions for next actions
 
 # Instructions
-- Avoid repeating failed subtasks unless conditions have changed; minimize steps.
+- Avoid repeating success subtasks unless conditions have changed; minimize steps.
+- Object visibility is not a prerequisite—avoid search-related subtasks like “find” or “scan.” Use navigate to object.
 {COMMON_GUIDELINES}
 
-## Sub-categories
 - Plan Update Rules: atomic subtasks; combine strictly sequential steps; only necessary actions.
 
 # Reasoning Steps
@@ -762,24 +766,23 @@ You need to verfify the previous failure and suggest the **next single action** 
 
 # Instructions
 - Use observations, failure descriptions, memory, and progress to infer causes.
+- Object visibility is not a prerequisite—avoid search-related subtasks like “find” or “scan.” Use navigate to object.
 {COMMON_GUIDELINES}
 
-## Sub-categories
 - Environment Hazards: open objects can block paths; avoid mutual blocking/collisions.
 - Electronics: operate directly on the device—do not use remotes unless required.
+- Use navigate to the object, unless something wrong while navigation. (no-path, distance-too-far..etc)
 
 # Reasoning Steps
 - Internally reason over images/observations/states/failures to isolate the cause and fix.
-
-
-#OUTPUT FORMAT
-First of all you are supposed to reason over the image inputs, the robots' observations, previous actions, previous failures, previous memory, subtasks and the available actions the robots can perform, and think step by step and then output the following things:
+- you are supposed to reason over the image inputs, the robots' observations, previous actions, previous failures, previous memory, subtasks and the available actions the robots can perform, and think step by step and then output the following things:
 * Failure reason: If any robot's previous action failed, use the previous history and your understanding of causality to think and rationalize about why it failed. Output the reason for failure and how to fix this in the next timestep. If the previous action was successful, output "None".
-Common failure reasons to lookout for include: one agent blocking another so must move out of the way, agent can't see an object and must explore to find, agent is doing the same redundant actions, etc.
 * Memory: Whatever important information about the scene you think you should remember for the future as a memory. Remember that this memory will be used in future steps to carry out the task. So, you should not include information that is not relevant to the task. You can also include information that is already present in its memory if you think it might be useful in the future.
 * Reason: The reasoning for what each robot is supposed to do next
 * suggestion: The actions the robots are supposed to take just in the next step such that they make progress towards completing the task. Make sure that this suggested actions make these robots more efficient in completing the task as compared only one agent solving the task.
 
+
+#OUTPUT FORMAT
 You must output a JSON dictionary with:
 - "failure reason": string or "None"
 - "memory": string
@@ -787,7 +790,7 @@ You must output a JSON dictionary with:
 - "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...")
 
 
-# Examples
+# Errors Handling and Examples
 {VERIFY_EXAMPLE}
 
 # Context
@@ -1172,34 +1175,6 @@ def process_verifier_llm_output(res_content):
             print(f"[Error] Failed to parse fixed JSON: {e2}")
             return None
     
-    
-
-def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
-    """
-    Run a test case with multiple steps and print results.
-      - high_level_tasks: List[List[str]]，每個 agent 的 high-level 
-      - test_name: 
-      - test_id:  測試識別字串，會傳給 reset()
-    """
-    print(f"\n=== {test_name} (Test ID: {test_id}) ===")
-    obs = env.reset(test_case_id=test_id)
-    # print("Initial Observations:\n", obs)
-
-    print("high_level_tasks: ", high_level_tasks)
-    history = env.action_loop(high_level_tasks)
-    for step_idx, (obs, succ) in enumerate(history, start=1):
-        print(f"\n--- Step {step_idx} ---")
-        # print("Observations:", obs)
-        # print("Success flags:", succ)
-
-    for agent_id, name in enumerate(env.agent_names):
-        print(f"{name} POV path:", env.get_frame(agent_id, "pov"))
-    if env.overhead:
-        print("Shared overhead path:", env.get_frame(view="overhead"))
-
-    if task_name:
-        print('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
-        save_to_video('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
 
 def initial_subtask_planning(env, config):
     # ---1. Planner LLM 產生初步 subtasks
@@ -1268,9 +1243,9 @@ def verify_actions(env, info):
         for image in base64_image
     ]
     verify_payload = prepare_payload(verify_prompt, verify_user_prompt, img_urls=image_urls)
-    print("verify prompt: ", verify_user_prompt)
+    # print("verify prompt: ", verify_user_prompt)
     res, res_content = get_llm_response(verify_payload, model=config['model'])
-    print('verify llm output', res_content)
+    # print('verify llm output', res_content)
     failure_reason, memory, reason, suggestion = process_verifier_llm_output(res_content)
     verify_res = {
         "failure reason": failure_reason,
@@ -1423,8 +1398,8 @@ def run_main():
         logs.append(f"----")
         logs.append(f"open_subtasks: {env.open_subtasks}")
         logs.append(f'completed_subtasks: {env.closed_subtasks}')
-        # print("open_subtasks: ", env.open_subtasks)
-        # print("closed_subtasks: ", env.closed_subtasks)
+        print("open_subtasks: ", env.open_subtasks)
+        print("closed_subtasks: ", env.closed_subtasks)
 
         # 2. allocate subtasks to each agent
         logs.append(f"----allocating subtasks to agents----")
@@ -1466,7 +1441,7 @@ def run_main():
         if open_subtasks or not isSuccess:
             logs.append(f"----replanning subtasks to agents----")
             verify_res = verify_actions(env, info)
-            # print("verify result: ", verify_res)
+            print("verify result: ", verify_res)
             logs.append(f"verify result: {verify_res}")
             env.update_memory(verify_res['memory'], suggestion=verify_res['reason'] + " Suggestion to do for next step: " + verify_res['suggestion'])
             open_subtasks, completed_subtasks = replan_open_subtasks(env, info, completed_subtasks, verify_res)

@@ -40,6 +40,13 @@ from .agent import thor_reachable_positions
 import matplotlib.pyplot as plt
 from typing import List, Tuple, Optional, Any
 
+def closest_angles(values, query):
+    """Returns the entry in `values` that is
+    closest to `query` in unit circle angles"""
+    values.append(360)
+    return min(values, key=lambda v: abs(v-query)) % 360
+
+
 def convert_movement_to_action(movement, movement_params=MOVEMENT_PARAMS):
     """movement (str), a key in the constants.MOVEMENT_PARAMS dictionary
     Returns action tuple in the format:
@@ -68,6 +75,7 @@ def get_navigation_actions(movement_params=MOVEMENT_PARAMS, exclude=set()):
     return [convert_movement_to_action(movement, movement_params)
             for movement in movement_params
             if movement not in exclude]
+
 
 
 def _is_full_pose(robot_pose):
@@ -853,7 +861,7 @@ def _yaw_facing(robot_position, target_position, angles):
     tx, _, tz = target_position
     yaw = to_degrees(math.atan2(tx - rx,
                                 tz - rz)) % 360
-    return closest(angles, yaw)
+    return closest_angles(angles, yaw)
 
 
 #--------- Visualization ------------#

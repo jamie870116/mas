@@ -15,6 +15,17 @@ from thortils.constants import H_ANGLES, V_ANGLES
 
 import traceback
 import math
+import importlib.util
+
+def import_scene_initializer(task: str, floor_plan: str):
+    file_path = os.path.join("Tasks", task, f"{floor_plan}.py")
+    if not os.path.exists(file_path):
+        return None
+
+    spec = importlib.util.spec_from_file_location("SceneInitializer", file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return getattr(module, "SceneInitializer", None)
 
 def closest_angles(values, query):
     """Returns the entry in `values` that is
@@ -44,21 +55,24 @@ class BaseEnv:
 
             # LivingRoom
             "ArmChair", "Box", "CoffeeTable", "CounterTop", "Cup", "Desk", "DiningTable",
-            "Drawer", "Dresser", "GarbageCan", "Microwave", "Mug", "Ottoman", "Plate",
-            "Safe", "Shelf", "SideTable", "Sofa", "TVStand",
+            "Drawer", "Dresser", "GarbageCan", "Microwave", "Mug", "Plate",
+            "Shelf", "SideTable", "Sofa", "TVStand",
 
             # Bedroom
             "ArmChair", "Bed", "Box", "Cup", "Desk", "Dresser", "Drawer", "GarbageCan",
-            "LaundryHamper", "Mug", "Plate", "Safe", "Shelf", "SideTable", "TVStand",
+            "LaundryHamper", "Mug", "Plate", "Shelf", "SideTable", "TVStand",
 
             # Bathroom
             "Bathtub", "BathtubBasin", "Cabinet", "CounterTop", "Drawer", "GarbageCan",
             "HandTowelHolder", "Shelf", "SideTable", "Sink", "SinkBasin", "Toilet",
             "ToiletPaperHanger", "TowelHolder"
         ]
+        self.large_receptacles = ["Cabinet", "CounterTop",  "DiningTable",
+            "Drawer", "Fridge", "GarbageCan", "Microwave",
+             "Shelf", "SideTable", "Sink", "SinkBasin","ArmChair", "Box", "CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin"]
         self.small_objects = [
             # kitchen
-            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon",
+            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan"
             # living room
             "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox","LightSwitch","DeskLamp"
             # bedroom
@@ -276,6 +290,7 @@ class BaseEnv:
             #     action_dict["forceAction"] = True
         elif action.startswith("DropHandObject"):
             action_dict["action"] = "DropHandObject"
+            action_dict["forceAction"] = True
         elif action.startswith("ThrowObject"):
             action_dict["action"] = "ThrowObject"
             action_dict["moveMagnitude"] = 150.0
@@ -314,6 +329,8 @@ class BaseEnv:
                 return status
         raise ValueError(f"Object {object_name} not found in the current scene.")
     
+    
+
     def get_object_status_byID(self, obj_id: str) -> Dict[str, Any]:
         """Return the status of a specific object given its readable name."""
         # obj_id = self.convert_readable_object_to_id(object_name)
@@ -467,6 +484,7 @@ class AI2ThorEnv_cen(BaseEnv):
     def reset(self, task: str = None, test_case_id: str = None) -> str:
         """Reset the environment, start the global timer, and save initial frames before any actions."""
         self.task = task or self.config["task"]
+        self.task_folder = self.config["task_folder"]
         self.controller.reset(self.scene)
         self.event = self.controller.step(
             {
@@ -478,6 +496,12 @@ class AI2ThorEnv_cen(BaseEnv):
                 "visibilityDistance": 40,
             }
         )
+        scene_initializer = import_scene_initializer(self.task_folder, self.scene)
+        if scene_initializer:
+            if self.verbose:
+                print(f"Preinitializing scene for task={self.task}, scene={self.scene}")
+            self.event = scene_initializer().preinit(self.event, self.controller)
+
         self.object_dict = {}
         self.step_num = [0] * self.num_agents
         self.inventory = ["nothing"] * self.num_agents
@@ -575,6 +599,8 @@ class AI2ThorEnv_cen(BaseEnv):
         detections = self.event.events[agent_id].instance_detections2D
         return list(detections.instance_masks.keys()) if detections else []
     
+
+
     def get_mapping_object_pos_in_view(self, agent_id: int) -> Dict[str, Dict[str, float]]:
         """
         以 'Name_Idx' 為鍵，回傳可見物件的 {'x','z'}。
@@ -850,24 +876,24 @@ class AI2ThorEnv_cen(BaseEnv):
                 success = True
 
             # still testing
-            after_reachable_position = self.get_cur_reachable_positions()
-            if (act.startswith("Open") or act.startswith("Close")) and 'Fridge' in action_dict["objectId"]:
-                if act.startswith('Open'):
-                    before_set = set(before_reachable_position)
-                    after_set = set(after_reachable_position)
-                    # 找出 after 新增的點
-                    added_positions = after_set - before_set
-                    object_name = act.split("(")[1].rstrip(")")
+            # after_reachable_position = self.get_cur_reachable_positions()
+            # if (act.startswith("Open") or act.startswith("Close")) and 'Fridge' in action_dict["objectId"]:
+            #     if act.startswith('Open'):
+            #         before_set = set(before_reachable_position)
+            #         after_set = set(after_reachable_position)
+            #         # 找出 after 新增的點
+            #         added_positions = after_set - before_set
+            #         object_name = act.split("(")[1].rstrip(")")
                     
-                    status = self.get_object_status(object_name)
-                    print(f'check position of {object_name}, status: {status}')
-                    block = self.get_rightside_block_positions(status, added_positions)
-                    self.mannual_block_pos[object_name] = block
-                    print('mannual block positions:', self.mannual_block_pos)
-                    # print(f"After openning Object Fridge_1 status: {status}")
-                elif act.startswith('Close'):
-                    object_name = act.split("(")[1].rstrip(")")
-                    self.mannual_block_pos[object_name] = []
+            #         status = self.get_object_status(object_name)
+            #         print(f'check position of {object_name}, status: {status}')
+            #         block = self.get_rightside_block_positions(status, added_positions)
+            #         self.mannual_block_pos[object_name] = block
+            #         print('mannual block positions:', self.mannual_block_pos)
+            #         # print(f"After openning Object Fridge_1 status: {status}")
+            #     elif act.startswith('Close'):
+            #         object_name = act.split("(")[1].rstrip(")")
+            #         self.mannual_block_pos[object_name] = []
 
 
 
@@ -899,6 +925,7 @@ class AI2ThorEnv_cen(BaseEnv):
                         self.logs.append(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
                     print(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
                     self.subtask_success_history[self.agent_names[aid]].append(sub)
+                    self.subtask_failure_reasons[self.agent_names[aid]] = []
                     self.current_hl[aid] = None
                     self.action_queue[aid].clear()
                     self.last_check_reason[self.agent_names[aid]] = None
@@ -911,6 +938,7 @@ class AI2ThorEnv_cen(BaseEnv):
                         terminal = True
                     elif last_reason and last_reason.startswith("distance-too-far") and not self.action_queue[aid]:
                         last_reason += " (may be stuck because of unknown reason)"
+                        print(last_reason)
                         terminal = True
                   
 
@@ -1196,6 +1224,7 @@ class AI2ThorEnv_cen(BaseEnv):
             # 若有 agent 失敗，立即跳出
             if not all(succ):
                 break
+            start_time = time.time()
             
         if self.save_logs:
             self.logs.append("----------End-----------")
@@ -1210,7 +1239,6 @@ class AI2ThorEnv_cen(BaseEnv):
         self.agent_failure_acts	= {name: [] for name in self.agent_names} # save 最近失敗過的 atomic action，通常用於偵測是否卡住
         self.nav_no_plan = {name: False for name in self.agent_names}   # 導航規劃為空的旗標
         self.last_check_reason = {name: None for name in self.agent_names}  # is_subtask_done 內部最近一次的判斷理由
-
         return all(succ), info
         
    
@@ -1439,6 +1467,11 @@ class AI2ThorEnv_cen(BaseEnv):
     
             dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
             print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
+            if dist > 1.0 and dist < 3.0 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id) and not self.action_queue[agent_id]:
+                suc = True
+                self.current_hl[agent_id] = None
+                self.action_queue[agent_id].clear()
+                
             if dist > 1.0:
                 # error_type += f": distance-too-far ({dist:.2f}m)"
                 if not self.action_queue[agent_id]:
@@ -1469,7 +1502,7 @@ class AI2ThorEnv_cen(BaseEnv):
                     #     self.pending_high_level[agent_id].appendleft('MoveBack')
                         # print('pending: ',self.pending_high_level[agent_id])
                     # el
-                    if not self.action_queue[agent_id] and obj_id in self.get_object_in_view(agent_id):
+                    if obj_id in self.get_object_in_view(agent_id):
                         detections = self.event.events[agent_id].instance_detections2D
                         obj_bbox = detections[obj_id]
                         pitch_diff, act_pitch = self.estimate_pitch_to_center_object(obj_bbox, self.event.events[agent_id].frame.shape)
@@ -1483,19 +1516,7 @@ class AI2ThorEnv_cen(BaseEnv):
                             self.pending_high_level[agent_id].appendleft(act_pitch+"(" + str(p_degree) + ")")
                         # suc = self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot, agent_cam)
                         # print(f'*** is obect {obj} in center view: {suc}')
-                    elif self.action_queue[agent_id] and obj_name in self.small_objects and obj_id in self.get_object_in_view(agent_id):
-                        detections = self.event.events[agent_id].instance_detections2D
-                        obj_bbox = detections[obj_id]
-                        pitch_diff, act_pitch = self.estimate_pitch_to_center_object(obj_bbox, self.event.events[agent_id].frame.shape)
-                        yaw_diff, act_yaw = self.estimate_yaw_to_center_object(obj_bbox, self.event.events[agent_id].frame.shape)
-                        print(f'obj_bbox: {obj_bbox}, pitch diff: {pitch_diff}, yaw_diff: {yaw_diff}')
-                        suc = True 
-                        if pitch_diff != 0:
-                            # dist is close enough but cam degree is incorrect
-                            p_degree = closest_angles(V_ANGLES, abs(pitch_diff))
-                            print(f'need to change pitch to {p_degree}')
-                            self.pending_high_level[agent_id].appendleft(act_pitch+"(" + str(p_degree) + ")")
-                    elif not self.action_queue[agent_id] and obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id):
+                    elif obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id):
                         suc = True
                         self.current_hl[agent_id] = None
                         self.action_queue[agent_id].clear()
@@ -1503,6 +1524,7 @@ class AI2ThorEnv_cen(BaseEnv):
                         # self.pending_high_level[agent_id].appendleft(subtask)
                         self.pending_high_level[agent_id].appendleft('LookDown(30)')
                         print('pending: ',self.pending_high_level[agent_id])
+                    
                     else:
                         print(f'in is_sub_task_done(): naivifate-to-object({obj})-failed')
                         obj_in_view = self.get_mapping_object_pos_in_view(agent_id)
@@ -2241,7 +2263,7 @@ class AI2ThorEnv_cen(BaseEnv):
             "Number of agents": self.num_agents,
             "Reachable positions": reachable_2d,
             "Objects in environment": obj_list,  # list of all objects in the scene
-            "inventory": list(self.inventory),                     # ['nothing', 'Mug_1', ...]
+            # "inventory": list(self.inventory),                     # ['nothing', 'Mug_1', ...]
             "Robots' open subtasks": self.open_subtasks,
             "Robots' completed subtasks": self.closed_subtasks,
             "Robots' memory": self.memory[0],
