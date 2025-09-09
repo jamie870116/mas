@@ -2,3 +2,5 @@ ai2thor
 open3d
 ffmpeg
 openai
+pycrdt 
+pycrdt-websocket

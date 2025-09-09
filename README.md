@@ -16,7 +16,6 @@ Aiming to implement a decentralized, LLM-driven multi-robot task planning and co
 I ran on conda environment with python=3.10.
 Other dependecies are shown in `requirements.txt`
 
-
 ### Test
 - config file path: `config/config.json`
 - log file path: `logs/{task_name}`

@@ -10,3 +10,4 @@ debugs/*
 note.txt
 test_env.py
 env/prompt_test.py
+env/test_crdt.py

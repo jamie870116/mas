@@ -1,7 +1,7 @@
 {
     "num_agents": 2,
-    "scene": "FloorPlan4",
-    "task": "put all food on the dinig table",
+    "scene": "FloorPlan1",
+    "task": "clean the bowl, mug, pot, and pan",
     "timeout": 120,
     "model": "gpt-4.1-2025-04-14",
     "use_obs_summariser": false,
@@ -15,7 +15,7 @@
     "force_action": false,
     "temperature": 0.7,
     "overhead": true,
-    "test_id" : 10,
+    "test_id" : 1,
     "save_logs" : true,
-    "task_folder": "put_all_food_countertop"
+    "task_folder": "wash_bowl_mug_pot_pan"
 }

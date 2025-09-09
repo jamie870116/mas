@@ -14,7 +14,6 @@ structure same as llm_ca.py
 2.4 execute one subtask per agents
 2.5 verify if the subtask is completed and identify the failure reason and collect the history and suggest the next step
 2.6 replan: similar to initial planning : given task and closed subtask
-
 '''
 
 import json
@@ -266,9 +265,7 @@ def get_objects_by_floorplan(fpid: str) -> list[str]:
 CURRENT_OBJECT_REFERENCE = get_objects_by_floorplan(config["scene"])
 
 EXAMPLE_PLAN = f"""
-High-level task: "Put the vase, tissue box, and remote control on the table", with 2 agents:
-
-example output:
+High-level task: "Put the vase, tissue box, and remote control on the table", with 2 agents, example output:
 [
 "navigate to the vase, pick up the vase, navigate to the table, and put it on the table",
 "navigate to the tissue box, pick up the tissue box, navigate to the table, and put it on the table",
@@ -294,6 +291,13 @@ High-level task: "slice a tomato" with 2 agents, example output:
 [
 'navigate to the knife, pick up the knife, navigate to the tomato, slice the tomato with the knife',
 ]
+
+High-level task: "clean the pot and bowl" with 2 agents, example output:
+[
+'navigate to the pot, clean the pot',
+'navigate to the bowl, clean the bowl',
+]
+
 
 """
 
@@ -400,6 +404,19 @@ Output:
   ]
 }}
 
+Example 4: Given Assignement:
+[
+'navigate to the pot, clean the pot',
+'navigate to the bowl, clean the bowl',
+]
+Output:
+{{
+"Actions": [
+    ["NavigateTo(Pot_1)", "CleanObject(Pot_1)"],
+    ["NavigateTo(Bowl_1)", "CleanObject(Bowl_1)"]
+  ]
+}}
+
 """
 
 AI2THOR_ACTIONS = f"""
@@ -439,8 +456,7 @@ COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that m
 - After Slicing: When an object is sliced, it becomes multiple pieces that keep the same base name but receive new indices/unique IDs. E.g., slicing Apple_1 yields Apple_1, Apple_2, …
 - Toasting (bread): first slice the bread using a butterknife or knife (do not pick up the bread before slicing); then pick up one slice(it should be Bread_1 ~ Bread_9 not BreadSliced), navigate to the toaster, put the slice into the toaster, and turn on the toaster.
 - Each robot can hold only one object at a time. When holding an item, the robot **cannot** perform interactions that require a free hand (e.g., OpenObject, CloseObject, ToggleObjectOn/Off); empty the hand first (put on a surface or drop) before such actions.
-- Clean only when explicitly required, using CleanObject or put it under a running faucet.
-- Avoid unnecessary/redundant actions; minimize steps.
+- To clean an object, directly navigate to the object and apply CleanObject.
 - Do not assume default receptacles (e.g., CounterTop, Table) unless explicitly mentioned/present.
 - Close any opened object before leaving when appropriate.
 - Avoid agents blocking each other where possible.
@@ -755,7 +771,7 @@ You need to verfify the previous failure and suggest the **next single action** 
 * Memory: Whatever important information about the scene you think you should remember for the future as a memory. Remember that this memory will be used in future steps to carry out the task. So, you should not include information that is not relevant to the task. You can also include information that is already present in its memory if you think it might be useful in the future.
 * Reason: The reasoning for what each robot is supposed to do next
 * suggestion: The actions the robots are supposed to take just in the next step such that they make progress towards completing the task. Make sure that this suggested actions make these robots more efficient in completing the task as compared only one agent solving the task.
-
+* need_replan: True or False. If you think the current plan is not efficient or not valid, output True. Otherwise, output False.
 
 #OUTPUT FORMAT
 You must output a JSON dictionary with:
@@ -763,7 +779,7 @@ You must output a JSON dictionary with:
 - "memory": string
 - "reason": string
 - "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...")
-
+- "need_replan": <true|false>
 
 # Errors Handling and Examples
 {VERIFY_EXAMPLE}
@@ -1057,6 +1073,7 @@ def process_llm_output(res_content, mode):
             _get(data, "memory"),
             _get(data, "reason"),
             _get(data, "suggestion"),
+            _get(data, "need_plan"),
         )
     if mode == "memory":
         return bool(data["use_in_next_plan"]), data
@@ -1157,12 +1174,13 @@ def verify_actions(env, info):
     print("verify prompt: ", verify_user_prompt)
     res, res_content = get_llm_response(verify_payload, model=config['model'])
     # print('verify llm output', res_content)
-    failure_reason, memory, reason, suggestion = process_llm_output(res_content, mode="verifier")
+    failure_reason, memory, reason, suggestion, need_plan = process_llm_output(res_content, mode="verifier")
     verify_res = {
         "failure reason": failure_reason,
         "memory": memory,
         "reason": reason,
-        "suggestion": suggestion
+        "suggestion": suggestion,
+        "need_plan": need_plan
     }
     print("verify_res: ", verify_res)
     return verify_res
@@ -1410,21 +1428,20 @@ def run_main():
         logs.append(f"after verify open_subtasks: {open_subtasks}")
         logs.append(f"after verify closed_subtasks: {completed_subtasks}")
         env.update_plan(open_subtasks, completed_subtasks)
-        # 6. replan if needed
+        # 6. verify the execution and update memory
+        logs.append(f"----replanning subtasks to agents----")
+        verify_res = verify_actions(env, info)
+        print("verify result: ", verify_res)
+        logs.append(f"verify result: {verify_res}")
+        
+        should_use_memory, memory_res = memory_gate(env)
+        print("[Memory] ", should_use_memory, memory_res)
+        if should_use_memory:
+            env.update_memory(memory_res['common_memory'], suggestion=verify_res['reason'] + " Suggestion to do for next step: " + verify_res['suggestion'])
 
-       
-
-        if open_subtasks or not isSuccess:
-            logs.append(f"----replanning subtasks to agents----")
-            verify_res = verify_actions(env, info)
-            print("verify result: ", verify_res)
-            logs.append(f"verify result: {verify_res}")
+        # 7. replan if needed
+        if open_subtasks or not isSuccess or verify_res['need_plan']:
             
-            should_use_memory, memory_res = memory_gate(env)
-            print("[Memory] ", should_use_memory, memory_res)
-            if should_use_memory:
-                env.update_memory(memory_res['common_memory'], suggestion=verify_res['reason'] + " Suggestion to do for next step: " + verify_res['suggestion'])
-
             open_subtasks, completed_subtasks = replan_open_subtasks(env, info, completed_subtasks, verify_res)
             # print("replan open_subtasks: ", open_subtasks)
             # print("replan closed_subtasks: ", completed_subtasks)
