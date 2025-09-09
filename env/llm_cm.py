@@ -2,9 +2,10 @@
 Baseline : Centralized LLM + replanning + shared memory(llm based)
 
 TBD:
-- () more test 
+- [] sting based memory
 
-structure same as llm_c.py but with more information about the environment and positions, failures, etc.:
+
+structure same as llm_ca.py
 1. initial planning (remain the same as previous method: given task, let planner and editor to generate a list of subtasks (this will be the open subtasks)
 2. start a loop, until timeout or all the open subtasks is empty:
 2.1 update open subtasks and completed subtask
@@ -722,62 +723,6 @@ Your goal is to replan a valid and efficient sequence of subtasks based on the c
 First, think carefully step by step about the **shortest valid subtask sequence** given the state, memory and failures, closely adhering to the **Common Guidelines**. Then, **return only the Subtasks JSON**.
 """
 
-# REPLAN_PROMPT = f"""
-# You are a capable planner and multi-robot controller assigned to help {len(AGENT_NAMES)} embodied robots named {', '.join(AGENT_NAMES[:-1]) + f', and {AGENT_NAMES[-1]}'} accomplish a specific goal.
-# Begin with a concise checklist (3-7 bullets) of what you will do; keep items conceptual, not implementation-level.
-
-# {AI2THOR_ACTIONS}
-
-
-# ## TASK
-
-# Your goal is to replan a valid and efficient sequence of subtasks based on the current environment state and prior action history. You will be given:
-# - The original task description
-# - Robots' previous plans (open and completed subtasks)
-# - Their current observations and states
-# - Objects in environment
-# - Failure causes
-# - Reasoning and suggestions for next actions
-
-
-
-# You should reason step-by-step over the environment, agent memory, failure causes, and suggestions to derive a concise and updated subtask plan.
-# After reasoning, return only the updated `"Subtasks"` list in JSON format. Do **not** return any extra explanations or comments.
-
-
-# ### INPUT FORMAT
-# {REPLANNER_INPUT_FORMAT}
-
-
-# {OUTPUT_FORMAT_PLAN}
-
-
-# {EXAMPLE_PLAN}
-
-
-
-# ## Key Constraints and Guidelines
-# - Subtasks must be atomic and goal-directed; combine sequentially dependent actions into one subtask.
-# - Avoid repeating failed subtasks unless the situation has changed.
-# - Minimize and streamline plan; do only necessary actions.
-# - Robots are coordinated; explicit role allocation is not required.
-# - Only use objects present in the current environment list.
-# - Reflect real world affordances and limitations.
-# - Never OpenObject on non-openable surfaces (e.g. tables, countertops).
-# - For openable containers (e.g. drawers, fridge, cabinets):
-#     - Open first; hand must be empty; close after use.
-#     - To place inside: open → pick up object → deposit object.
-# - To put object on a receptacle: pick up → navigate → place.
-# - To cook: object must be in a receptacle (e.g. pan/pot), on stove, stove turned on.
-# - To slice: robot must hold a knife. Do not pick up the object to be sliced.
-# - Robots can carry one object at a time—enforce this strictly.
-# - Clean objects only when explicitly specified, using correct affordances.
-# - Do not assume or use default receptacles unless specified in the task.
-# - Output **only** the required subtasks JSON. No extra explanations, formatting, or commentary.
-
-# **Think step by step internally; return only the specified JSON.**
-
-# """
 
 # identify the failure reason for the last action and suggest what to do next.
 VERIFIER_PROMPT = f"""
@@ -834,67 +779,6 @@ First, think carefully step by step about the **most likely failure cause and im
 """
 
 
-# VERIFIER_PROMPT = f"""
-# You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
-
-
-# {AI2THOR_ACTIONS}
-
-# You need to verfify the previous failure and suggest the **next single action** that each robot should take in the current timestep.
-
-# You will get a description of the task robots are supposed to do. You will get an image of the environment from {", ".join([f"{name}'s perspective" for name in AGENT_NAMES[:-1]]) + f", and {AGENT_NAMES[-1]}'s perspective"} as the observation input.
-# To help you with detecting objects in the image, you will also get a list objects each agent is able to see in the environment. Here the objects are named as "<object_name>_<object_id>".
-# So, along with the image inputs you will get the following information:
-# - A task description
-# - A list of objects each robot can currently see (formatted as "<object_name>_<object_no>") with positions
-# - Observations, failure descriptions, and subtask progress
-
-# ### INPUT FORMAT ###
-# {VERIFIER_INPUT_FORMAT}
-
-
-# ### OUTPUT FORMAT ###
-# First of all you are supposed to reason over the image inputs, the robots' observations, previous actions, previous failures, previous memory, subtasks and the available actions the robots can perform, and think step by step and then output the following things:
-# * Failure reason: If any robot's previous action failed, use the previous history and your understanding of causality to think and rationalize about why it failed. Output the reason for failure and how to fix this in the next timestep. If the previous action was successful, output "None".
-# Common failure reasons to lookout for include: one agent blocking another so must move out of the way, agent can't see an object and must explore to find, agent is doing the same redundant actions, etc.
-# * Memory: Whatever important information about the scene you think you should remember for the future as a memory. Remember that this memory will be used in future steps to carry out the task. So, you should not include information that is not relevant to the task. You can also include information that is already present in its memory if you think it might be useful in the future.
-# * Reason: The reasoning for what each robot is supposed to do next
-# * suggestion: The actions the robots are supposed to take just in the next step such that they make progress towards completing the task. Make sure that this suggested actions make these robots more efficient in completing the task as compared only one agent solving the task.
-# Your output should just be in the form of a json  as shown below.
-# Examples of output:
-# You must output a json dictionary with:
-# - "failure reason": explanation of why any previous action failed (or "None" if no failure)
-# - "memory": important information about the scene that should be remembered for future steps
-# - "reason": reasoning for what each robot should do next
-# - "suggestion": a description of the next actions each robot should take, formatted as "next, <robot_name and id> should ..., <robot_name and id> should ..."
-
-
-# {VERIFY_EXAMPLE}
-
-
-
-# ### Important Notes ###
-# - Each robot can only hold **one object** at a time.
-# - If a robot opens an object (e.g., drawer), it should close it before leaving.
-# - Open objects (e.g., cabinets) can block paths.
-# - Avoid redundant or unnecessary actions.
-# - Plan actions to avoid robots blocking or colliding with each other.
-# - Reflect real world affordances and limitations.
-# - Never OpenObject on non-openable surfaces (e.g. tables, countertops).
-# - For openable containers (e.g. drawers, fridge, cabinets):
-#     - Open first; hand must be empty; close after use.
-#     - To place inside: open → pick up object → deposit object.
-# - To put object on a receptacle: pick up → navigate → place.
-# - To cook: object must be in a receptacle (e.g. pan/pot), on stove, stove turned on.
-# - To slice: robot must hold a knife. Do not pick up the object to be sliced.
-# - Don't use remote control to turn on or off the television.
-# - Robots can carry one object at a time—enforce this strictly.
-# - Clean objects only when explicitly specified, using correct affordances.
-# - DO NOT output anything beyond the specified dictionary format.
-
-# Let's work this out step by step to be sure we have the right answer.
-# """
-
 MEMORY_PROMPT = f"""
 # Role and Objective
 You are a lightweight memory gate for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
@@ -941,6 +825,8 @@ You must output a JSON dictionary with:
     ...
   }}
 }}
+* why: A brief reasoning for what each robot is supposed to do next.
+* common_memory: whatever important information about the scene you think you should remember for the future as a memory. Remember that this memory will be used in future steps to carry out the task. So, you should not include information that is not relevant to the task. You can also include information that is already present in its memory if you think it might be useful in the future.
 
 
 # Input Context
@@ -1227,12 +1113,12 @@ def allocate_subtasks_to_agents(env, info={}):
     """分配 open_subtasks 給各 agent"""
     allocator_prompt, allocator_user_prompt = prepare_prompt(env, mode="allocator", info=info)
     allocator_payload = prepare_payload(allocator_prompt, allocator_user_prompt)
-    # print("allocator system prompt: ", allocator_prompt)
-    # print("allocator user prompt: ", allocator_user_prompt)
+    print("allocator system prompt: ", allocator_prompt)
+    print("allocator user prompt: ", allocator_user_prompt)
     res, res_content = get_llm_response(allocator_payload, model=config['model'])
     # print('llm allocator output', res_content)
     allocation, remain = process_llm_output(res_content, "allocator")
-    # print('allocation: ', allocation)
+    print('allocation: ', allocation)
     # for testing
     # allocation =  ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop']
     # remain =  ['pick up the bread and put it on the countertop']
@@ -1243,8 +1129,8 @@ def decompose_subtask_to_actions(env, subtasks, info={}):
     """將 subtask 拆解成 atomic actions（LLM）"""
     action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks, info=info)
     action_payload = prepare_payload(action_prompt, action_user_prompt)
-    # print("action prompt:", action_prompt)
-    # print("action user prompt:", action_user_prompt)
+    print("action prompt:", action_prompt)
+    print("action user prompt:", action_user_prompt)
     res, res_content = get_llm_response(action_payload, model=config['model'])
     print('action llm output', res_content)
     actions = process_llm_output(res_content, mode="action")
@@ -1268,7 +1154,7 @@ def verify_actions(env, info):
         for image in base64_image
     ]
     verify_payload = prepare_payload(verify_prompt, verify_user_prompt, img_urls=image_urls)
-    # print("verify prompt: ", verify_user_prompt)
+    print("verify prompt: ", verify_user_prompt)
     res, res_content = get_llm_response(verify_payload, model=config['model'])
     # print('verify llm output', res_content)
     failure_reason, memory, reason, suggestion = process_llm_output(res_content, mode="verifier")
@@ -1278,6 +1164,7 @@ def verify_actions(env, info):
         "reason": reason,
         "suggestion": suggestion
     }
+    print("verify_res: ", verify_res)
     return verify_res
 
 def get_steps_by_actions(env, actions):
@@ -1302,20 +1189,7 @@ def verify_subtask_completion(env, info):
 import difflib
 
 def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
-    """
-    用寬鬆比對把已完成的 subtasks 從 open_subtasks 中剔除，並加入 closed_subtasks。
-    - 先做正規化（去掉 'Alice:' 這類 agent 前綴、strip）
-    - 再嘗試：精確比對 → 子字串 / 前綴 → 相似度比對（difflib）
-
-    Args:
-        env: 你的環境物件
-        info: dict，至少包含 "success_subtasks"
-        similarity_cutoff: 相似度比對的門檻（0~1），預設 0.62
-
-    Returns:
-        (open_subtasks, closed_subtasks)
-    """
-
+    
     def _normalize(s: str) -> str:
         if not isinstance(s, str):
             return s
@@ -1327,13 +1201,7 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
         return s
 
     def _best_fuzzy_match(query_norm: str, candidates_norm: list[str]) -> int | None:
-        """
-        回傳最佳匹配的索引（在 candidates_norm 的索引），找不到回傳 None。
-        優先序：
-          1) 完全等於
-          2) startswith / in（子字串）
-          3) difflib 相似度（>= similarity_cutoff）
-        """
+        
         # 1) 完全等於
         for i, cand in enumerate(candidates_norm):
             if query_norm == cand:
@@ -1355,12 +1223,10 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
 
         return None
 
-    # 取列表副本避免原地修改帶來的索引問題
     open_subtasks = list(env.open_subtasks or [])
     closed_subtasks = list(env.closed_subtasks or [])
     completed_subtasks = list(info.get("success_subtasks", []))
 
-    # 維護一份正規化後的 open_subtasks（同步更新）
     open_norm = [_normalize(s) for s in open_subtasks]
 
     for c in completed_subtasks:
@@ -1368,7 +1234,6 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
             continue
         c_norm = _normalize(c)
 
-        # 在 open_norm 裡找最佳匹配
         match_idx = _best_fuzzy_match(c_norm, open_norm)
 
         if match_idx is not None:
@@ -1386,23 +1251,25 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
 
 def replan_open_subtasks(env, info, completed_subtasks, verify_info):
     replan_prompt, replan_user_prompt = prepare_prompt(env, mode="replan", info=info, verify_info=verify_info)
-    # print("replan system prompt: ", replan_prompt)
-    # print("replan user prompt: ", replan_user_prompt)
+    print("replan system prompt: ", replan_prompt)
+    print("replan user prompt: ", replan_user_prompt)
     replan_payload = prepare_payload(replan_prompt, replan_user_prompt)
     res, res_content = get_llm_response(replan_payload, model=config['model'])
     # print('replan llm output', res_content)
     subtasks = process_llm_output(res_content, "planner")
-    # print(f"After Re-Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
+    print(f"After Re-Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
     return subtasks, completed_subtasks
 
 def memory_gate(env):
-    """決定是否在下一輪規劃把 shared memory 餵給 LLM"""
     gate_prompt, gate_user_prompt = prepare_prompt(env, mode="memory")
+    print("memory gate system prompt: ", gate_prompt)
+    print("memory gate user prompt: ", gate_user_prompt)
     gate_payload = prepare_payload(gate_prompt, gate_user_prompt)
     res, res_content = get_llm_response(gate_payload, model=config['model'])
-
+    
     should_use, data = process_llm_output(res_content, 'memory')
+    print('memory gate llm output', data)
     return should_use, data
 
      
@@ -1554,9 +1421,9 @@ def run_main():
             logs.append(f"verify result: {verify_res}")
             
             should_use_memory, memory_res = memory_gate(env)
-            print("[MemoryGate] ", should_use_memory, memory_res)
+            print("[Memory] ", should_use_memory, memory_res)
             if should_use_memory:
-                env.update_memory(verify_res['memory'], suggestion=verify_res['reason'] + " Suggestion to do for next step: " + verify_res['suggestion'])
+                env.update_memory(memory_res['common_memory'], suggestion=verify_res['reason'] + " Suggestion to do for next step: " + verify_res['suggestion'])
 
             open_subtasks, completed_subtasks = replan_open_subtasks(env, info, completed_subtasks, verify_res)
             # print("replan open_subtasks: ", open_subtasks)

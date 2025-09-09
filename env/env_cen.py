@@ -1454,7 +1454,6 @@ class AI2ThorEnv_cen(BaseEnv):
             except ValueError:
                 # 記錄失敗並回報 False
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-exist"
-                # 用自然語言 subtask 作為 key，並附在 at_action
                 # self._record_subtask_failure(agent_id, reason=f"object({obj})-not-exist", at_action=subtask)
                 return False
 
