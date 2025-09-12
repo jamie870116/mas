@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import cv2
 import ai2thor.controller
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional, Callable
 import pickle
 import numpy as np
 from heapq import heappush, heappop
@@ -17,6 +17,7 @@ import traceback
 import math
 import importlib.util
 
+
 def import_scene_initializer(task: str, floor_plan: str):
     file_path = os.path.join("Tasks", task, f"{floor_plan}.py")
     if not os.path.exists(file_path):
@@ -26,6 +27,21 @@ def import_scene_initializer(task: str, floor_plan: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return getattr(module, "SceneInitializer", None)
+
+
+
+def import_task_checker(task_folder: str,):
+    
+
+    generic_path = os.path.join("Tasks", task_folder, "checker.py")
+    if os.path.exists(generic_path):
+        spec = importlib.util.spec_from_file_location("checker_module", generic_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)  # type: ignore
+        if hasattr(module, "build_checker"):
+            return getattr(module, "build_checker")
+
+    return None
 
 def closest_angles(values, query):
     """Returns the entry in `values` that is
@@ -503,6 +519,17 @@ class AI2ThorEnv_cen(BaseEnv):
             if self.verbose:
                 print(f"Preinitializing scene for task={self.task}, scene={self.scene}")
             self.event = scene_initializer().preinit(self.event, self.controller)
+
+
+        # Task Checker（新）
+        checker_factory = import_task_checker(self.task_folder, self.scene)
+        if checker_factory:
+            # 讓 checker 能存取 env 的工具（get_object_status / get_readable_object_list）
+            self.checker = checker_factory(env=self)
+            print(f"[Checker] Loaded from task_folder='{self.task_folder}' for scene='{self.scene}'")
+        else:
+            self.checker = None
+            print(f"[Checker] No checker found for task_folder='{self.task_folder}'")
 
         self.object_dict = {}
         self.step_num = [0] * self.num_agents
@@ -1614,6 +1641,13 @@ class AI2ThorEnv_cen(BaseEnv):
         degree = closest_angles(H_ANGLES, abs(angle_diff))
         return degree, action
 
+    def run_task_check(self):
+        if not getattr(self, "checker", None):
+            return True, {"ok": True, "notes": ["no checker configured"]}
+        ok, report = self.checker.check(self)
+        if self.verbose:
+            print(f"[TaskCheck] ok={ok}\n{report}")
+        return ok, report
 
     # def is_object_in_center_view(self, agent_pos, object_pos, agent_yaw_deg, agent_cam, threshold_deg=30) -> bool:
     #     """

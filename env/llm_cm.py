@@ -1468,6 +1468,7 @@ def run_main():
        
         cnt += 1 
     env.save_log()
+    env.run_task_check()
     
     
     env.close()

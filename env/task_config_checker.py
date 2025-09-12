@@ -1,0 +1,117 @@
+# checkers/task_config_checker.py
+from __future__ import annotations
+from collections import Counter
+from typing import Any, Dict, List, Tuple, Iterable, Optional, Union
+
+StatusChecks = Union[Dict[str, Any], List[Tuple[str, Any]], List[List[Any]]]
+
+class TaskConfigChecker:
+    def __init__(
+        self,
+        receptacle: Optional[str] = None,
+        recept_require_items: Optional[List[str]] = None,
+        status_checks: Optional[StatusChecks] = None,
+        status_require_items: Optional[List[str]] = None,
+    ):
+        self.receptacle = receptacle
+        self.need_items = list(recept_require_items or [])
+        self.status_checks = self._normalize_checks(status_checks)
+        self.status_targets = list(status_require_items or [])
+
+    @classmethod
+    def from_config(cls, cfg: Dict[str, Any]) -> "TaskConfigChecker":
+        return cls(
+            receptacle=cfg.get("receptacle"),
+            recept_require_items=cfg.get("recept_require_items", []),
+            status_checks=cfg.get("status_check"),
+            status_require_items=cfg.get("status_require_items", []),
+        )
+
+    def check(self, env) -> Tuple[bool, Dict[str, Any]]:
+        report: Dict[str, Any] = {
+            "receptacle": self.receptacle,
+            "required_items": self.need_items,
+            "status_checks": self.status_checks,
+            "status_targets": self.status_targets,
+            "containment": {},
+            "status_results": [],
+            "ok_containment": True,
+            "ok_status": True,
+            "ok": True,
+        }
+        ok_cont = self._check_containment(env, report)
+        ok_stat = self._check_status(env, report)
+        report["ok_containment"] = ok_cont
+        report["ok_status"] = ok_stat
+        report["ok"] = ok_cont and ok_stat
+        return report["ok"], report
+
+    # ---------- internal ----------
+    def _check_containment(self, env, report: Dict[str, Any]) -> bool:
+        if not (self.receptacle and self.need_items):
+            return True
+        try:
+            rec_stat = env.get_object_status(self.receptacle)
+        except Exception as e:
+            report["containment"] = {"error": f"receptacle not found: {e}"}
+            return False
+        ids = rec_stat.get("contains") or []
+        readable = env.get_readable_object_list(ids) if ids else []
+        counts = Counter(self._base(n) for n in readable)
+        missing = {}
+        for item in self.need_items:
+            base = self._base(item)
+            if counts.get(base, 0) < 1:
+                missing[base] = 1
+        report["containment"] = {"found_counts": dict(counts), "missing": missing}
+        return len(missing) == 0
+
+    def _check_status(self, env, report: Dict[str, Any]) -> bool:
+        if not (self.status_checks and self.status_targets):
+            return True
+        results, all_ok = [], True
+        for target in self.status_targets:
+            try:
+                st = env.get_object_status(target)
+            except Exception as e:
+                results.append({"target": target, "ok": False, "error": str(e)})
+                all_ok = False
+                continue
+            t_ok, detail = self._eval_checks(st, self.status_checks)
+            results.append({"target": target, "ok": t_ok, "detail": detail})
+            all_ok = all_ok and t_ok
+        report["status_results"] = results
+        return all_ok
+
+    @staticmethod
+    def _base(name: str) -> str:
+        return name.split("_")[0] if "_" in name else name
+
+    @staticmethod
+    def _normalize_checks(checks: Optional[StatusChecks]) -> List[Tuple[str, Any]]:
+        if checks is None:
+            return []
+        if isinstance(checks, dict):
+            return [(k, v) for k, v in checks.items()]
+        out: List[Tuple[str, Any]] = []
+        for item in checks:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                out.append((str(item[0]), item[1]))
+        return out
+
+    @staticmethod
+    def _eval_checks(obj_status: Dict[str, Any], checks: Iterable[Tuple[str, Any]]) -> Tuple[bool, Dict[str, Any]]:
+        detail, ok_all = {}, True
+        for name, expected in checks:
+            if name == "is_closed":
+                actual = (obj_status.get("is_open", False) is False)
+            elif name == "is_open":
+                actual = bool(obj_status.get("is_open", False))
+            elif name == "is_on":
+                actual = bool(obj_status.get("is_on", obj_status.get("isToggled", False)))
+            else:
+                actual = obj_status.get(name, None)
+            ok = (actual == expected)
+            detail[name] = {"expected": expected, "actual": actual, "ok": ok}
+            ok_all = ok_all and ok
+        return ok_all, detail
