@@ -1,10 +1,6 @@
 '''
 Baseline : Centralized LLM + replanning + shared memory(llm based)
 
-TBD:
-- [] sting based memory
-
-
 structure same as llm_ca.py
 1. initial planning (remain the same as previous method: given task, let planner and editor to generate a list of subtasks (this will be the open subtasks)
 2. start a loop, until timeout or all the open subtasks is empty:
@@ -26,6 +22,7 @@ import time
 import base64
 from openai import OpenAI
 from env_cen import AI2ThorEnv_cen as AI2ThorEnv
+import difflib
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.helpers import save_to_video
@@ -1130,8 +1127,8 @@ def allocate_subtasks_to_agents(env, info={}):
     """分配 open_subtasks 給各 agent"""
     allocator_prompt, allocator_user_prompt = prepare_prompt(env, mode="allocator", info=info)
     allocator_payload = prepare_payload(allocator_prompt, allocator_user_prompt)
-    print("allocator system prompt: ", allocator_prompt)
-    print("allocator user prompt: ", allocator_user_prompt)
+    # print("allocator system prompt: ", allocator_prompt)
+    # print("allocator user prompt: ", allocator_user_prompt)
     res, res_content = get_llm_response(allocator_payload, model=config['model'])
     # print('llm allocator output', res_content)
     allocation, remain = process_llm_output(res_content, "allocator")
@@ -1146,8 +1143,8 @@ def decompose_subtask_to_actions(env, subtasks, info={}):
     """將 subtask 拆解成 atomic actions（LLM）"""
     action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks, info=info)
     action_payload = prepare_payload(action_prompt, action_user_prompt)
-    print("action prompt:", action_prompt)
-    print("action user prompt:", action_user_prompt)
+    # print("action prompt:", action_prompt)
+    # print("action user prompt:", action_user_prompt)
     res, res_content = get_llm_response(action_payload, model=config['model'])
     print('action llm output', res_content)
     actions = process_llm_output(res_content, mode="action")
@@ -1171,7 +1168,7 @@ def verify_actions(env, info):
         for image in base64_image
     ]
     verify_payload = prepare_payload(verify_prompt, verify_user_prompt, img_urls=image_urls)
-    print("verify prompt: ", verify_user_prompt)
+    # print("verify prompt: ", verify_user_prompt)
     res, res_content = get_llm_response(verify_payload, model=config['model'])
     # print('verify llm output', res_content)
     failure_reason, memory, reason, suggestion, need_plan = process_llm_output(res_content, mode="verifier")
@@ -1204,7 +1201,6 @@ def verify_subtask_completion(env, info):
             closed_subtasks.append(c)
     return open_subtasks, closed_subtasks
 
-import difflib
 
 def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
     
@@ -1269,8 +1265,8 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
 
 def replan_open_subtasks(env, info, completed_subtasks, verify_info):
     replan_prompt, replan_user_prompt = prepare_prompt(env, mode="replan", info=info, verify_info=verify_info)
-    print("replan system prompt: ", replan_prompt)
-    print("replan user prompt: ", replan_user_prompt)
+    # print("replan system prompt: ", replan_prompt)
+    # print("replan user prompt: ", replan_user_prompt)
     replan_payload = prepare_payload(replan_prompt, replan_user_prompt)
     res, res_content = get_llm_response(replan_payload, model=config['model'])
     # print('replan llm output', res_content)
