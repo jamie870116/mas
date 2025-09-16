@@ -7,31 +7,50 @@ Subtasks:
 
 Coverage:
     • LightSwitch
+
+
 """
 
+import sys, pathlib
+ROOT = pathlib.Path(__file__).resolve().parents[2]  
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from env.task_config_checker import TaskConfigChecker
 
-from AI2Thor.baselines.utils.checker import BaseChecker
+def build_checker(env=None):
 
-class Checker(BaseChecker):
-    def __init__(self) -> None:
+    required = ["LightSwitch_1", "DeskLamp_1", "FloorLamp_1"]
 
-        subtasks = [
-        'NavigateTo(LightSwitch)', 'ToggleObjectOff(LightSwitch)'
-        ]
+    cfg = {
+        # "receptacle": receptacle,
+        # "recept_require_items": required,
+        "status_check": [{"is_off": True}],      
+        "status_require_items": [required],
+    }
+    return TaskConfigChecker.from_config(cfg)
 
-        conditional_subtasks = []
+# from AI2Thor.baselines.utils.checker import BaseChecker
 
-        independent_subtasks = subtasks
+# class Checker(BaseChecker):
+#     def __init__(self) -> None:
 
-        coverage = ["LightSwitch"]
-        interact_objects = coverage
-        interact_receptacles = []
+#         subtasks = [
+#         'NavigateTo(LightSwitch)', 'ToggleObjectOff(LightSwitch)'
+#         ]
 
-        super().__init__(
-            subtasks,
-            conditional_subtasks,
-            independent_subtasks,
-            coverage,
-            interact_objects,
-            interact_receptacles,
-        )
+#         conditional_subtasks = []
+
+#         independent_subtasks = subtasks
+
+#         coverage = ["LightSwitch"]
+#         interact_objects = coverage
+#         interact_receptacles = []
+
+#         super().__init__(
+#             subtasks,
+#             conditional_subtasks,
+#             independent_subtasks,
+#             coverage,
+#             interact_objects,
+#             interact_receptacles,
+#         )

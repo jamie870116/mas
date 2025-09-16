@@ -23,6 +23,8 @@ class SceneInitializer:
             objectId="Bowl|-01.82|+01.31|+00.27",
             forceAction=True,
         )
+        
+                 
 
         event=controller.step(
             action='DirtyObject',

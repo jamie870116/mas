@@ -1,7 +1,7 @@
 {
     "num_agents": 2,
-    "scene": "FloorPlan1",
-    "task": "clean the bowl, mug, pot, and pan",
+    "scene": "FloorPlan6",
+    "task": "open all cabinets",
     "timeout": 120,
     "model": "gpt-4.1-2025-04-14",
     "use_obs_summariser": false,
@@ -17,5 +17,5 @@
     "overhead": true,
     "test_id" : 1,
     "save_logs" : true,
-    "task_folder": "wash_bowl_mug_pot_pan"
+    "task_folder": "2_open_all_cabinets"
 }

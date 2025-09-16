@@ -1,5 +1,6 @@
 """
 put knife bowl mug on countertop
+flooplan3,4=>countertop1
 """
 import sys, pathlib
 ROOT = pathlib.Path(__file__).resolve().parents[2]  # Tasks/<task>/checker.py 上兩層到專案根
@@ -8,9 +9,9 @@ if str(ROOT) not in sys.path:
 from env.task_config_checker import TaskConfigChecker
 
 def build_checker(env=None):
-    receptacle = "CounterTop"
+    receptacle = "CounterTop_2"
 
-    required = ["Bowl", "Knife", "Mug"]
+    required = ["Bowl", "ButterKnife", "Mug"]
 
     cfg = {
         "receptacle": receptacle,
@@ -23,8 +24,7 @@ def build_checker(env=None):
 if __name__ == "__main__":
     checker = build_checker()
     print("Checker created:", checker)
-    # 這裡可以模擬測試
     fake_env = None
     checker = build_checker(fake_env)
-    result = checker.check(env=fake_env)   # 假設你的 TaskConfigChecker 有 check() 方法
+    result = checker.check(env=fake_env)  
     print("Check result:", result)

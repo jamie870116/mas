@@ -21,11 +21,12 @@ from pathlib import Path
 import time
 import base64
 from openai import OpenAI
+
 from env_cen import AI2ThorEnv_cen as AI2ThorEnv
 import difflib
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils.helpers import save_to_video
+
 
 client = OpenAI(api_key=Path('api_key_ucsb.txt').read_text())
 
@@ -295,7 +296,6 @@ High-level task: "clean the pot and bowl" with 2 agents, example output:
 'navigate to the bowl, clean the bowl',
 ]
 
-
 """
 
 FALURE_EXAMPLES = f"""
@@ -324,7 +324,7 @@ example:
 ** when given input shows "object-not-in-inventory", means that the current agent didn't not pick up any object to perform the next step, you should have the subtask "pick up xxx, and do xxx". xxx depends on what is the subtask.
 ** when given input shows "object cannot be interacted", means that the target object maybe  broken/disabled/locked, you should skip the related subtask, or try replan/choose an alternative..
 ** when given error shows "NullReferenceException: Target object not found within the specified visibility.", means that the target object may be inside the container and is not visiable to the agent, you should try open the container to find the target object.
-
+** when given error shows "Object <OBJ> is not an Openable object", means that the target object is not openable, you should skip the related subtask.
 - Ensure necessary object prerequisites.
 
 # Example:
@@ -453,10 +453,11 @@ COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that m
 - After Slicing: When an object is sliced, it becomes multiple pieces that keep the same base name but receive new indices/unique IDs. E.g., slicing Apple_1 yields Apple_1, Apple_2, …
 - Toasting (bread): first slice the bread using a butterknife or knife (do not pick up the bread before slicing); then pick up one slice(it should be Bread_1 ~ Bread_9 not BreadSliced), navigate to the toaster, put the slice into the toaster, and turn on the toaster.
 - Each robot can hold only one object at a time. When holding an item, the robot **cannot** perform interactions that require a free hand (e.g., OpenObject, CloseObject, ToggleObjectOn/Off); empty the hand first (put on a surface or drop) before such actions.
-- To clean an object, directly navigate to the object and apply CleanObject.
+- To clean or wash an object, directly navigate to the object and apply CleanObject. Do not use a dishSponge or soapbottle. Do not go to the sink or use the sink.
 - Do not assume default receptacles (e.g., CounterTop, Table) unless explicitly mentioned/present.
 - Close any opened object before leaving when appropriate.
 - Avoid agents blocking each other where possible.
+- Curtains cannot be opened or closed by robots.
 - Object cannot be given to other agent.
 - Unless otherwise specified, assume robots start with empty hands.
 - For electronic items (e.g., television, laptop, phone), toggle power directly on the device; **do not use remote controls** unless explicitly required.
@@ -899,23 +900,62 @@ def set_env_with_config(config_file: str):
     return env, config
 
 
-def get_llm_response(payload, model = "gpt-4o", temperature= 0.7, max_tokens=1024) -> str:
-    # print("using model:", model)
-    # print("payload:", payload)
-    if model.startswith("gpt-4"):
-        # for models: gpt-4.1, gpt-4.1-2025-04-14, gpt-4o,
-        response = client.chat.completions.create(model=model, 
-                                                    messages=payload, 
-                                                    max_tokens=max_tokens, 
-                                                    temperature=temperature,)
-    else:
-        # for models: gpt-5-2025-08-07
-        # max_tokens is replaced by max_completion_tokens; 
-        # 'temperature' does not support 0.7 with this model. Only the default (1) value is supported."
-        response = client.chat.completions.create(model=model, 
-                                                    messages=payload, 
-                                                    max_completion_tokens=max_tokens,)
-    return response, response.choices[0].message.content.strip()
+# def get_llm_response(payload, model = "gpt-4o", temperature= 0.7, max_tokens=1024) -> str:
+#     # print("using model:", model)
+#     # print("payload:", payload)
+#     if model.startswith("gpt-4"):
+#         # for models: gpt-4.1, gpt-4.1-2025-04-14, gpt-4o,
+#         response = client.chat.completions.create(model=model, 
+#                                                     messages=payload, 
+#                                                     max_tokens=max_tokens, 
+#                                                     temperature=temperature,)
+#     else:
+#         # for models: gpt-5-2025-08-07
+#         # max_tokens is replaced by max_completion_tokens; 
+#         # 'temperature' does not support 0.7 with this model. Only the default (1) value is supported."
+#         response = client.chat.completions.create(model=model, 
+#                                                     messages=payload, 
+#                                                     max_completion_tokens=max_tokens,)
+#     return response, response.choices[0].message.content.strip()
+
+import time
+
+def get_llm_response(payload, model="gpt-4.1", temperature=0.9, max_tokens=1024, max_retries=5) -> str:
+    attempt = 0
+    while attempt < max_retries:
+        try:
+            if model.startswith("gpt-4"):
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=payload,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+            else:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=payload,
+                    max_completion_tokens=max_tokens,
+                )
+            return response, response.choices[0].message.content.strip()
+
+        except Exception as e:
+            msg = str(e)
+            if "rate limit" in msg.lower() or "429" in msg:
+                wait_time = 10
+                if "Please try again in" in msg:
+                    try:
+                        wait_time = float(msg.split("in ")[1].split("s")[0])
+                    except:
+                        pass
+                print(f"[RateLimit] {msg} -> sleep {wait_time:.2f}s then retry...")
+                time.sleep(wait_time)
+                attempt += 1
+                continue
+            else:
+                raise e
+
+    raise RuntimeError(f"Failed after {max_retries} retries due to repeated rate limits.")
 
 def prepare_payload(system_prompt, user_prompt, img_urls=None) -> list:
     # print("system_prompt:", system_prompt)
@@ -1023,11 +1063,11 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
                     "Agent's state": a["state"],
                     "Agent's last_action": a["last_action"],
                     "Agent's last_action_success": a["last_action_success"],
-                    "Agent's recent_actions": a["recent_actions"],
-                    "Agent's recent_success_flags": a["recent_success_flags"],
-                    "Agent's subtask_failure_reasons": a["recent_fail_reasons"],
-                    "Agent's previous failures": env.agent_failure_acts.get(a["name"], []),
-                    "Agent's last_check_reason": a["last_check_reason"],
+                    # "Agent's recent_actions": a["recent_actions"],
+                    # "Agent's recent_success_flags": a["recent_success_flags"],
+                    # "Agent's subtask_failure_reasons": a["recent_fail_reasons"],
+                    # "Agent's previous failures": env.agent_failure_acts.get(a["name"], []),
+                    # "Agent's last_check_reason": a["last_check_reason"],
                     "Agent's observation": a["visible_objects"],
                 }
                 for a in snap["agents"]
@@ -1179,7 +1219,7 @@ def verify_actions(env, info):
         "suggestion": suggestion,
         "need_plan": need_plan
     }
-    print("verify_res: ", verify_res)
+    # print("verify_res: ", verify_res)
     return verify_res
 
 def get_steps_by_actions(env, actions):
@@ -1192,8 +1232,8 @@ def verify_subtask_completion(env, info):
     open_subtasks = env.open_subtasks
     closed_subtasks = env.closed_subtasks
     completed_subtasks = info['success_subtasks']
-    print('verifying open_subtasks')
-    print(open_subtasks)
+    # print('verifying open_subtasks')
+    # print(open_subtasks)
     for c in completed_subtasks:
         if c != 'Idle':
             print(c)
@@ -1277,8 +1317,8 @@ def replan_open_subtasks(env, info, completed_subtasks, verify_info):
 
 def memory_gate(env):
     gate_prompt, gate_user_prompt = prepare_prompt(env, mode="memory")
-    print("memory gate system prompt: ", gate_prompt)
-    print("memory gate user prompt: ", gate_user_prompt)
+    # print("memory gate system prompt: ", gate_prompt)
+    # print("memory gate user prompt: ", gate_user_prompt)
     gate_payload = prepare_payload(gate_prompt, gate_user_prompt)
     res, res_content = get_llm_response(gate_payload, model=config['model'])
     
@@ -1362,13 +1402,16 @@ def set_env_with_config(config_file: str):
         config = json.load(f)
     return env, config
 
-def run_main():
+def run_main(test_id = 0):
     # --- Init.
     env, config = set_env_with_config('config/config.json')
     agents = env.agent_names
     task = config["task"]
     timeout = config["timeout"]
-    obs = env.reset(test_case_id=config['test_id'])
+    if test_id > 0:
+        obs = env.reset(test_case_id=test_id)
+    else:
+        obs = env.reset(test_case_id=config['test_id'])
     # --- initial subtask planning
     open_subtasks, completed_subtasks = initial_subtask_planning(env, config)
     info = {}
@@ -1432,7 +1475,8 @@ def run_main():
         
         should_use_memory, memory_res = memory_gate(env)
         print("[Memory] ", should_use_memory, memory_res)
-        if should_use_memory:
+        logs.append(f"[Memory] {should_use_memory}, {memory_res}")
+        if should_use_memory or open_subtasks:
             env.update_memory(memory_res['common_memory'], suggestion=verify_res['reason'] + " Suggestion to do for next step: " + verify_res['suggestion'])
 
         # 7. replan if needed
@@ -1465,14 +1509,29 @@ def run_main():
                 for log in logs:
                     f.write(str(log) + "\n")
             logs = []
-       
+        env.save_log()
         cnt += 1 
-    env.save_log()
-    env.run_task_check()
-    
-    
+        
+    iscomplete, report = env.run_task_check()
+    obj_status = env.get_all_object_status()
+    print("Final Report: ", report)
+    with open(filename, "a", encoding="utf-8") as f:
+        for log in logs:
+            f.write(str(log) + "\n")
+        f.write("Final Report: " + str(report) + "\n")
+        f.write("Success: " + str(iscomplete) + "\n")
+        f.write(f"Total steps: {env.step_num}\n")
+        # f.write(f"Total action steps: {env.action_step_num}\n")
+        f.write("\n")
+        for obj_id, status in obj_status.items():
+            f.write(f"{obj_id}: {status}\n")
+
     env.close()
 
 if __name__ == "__main__":
-    run_main()
+    for i in range(5,6):
+        print(f"==== Running test case {i} ====")
+        run_main(test_id = i)
+        print(f"==== End test case {i} sleep for 50 sec ====")
+        time.sleep(50)
 
