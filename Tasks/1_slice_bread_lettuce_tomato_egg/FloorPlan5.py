@@ -54,14 +54,20 @@ class SceneInitializer:
             },
         )
 
-        event = controller.step(
-            action="PlaceObjectAtPoint",
-            objectId="Spoon|-00.06|+00.90|+00.10",
-            position={
-                "x": 0.6180002403259277,
-                "y": 0.9816430807113647,
-                "z": 0.1300001859664917,
-            },
+        # event = controller.step(
+        #     action="PlaceObjectAtPoint",
+        #     objectId="Spoon|-00.06|+00.90|+00.10",
+        #     position={
+        #         "x": 0.6180002403259277,
+        #         "y": 0.9816430807113647,
+        #         "z": 0.1300001859664917,
+        #     },
+        # )
+
+        event=controller.step(
+            action='PlaceObjectAtPoint',
+            objectId='Spoon|-00.06|+00.90|+00.10',
+            position={'x': -0.9894623756408691, 'y': 0.9002838134765625, 'z': 0.10397972166538239}
         )
 
         event = controller.step(

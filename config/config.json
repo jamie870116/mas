@@ -1,7 +1,7 @@
 {
     "num_agents": 2,
-    "scene": "FloorPlan6",
-    "task": "open all cabinets",
+    "scene": "FloorPlan1",
+    "task": "slice bread, tomato, lettuce and the egg with knife ",
     "timeout": 120,
     "model": "gpt-4.1-2025-04-14",
     "use_obs_summariser": false,
@@ -17,5 +17,5 @@
     "overhead": true,
     "test_id" : 1,
     "save_logs" : true,
-    "task_folder": "2_open_all_cabinets"
+    "task_folder": "2_put_all_vases_countertop"
 }

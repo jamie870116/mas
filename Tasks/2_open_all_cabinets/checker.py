@@ -13,10 +13,23 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from env.task_config_checker import TaskConfigChecker
+def make_cabinet(n: int):
+    return [f"Cabinet_{i}" for i in range(1, n + 1)]
 
 def build_checker(env=None):
-
-    required = ["Cabinet_1", "Cabinet_2", "Cabinet_3", "Cabinet_4","Cabinet_5", "Cabinet_6", "Cabinet_7", "Cabinet_8","Cabinet_9"]
+    current_scene = env.scene if env else "FloorPlan1"
+    if current_scene == "FloorPlan1":
+        required = make_cabinet(9)  # 9 cabinets in FloorPlan1,2
+    elif current_scene == "FloorPlan6":
+        required = make_cabinet(15)  # 15 cabinets in FloorPlan6
+    elif current_scene == "FloorPlan7":   
+        required = make_cabinet(13)  # 13 cabinets in FloorPlan7
+    elif current_scene == "FloorPlan8":
+        required = make_cabinet(17)
+    elif current_scene == "FloorPlan9":
+        required = make_cabinet(28)
+    else:
+        required = make_cabinet(6)  # 9 cabinets in other scenes 10
 
     cfg = {
 

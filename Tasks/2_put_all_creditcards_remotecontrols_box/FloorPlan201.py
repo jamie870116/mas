@@ -18,4 +18,12 @@ class SceneInitializer:
         Returns:
             event: env.event object
         """
+        # Box|-03.36|+00.19|+06.43
+        
+        event=controller.step(
+        action='PlaceObjectAtPoint',
+        objectId='Box|-03.36|+00.19|+06.43',
+        position={'x': -4.5, 'y': 0.19336192309856415, 'z': 2.20195821762085}
+        )
+        print(event.metadata["errorMessage"])
         return event

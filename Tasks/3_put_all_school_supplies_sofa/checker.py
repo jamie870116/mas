@@ -31,71 +31,91 @@ Coverage:
     • CellPhone
     • Sofa
 """
+import sys, pathlib
+ROOT = pathlib.Path(__file__).resolve().parents[2] 
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from env.task_config_checker import TaskConfigChecker
+
+def build_checker(env=None):
+   
+    receptacle = "Sofa_1"
+    
+
+    required = ["Pen", "Pencil", "Laptop", "Book", "CellPhone"]
+
+    cfg = {
+        "receptacle": receptacle,
+        "recept_require_items": required,
+        # "status_check": {"is_on": False},      
+        # "status_require_items": [faucet],
+    }
+    return TaskConfigChecker.from_config(cfg)
 
 
-from AI2Thor.baselines.utils.checker import BaseChecker
+# from AI2Thor.baselines.utils.checker import BaseChecker
 
-class Checker(BaseChecker):
-    def __init__(self) -> None:
-        subtasks = [
-            'NavigateTo(Pen)',
-             'PickUpObject(Pen)',
-             'NavigateTo(Sofa, Pen)',
-             'PutObject(Sofa, Pen)',
-             'NavigateTo(Pencil)',
-             'PickUpObject(Pencil)',
-             'NavigateTo(Sofa, Pencil)',
-             'PutObject(Sofa, Pencil)',
-             'NavigateTo(Laptop)',
-             'PickUpObject(Laptop)',
-             'NavigateTo(Sofa, Laptop)',
-             'PutObject(Sofa, Laptop)',
-             'NavigateTo(Book)',
-             'PickUpObject(Book)',
-             'NavigateTo(Sofa, Book)',
-             'PutObject(Sofa, Book)',
-             'NavigateTo(CellPhone)',
-             'PickUpObject(CellPhone)',
-             'NavigateTo(Sofa, Cellphone)',
-             'PutObject(Sofa, Cellphone)'
-            ]
+# class Checker(BaseChecker):
+#     def __init__(self) -> None:
+#         subtasks = [
+#             'NavigateTo(Pen)',
+#              'PickUpObject(Pen)',
+#              'NavigateTo(Sofa, Pen)',
+#              'PutObject(Sofa, Pen)',
+#              'NavigateTo(Pencil)',
+#              'PickUpObject(Pencil)',
+#              'NavigateTo(Sofa, Pencil)',
+#              'PutObject(Sofa, Pencil)',
+#              'NavigateTo(Laptop)',
+#              'PickUpObject(Laptop)',
+#              'NavigateTo(Sofa, Laptop)',
+#              'PutObject(Sofa, Laptop)',
+#              'NavigateTo(Book)',
+#              'PickUpObject(Book)',
+#              'NavigateTo(Sofa, Book)',
+#              'PutObject(Sofa, Book)',
+#              'NavigateTo(CellPhone)',
+#              'PickUpObject(CellPhone)',
+#              'NavigateTo(Sofa, Cellphone)',
+#              'PutObject(Sofa, Cellphone)'
+#             ]
 
-        conditional_subtasks = [
-        'NavigateTo(Sofa, Pen)',
-         'PutObject(Sofa, Pen)',
-         'NavigateTo(Sofa, Pencil)',
-         'PutObject(Sofa, Pencil)',
-         'NavigateTo(Sofa, Laptop)',
-         'PutObject(Sofa, Laptop)',
-         'NavigateTo(Sofa, Book)',
-         'PutObject(Sofa, Book)',
-         'NavigateTo(Sofa, Cellphone)',
-         'PutObject(Sofa, Cellphone)'
-        ]
+#         conditional_subtasks = [
+#         'NavigateTo(Sofa, Pen)',
+#          'PutObject(Sofa, Pen)',
+#          'NavigateTo(Sofa, Pencil)',
+#          'PutObject(Sofa, Pencil)',
+#          'NavigateTo(Sofa, Laptop)',
+#          'PutObject(Sofa, Laptop)',
+#          'NavigateTo(Sofa, Book)',
+#          'PutObject(Sofa, Book)',
+#          'NavigateTo(Sofa, Cellphone)',
+#          'PutObject(Sofa, Cellphone)'
+#         ]
 
 
-        independent_subtasks = [
-            'NavigateTo(Pen)',
-             'PickUpObject(Pen)',
-             'NavigateTo(Pencil)',
-             'PickUpObject(Pencil)',
-             'NavigateTo(Laptop)',
-             'PickUpObject(Laptop)',
-             'NavigateTo(Book)',
-             'PickUpObject(Book)',
-             'NavigateTo(CellPhone)',
-             'PickUpObject(CellPhone)'
-            ]
+#         independent_subtasks = [
+#             'NavigateTo(Pen)',
+#              'PickUpObject(Pen)',
+#              'NavigateTo(Pencil)',
+#              'PickUpObject(Pencil)',
+#              'NavigateTo(Laptop)',
+#              'PickUpObject(Laptop)',
+#              'NavigateTo(Book)',
+#              'PickUpObject(Book)',
+#              'NavigateTo(CellPhone)',
+#              'PickUpObject(CellPhone)'
+#             ]
 
-        coverage = ["Pen", "Pencil", "Laptop", "Book", "CellPhone", "Sofa"]
-        interact_objects = coverage
-        interact_receptacles = ["Sofa"]
+#         coverage = ["Pen", "Pencil", "Laptop", "Book", "CellPhone", "Sofa"]
+#         interact_objects = coverage
+#         interact_receptacles = ["Sofa"]
 
-        super().__init__(
-            subtasks,
-            conditional_subtasks,
-            independent_subtasks,
-            coverage,
-            interact_objects,
-            interact_receptacles,
-        )
+#         super().__init__(
+#             subtasks,
+#             conditional_subtasks,
+#             independent_subtasks,
+#             coverage,
+#             interact_objects,
+#             interact_receptacles,
+#         )

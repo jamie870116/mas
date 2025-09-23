@@ -9,16 +9,18 @@ if str(ROOT) not in sys.path:
 from env.task_config_checker import TaskConfigChecker
 
 def build_checker(env=None):
-    receptacle = "CounterTop_2"
-
-    required = ["Bowl", "ButterKnife", "Mug"]
+    receptacle = ["CounterTop_1", "CounterTop_2", "CounterTop_3"]
+    
+    required = ["Bowl_1", "ButterKnife_1", "Mug_1"]
 
     cfg = {
+        "is_multiple": True,
         "receptacle": receptacle,
         "recept_require_items": required,
         # "status_check": {"is_on": False},      
         # "status_require_items": [faucet],
     }
+    
     return TaskConfigChecker.from_config(cfg)
 
 if __name__ == "__main__":

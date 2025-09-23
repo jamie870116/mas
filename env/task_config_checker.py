@@ -12,12 +12,13 @@ class TaskConfigChecker:
         recept_require_items: Optional[List[str]] = None,
         status_checks: Optional[StatusChecks] = None,
         status_require_items: Optional[List[str]] = None,
+        is_multiple: bool = False,
     ):
         self.receptacle = receptacle
         self.need_items = list(recept_require_items or [])
         self.status_checks = list(status_checks or {})
         self.status_targets = list(status_require_items or [])
-        # print(f"Initialized TaskConfigChecker with receptacle={self.receptacle}, need_items={self.need_items}, status_checks={self.status_checks}, status_targets={self.status_targets}")
+        self.is_multiple = bool(is_multiple)   
 
     @classmethod
     def from_config(cls, cfg: Dict[str, Any]) -> "TaskConfigChecker":
@@ -26,6 +27,7 @@ class TaskConfigChecker:
             recept_require_items=cfg.get("recept_require_items", []),
             status_checks=cfg.get("status_check"),
             status_require_items=cfg.get("status_require_items", []),
+            is_multiple=cfg.get("is_multiple", False),
         )
 
     def check(self, env) -> Tuple[bool, Dict[str, Any]]:
@@ -51,46 +53,65 @@ class TaskConfigChecker:
     def _check_containment(self, env, report: Dict[str, Any]) -> bool:
         if not (self.receptacle and self.need_items):
             return True
-        try:
-            rec_stat = env.get_object_status(self.receptacle)
-        except Exception as e:
-            report["containment"] = {"error": f"receptacle not found: {e}"}
-            return False
-        ids = rec_stat.get("contains") or []
-        readable = env.get_readable_object_list(ids) if ids else []
-        counts = Counter(self._base(n) for n in readable)
-        missing = {}
-        for item in self.need_items:
-            base = self._base(item)
-            if counts.get(base, 0) < 1:
-                missing[base] = 1
-        report["containment"] = {"found_counts": dict(counts), "missing": missing}
-        return len(missing) == 0
+        
+        
+        if not self.is_multiple:
+            try:
+                rec_stat = env.get_object_status(self.receptacle)
+            except Exception as e:
+                report["containment"] = {"error": f"receptacle not found: {e}"}
+                return False
+            ids = rec_stat.get("contains") or []
+            readable = env.get_readable_object_list(ids) if ids else []
+            counts = Counter(self._base(n) for n in readable)
+            missing = {}
+            for item in self.need_items:
+                base = self._base(item)
+                if counts.get(base, 0) < 1:
+                    missing[base] = 1
+            report["containment"] = {"found_counts": dict(counts), "missing": missing}
+            return len(missing) == 0
+        else:
+            recepts = self.receptacle if isinstance(self.receptacle, list) else [self.receptacle]
+            found_ids: List[str] = []
+            found_readable_by_rec: Dict[str, List[str]] = {}
+            rec_errors: Dict[str, str] = {}
 
-    # def _check_status(self, env, report: Dict[str, Any]) -> bool:
-    #     if not (self.status_checks and self.status_targets):
-    #         return True
-    #     results, all_ok = [], True
-    #     for target in self.status_targets:
-    #         try:
-    #             st = env.get_object_status(target)
-    #         except Exception as e:
-    #             results.append({"target": target, "ok": False, "error": str(e)})
-    #             all_ok = False
-    #             continue
-    #         t_ok, detail = self._eval_checks(st, self.status_checks)
-    #         results.append({"target": target, "ok": t_ok, "detail": detail})
-    #         all_ok = all_ok and t_ok
-    #     report["status_results"] = results
-    #     return all_ok
+            for r in recepts:
+                try:
+                    rs = env.get_object_status(r)  # r: str
+                    ids = rs.get("contains") or []
+                    readables = env.get_readable_object_list(ids) if ids else []
+                    found_ids.extend(ids or [])
+                    found_readable_by_rec[r] = readables
+                except Exception as e:
+                    rec_errors[r] = str(e)
+
+            all_readables = [n for lst in found_readable_by_rec.values() for n in lst]
+            found_counts = Counter(self._base(n) for n in all_readables)
+
+            required_counts = Counter(self._base(x) for x in self.need_items)
+
+            missing: Dict[str, int] = {}
+            for base, need_cnt in required_counts.items():
+                have = found_counts.get(base, 0)
+                if have < need_cnt:
+                    missing[base] = need_cnt - have
+
+            report["containment"] = {
+                "mode": "multiple",
+                "receptacles": recepts,
+                "per_receptacle_found": found_readable_by_rec,
+                "found_counts": dict(found_counts),
+                "required_counts": dict(required_counts),
+                "missing": missing,
+                **({"errors": rec_errors} if rec_errors else {}),
+            }
+            return len(missing) == 0
+
     
     def _check_status(self, env, report: Dict[str, Any]) -> bool:
-        """
-        假設：
-        - len(self.status_checks) == len(self.status_targets)
-        - 每個 self.status_checks[i] 僅包含一個狀態鍵（dict 單鍵，或 ('key', value)）
-        - self.status_targets[i] 是要檢查的一組目標（list[str] 或 str）
-        """
+
         if not (self.status_checks and self.status_targets):
             return True
         if len(self.status_checks) != len(self.status_targets):
@@ -99,22 +120,20 @@ class TaskConfigChecker:
         results, all_ok = [], True
 
         for targets, check_for in zip(self.status_targets, self.status_checks):
-            # print(f"Checking targets: {targets} for conditions: {check_for}")
-            # ---- normalize targets 為 list[str] ----
+
             if isinstance(targets, str):
                 targets = [targets]
             elif not isinstance(targets, list):
                 targets = list(targets)
 
-            # ---- normalize check_for 為 List[Tuple[str, Any]] ----
             if isinstance(check_for, tuple):
-                checks = [check_for]                       # 例：("isDirty", False)
+                checks = [check_for]                       
             elif isinstance(check_for, dict):
                 if len(check_for) != 1:
                     raise ValueError("only one key allowed in each status_check(dict) ")
-                checks = list(check_for.items())           # 例：[("isDirty", False)]
+                checks = list(check_for.items())           
             elif isinstance(check_for, list):
-                checks = check_for                         # 已是 list of (k,v)
+                checks = check_for                        
             else:
                 raise ValueError("status_check required dict、(k,v) tuple 或 list of pairs")
 
@@ -125,7 +144,7 @@ class TaskConfigChecker:
                     results.append({"target": target, "ok": False, "error": str(e)})
                     all_ok = False
                     continue
-
+                print(f"Checking status for {target}: {st} against {checks}")
                 t_ok, detail = self._eval_checks(st, checks)
                 results.append({"target": target, "ok": t_ok, "detail": detail})
                 all_ok = all_ok and t_ok
@@ -152,7 +171,11 @@ class TaskConfigChecker:
                 actual = (obj_status.get("isToggled", False) is False)
             elif name == "isDirty":
                 actual = bool(obj_status.get("isDirty", False))
-
+            elif name == "isSliced":
+                actual = bool(obj_status.get("isSliced", False))
+                obj_name = obj_status.get("name", "")
+                if any(tag in obj_name for tag in ["Slice", "Sliced", "Cracked"]):
+                    actual = True
             else:
                 actual = obj_status.get(name, None)
             ok = (actual == expected)

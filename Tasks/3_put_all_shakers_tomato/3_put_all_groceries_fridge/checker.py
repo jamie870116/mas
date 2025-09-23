@@ -16,43 +16,64 @@ Coverage:
     • Tomato
     • CounterTop
 """
+import sys, pathlib
+ROOT = pathlib.Path(__file__).resolve().parents[2]  
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from env.task_config_checker import TaskConfigChecker
 
-from AI2Thor.baselines.utils.checker import BaseChecker
+def build_checker(env=None):
+    receptacle = ["CounterTop_1", "CounterTop_2", "CounterTop_3"]
+    
+    required = ["SaltShaker_1", "Tomato_1", "PepperShaker_1"]
+
+    cfg = {
+        "is_multiple": True,
+        "receptacle": receptacle,
+        "recept_require_items": required,
+        # "status_check": {"is_on": False},      
+        # "status_require_items": [faucet],
+    }
+    
+    return TaskConfigChecker.from_config(cfg)
 
 
-class Checker(BaseChecker):
-    def __init__(self) -> None:
-        subtasks = [
-            "NavigateTo(SaltShaker)",
-            "PickupObject(SaltShaker)",
-            "NavigateTo(Tomato, SaltShaker)",
-            "PutObject(CounterTop, SaltShaker)",
-            "NavigateTo(PepperShaker",
-            "PickupObject(PepperShaker)",
-            "NavigateTo(Tomato, PepperShaker)",
-            "PutObject(CounterTop, PepperShaker)",
-        ]
-        conditional_subtasks = [
-            "NavigateTo(Tomato, SaltShaker)",
-            "PutObject(CounterTop, SaltShaker)",
-            "NavigateTo(Tomato, PepperShaker)",
-            "PutObject(CounterTop, PepperShaker)",
-        ]
-        independent_subtasks = [
-            "NavigateTo(SaltShaker)",
-            "PickupObject(SaltShaker)",
-            "NavigateTo(PepperShaker",
-            "PickupObject(PepperShaker)",
-        ]
-        coverage = ["PepperShaker", "SaltShaker", "Tomato", "CounterTop"]
-        interact_objects = ["PepperShaker", "SaltShaker", "Tomato"]
-        interact_receptacles = ["CounterTop"]
+# from AI2Thor.baselines.utils.checker import BaseChecker
 
-        super().__init__(
-            subtasks,
-            conditional_subtasks,
-            independent_subtasks,
-            coverage,
-            interact_objects,
-            interact_receptacles,
-        )
+
+# class Checker(BaseChecker):
+#     def __init__(self) -> None:
+#         subtasks = [
+#             "NavigateTo(SaltShaker)",
+#             "PickupObject(SaltShaker)",
+#             "NavigateTo(Tomato, SaltShaker)",
+#             "PutObject(CounterTop, SaltShaker)",
+#             "NavigateTo(PepperShaker",
+#             "PickupObject(PepperShaker)",
+#             "NavigateTo(Tomato, PepperShaker)",
+#             "PutObject(CounterTop, PepperShaker)",
+#         ]
+#         conditional_subtasks = [
+#             "NavigateTo(Tomato, SaltShaker)",
+#             "PutObject(CounterTop, SaltShaker)",
+#             "NavigateTo(Tomato, PepperShaker)",
+#             "PutObject(CounterTop, PepperShaker)",
+#         ]
+#         independent_subtasks = [
+#             "NavigateTo(SaltShaker)",
+#             "PickupObject(SaltShaker)",
+#             "NavigateTo(PepperShaker",
+#             "PickupObject(PepperShaker)",
+#         ]
+#         coverage = ["PepperShaker", "SaltShaker", "Tomato", "CounterTop"]
+#         interact_objects = ["PepperShaker", "SaltShaker", "Tomato"]
+#         interact_receptacles = ["CounterTop"]
+
+#         super().__init__(
+#             subtasks,
+#             conditional_subtasks,
+#             independent_subtasks,
+#             coverage,
+#             interact_objects,
+#             interact_receptacles,
+#         )

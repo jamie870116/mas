@@ -44,6 +44,11 @@ class SceneInitializer:
             objectId= 'Lettuce|-01.71|+00.82|-00.14',
             position= {'x': -0.2285050332546234, 'y': 0.9874744415283203, 'z': 0.051799306869506836}
         )
+        event=controller.step(
+            action='PlaceObjectAtPoint',
+            objectId='ButterKnife|+01.67|+00.69|-00.11',
+            position={'x': -0.21697187423706055, 'y': 0.9203401207923889, 'z': 0.9360155463218689}
+        )
 
 
         return event

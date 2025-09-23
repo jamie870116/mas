@@ -2,6 +2,9 @@
 Pre-initialization for FloorPlan1 task.
 FloorPlan1: the tomato and bread do not need to be moved
 The egg needs to be moved out of the fridge
+
+
+Knife|-01.70|+00.79|-00.22 at {'x': -1.3832156658172607, 'y': 0.7908880114555359, 'z': -0.22279931604862213}
 """
 
 class SceneInitializer:
@@ -43,6 +46,12 @@ class SceneInitializer:
             action='PlaceObjectAtPoint',
             objectId= 'Lettuce|-01.81|+00.97|-00.94',
             position= {'x': -1.8069772720336914, 'y': 0.9737606048583984, 'z': -0.9429917931556702}
+        )
+
+        event=controller.step(
+            action='PlaceObjectAtPoint',
+            objectId='Knife|-01.70|+00.79|-00.22',
+            position={'x': 0.28795111179351807, 'y': 1.1067818403244019, 'z': 0.051941558718681335}
         )
 
         return event

@@ -296,6 +296,7 @@ High-level task: "clean the pot and bowl" with 2 agents, example output:
 'navigate to the bowl, clean the bowl',
 ]
 
+
 """
 
 FALURE_EXAMPLES = f"""
@@ -323,7 +324,7 @@ example:
 ** when given input shows "object-not-found" and based on given object list of environment, that there's no target object, you can skipped the related subtask.
 ** when given input shows "object-not-in-inventory", means that the current agent didn't not pick up any object to perform the next step, you should have the subtask "pick up xxx, and do xxx". xxx depends on what is the subtask.
 ** when given input shows "object cannot be interacted", means that the target object maybe  broken/disabled/locked, you should skip the related subtask, or try replan/choose an alternative..
-** when given error shows "NullReferenceException: Target object not found within the specified visibility.", means that the target object may be inside the container and is not visiable to the agent, you should try open the container to find the target object.
+** when given error shows "NullReferenceException: Target object not found within the specified visibility.", means that the target object is not visiable to the agent, you should try rotate the direction or looking up or down or open the container to find the target object, don't move forward, the object should be close enough already.
 ** when given error shows "Object <OBJ> is not an Openable object", means that the target object is not openable, you should skip the related subtask.
 - Ensure necessary object prerequisites.
 
@@ -414,6 +415,19 @@ Output:
   ]
 }}
 
+Example 5: Given Assignement:
+[
+'navigate to the sink, turn off the faucet',
+'navigate to the stove burner, turn off the stoveknob',
+]
+Output:
+{{
+"Actions": [
+    ["NavigateTo(Sink_1)", "CleanObject(Faucet_1)"],
+    ["NavigateTo(StoveBurner_1)", "CleanObject(StoveKnob_1)"]
+  ]
+}}
+
 """
 
 AI2THOR_ACTIONS = f"""
@@ -441,9 +455,10 @@ Do not include explanations, comments, or markdown formatting.
 
 COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that mirrors real-world physics and affordances, but with explicit constraints enumerated below.
 - Use only objects listed in the current environment and reflect real-world affordances.
+- Navigate directly to the target object, not to the receptacle(such as Table, Dinning Table, COunterTop, etc.) it is in or on top. 
 - Do not search inside containers unless the task explicitly requires it.
-- Never use OpenObject on non-openable surfaces (e.g., tables, countertops).
-- For openable containers (e.g., fridge, drawer, cabinet):
+- Never use OpenObject on non-openable surfaces (e.g., tables, countertops, dresser, curtains).
+- For openable containers (e.g., fridge, drawer, cabinet, box is not required to close):
   - Open before use; the robot's hand must be empty before opening or closing.
   - Close after use.
   - To place an object inside: open → pick up the object → deposit it inside → close.
@@ -537,6 +552,7 @@ Begin with a concise checklist (3-7 bullets) of what you will do; keep items con
 - Decompose the main task into subtasks that the robots can complete, taking into account the robots' abilities and the objects available.
 - Make sure to cover all the subtasks to complete the final goal.
 - Merge steps that must occur in a strict sequence into a **single** subtask.
+- Navigate directly to the target object, not to the container or receptacle it is in.
 {COMMON_GUIDELINES}
 - Output only the subtasks JSON as specified, with no extra explanations or formatting.
 
@@ -710,7 +726,7 @@ Your goal is to replan a valid and efficient sequence of subtasks based on the c
 
 # Instructions
 - Avoid repeating success subtasks unless conditions have changed; minimize steps.
-- Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. 
+- Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. If the target object is not in visibility try RotateLeft/Right or LookUp/Down first.
 - By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
 {COMMON_GUIDELINES}
 
@@ -920,7 +936,7 @@ def set_env_with_config(config_file: str):
 
 import time
 
-def get_llm_response(payload, model="gpt-4.1", temperature=0.9, max_tokens=1024, max_retries=5) -> str:
+def get_llm_response(payload, model="gpt-4.1", temperature=0.7, max_tokens=1024, max_retries=5) -> str:
     attempt = 0
     while attempt < max_retries:
         try:
@@ -1529,9 +1545,12 @@ def run_main(test_id = 0):
     env.close()
 
 if __name__ == "__main__":
-    for i in range(5,6):
+    start = 4
+    end = 6
+    for i in range(start,end):
         print(f"==== Running test case {i} ====")
         run_main(test_id = i)
         print(f"==== End test case {i} sleep for 50 sec ====")
-        time.sleep(50)
+        if i < end - 1:
+            time.sleep(50)
 

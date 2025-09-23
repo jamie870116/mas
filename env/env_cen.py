@@ -85,7 +85,7 @@ class BaseEnv:
         ]
         self.large_receptacles = ["Cabinet", "CounterTop",  "DiningTable",
             "Drawer", "Fridge", "GarbageCan", "Microwave",
-             "Shelf", "SideTable", "Sink", "SinkBasin","ArmChair", "Box", "CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin"]
+             "Shelf", "SideTable", "SinkBasin","ArmChair", "Box","CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin"]
         self.small_objects = [
             # kitchen
             "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl"
@@ -785,6 +785,18 @@ class AI2ThorEnv_cen(BaseEnv):
             )
 
         if not plan:
+            obj_meta = next(
+                (o for o in self.event.metadata["objects"] if o["objectId"] == obj_id),
+                None
+            )
+            agent_pos = cur_pos
+            obj_pos = obj_meta["position"]
+            obj_base_name = object_name.split("_")[0]
+            dist = ((agent_pos["x"] - obj_pos["x"]) ** 2 + (agent_pos["z"] - obj_pos["z"]) ** 2) ** 0.5
+            if dist < 1.0 and obj_base_name in self.small_objects:
+                if obj_id not in self.get_object_in_view(agent_id):
+                    return [f"LookDown(30)"]
+                
             self.nav_no_plan[self.agent_names[agent_id]] = True
             self._record_subtask_failure(agent_id, reason="no-path", at_action=action)
             return []
@@ -994,7 +1006,7 @@ class AI2ThorEnv_cen(BaseEnv):
                     self.logs.append(f'previous success: {self.subtask_success_history[self.agent_names[aid]]}')
                 # print(f'previous success: {self.subtask_success_history[self.agent_names[aid]]}')
                 # print(f'check if subtask: {sub} is completed')
-                if self.is_subtask_done(sub, aid):
+                if success and self.is_subtask_done(sub, aid):
                     if self.save_logs:
                         self.logs.append(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
                     print(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
@@ -1549,12 +1561,15 @@ class AI2ThorEnv_cen(BaseEnv):
             if self.save_logs:
                 self.logs.append(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
             print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
-            if dist > 1.0 and dist < 2.0 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
+            if dist > 1.0 and dist < 1.8 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
-                
-            elif dist > 1.1:
+            elif agent_id > 0 and dist > 1.0 and dist < 2.4 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
+                suc = True
+                self.current_hl[agent_id] = None
+                self.action_queue[agent_id].clear()
+            elif dist > 1.2:
                 # error_type += f": distance-too-far ({dist:.2f}m)"
                 if not self.action_queue[agent_id]:
                     self.last_check_reason[self.agent_names[agent_id]] = f"no path to object {obj_id} with distance ({dist:.2f}m), may be block by other agent, should wait for one step"
@@ -1598,7 +1613,7 @@ class AI2ThorEnv_cen(BaseEnv):
                             # print(f'need to change pitch to {p_degree}')
                             self.pending_high_level[agent_id].appendleft(act_pitch+"(" + str(p_degree) + ")")
                         # suc = self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot, agent_cam)
-                        print(f'*** is obect {obj} in center view: {suc}')
+                        # print(f'*** is obect {obj} in center view: {suc}')
                     # elif obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id) and not self.action_queue[agent_id]:
                     #     suc = True
                     #     self.current_hl[agent_id] = None
@@ -1606,7 +1621,7 @@ class AI2ThorEnv_cen(BaseEnv):
                         
                     #     # self.pending_high_level[agent_id].appendleft(subtask)
                     #     self.pending_high_level[agent_id].appendleft('LookDown(30)')
-                        # print('pending: ',self.pending_high_level[agent_id])
+                    #     print('pending: ',self.pending_high_level[agent_id])
                     
                     else:
                         if self.save_logs:
