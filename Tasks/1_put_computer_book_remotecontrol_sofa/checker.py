@@ -30,7 +30,7 @@ from env.task_config_checker import TaskConfigChecker
 def build_checker(env=None):
     receptacle = "Sofa_1"
 
-    required = ["Computer", "RemoteControl", "Book"]
+    required = ["Laptop", "RemoteControl", "Book"]
 
     cfg = {
         "receptacle": receptacle,

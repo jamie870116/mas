@@ -1,8 +1,8 @@
 {
     "num_agents": 2,
-    "scene": "FloorPlan1",
-    "task": "slice bread, tomato, lettuce and the egg with knife ",
-    "timeout": 120,
+    "scene": "FloorPlan202",
+    "task": "put computer, book, and remotecontrol on the sofa",
+    "timeout": 30,
     "model": "gpt-4.1-2025-04-14",
     "use_obs_summariser": false,
     "use_act_summariser": false,
@@ -17,5 +17,5 @@
     "overhead": true,
     "test_id" : 1,
     "save_logs" : true,
-    "task_folder": "2_put_all_vases_countertop"
+    "task_folder": "1_put_computer_book_remotecontrol_sofa"
 }

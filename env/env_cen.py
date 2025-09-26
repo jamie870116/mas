@@ -84,7 +84,7 @@ class BaseEnv:
             "ToiletPaperHanger", "TowelHolder"
         ]
         self.large_receptacles = ["Cabinet", "CounterTop",  "DiningTable",
-            "Drawer", "Fridge", "GarbageCan", "Microwave",
+            "Drawer", "Fridge", "GarbageCan", "Microwave", "Sofa"
              "Shelf", "SideTable", "SinkBasin","ArmChair", "Box","CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin"]
         self.small_objects = [
             # kitchen
@@ -1249,6 +1249,7 @@ class AI2ThorEnv_cen(BaseEnv):
             - steps (List[List[str]])  # atomic per action
 
         """
+        print("self.timeout: ", self.timeout)
         self.cur_plan = cur_plan
         if self.save_logs:
             self.logs.append(f"----Start a new plan----")
@@ -1290,7 +1291,10 @@ class AI2ThorEnv_cen(BaseEnv):
             
             # break if timeout
             elapsed = time.time() - start_time
+            
             if self.timeout and elapsed > self.timeout:
+                if self.save_logs:
+                    self.logs.append("**********Timeout!**********")
                 # return False, self._gather_status()
                 break
 
@@ -1312,7 +1316,7 @@ class AI2ThorEnv_cen(BaseEnv):
             # # 若有 agent 失敗，立即跳出
             if not all(succ):
                 break
-            start_time = time.time()
+            # start_time = time.time()
             
         if self.save_logs:
             self.logs.append("----------End-----------")
@@ -1371,19 +1375,15 @@ class AI2ThorEnv_cen(BaseEnv):
         if self.cur_plan and agent_id < len(self.cur_plan):
             nl_subtask = self.cur_plan[agent_id].get("subtask")  # 自然語言版本
 
-        # 回退：若拿不到自然語言，就用目前的高階 action 當 key
         if nl_subtask is None:
             nl_subtask = self.current_hl.get(agent_id) or "Unknown-Subtask"
 
-        # 紀錄至 per-agent list
         payload = {"subtask": nl_subtask, "reason": reason}
         if at_action:
             payload["at_action"] = at_action
 
-        # self.subtask_failure_reasons[agent_name].append(payload)
         self.subtask_failure_reasons[agent_name] = payload
 
-        # 也更新 failed_acts（已有結構，這裡只保證有 at_action 時也同步放）
         if at_action:
             self.agent_failure_acts[agent_name].append(at_action)
 
@@ -1565,7 +1565,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
-            elif agent_id > 0 and dist > 1.0 and dist < 2.4 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
+            elif agent_id > 0 and dist > 1.0 and dist < 2.5 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()

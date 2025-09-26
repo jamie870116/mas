@@ -1,0 +1,21 @@
+{
+  "num_agents": 2,
+  "scene": "FloorPlan3",
+  "task": "Put all shakers in the fridge",
+  "timeout": 30,
+  "model": "gpt-4.1-2025-04-14",
+  "use_obs_summariser": false,
+  "use_act_summariser": false,
+  "use_action_failure": true,
+  "use_shared_subtask": true,
+  "use_separate_subtask": false,
+  "use_shared_memory": true,
+  "use_separate_memory": false,
+  "use_plan": true,
+  "force_action": false,
+  "temperature": 0.7,
+  "overhead": true,
+  "test_id": 6,
+  "save_logs": true,
+  "task_folder": "3_put_all_shakers_fridge"
+}

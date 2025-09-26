@@ -74,7 +74,6 @@ def save_to_video(file_name: str, fps: int = 10, project_root: str = None):
         height, width, _ = first_frame.shape
         
         # Define the output video path
-        # E.g., if subfolder is task1/test_4/Alice/pov, video will be task1/test_4/Alice_pov.mp4
         video_name = subfolder.name if subfolder.name == "overhead" else f"{subfolder.parent.name}_{subfolder.name}"
         video_path = task_path / f"{video_name}.mp4"
         
@@ -93,6 +92,11 @@ def save_to_video(file_name: str, fps: int = 10, project_root: str = None):
 
 if __name__ == "__main__":
     # Example usage with relative path
-    # for i in range(1, 6):
-    #     save_to_video(f"logs/clean_bowl,_mug,_pot_and_pan/test_{i}")
-    save_to_video("logs/open_all_cabinets/test_1")
+    # for i in range(1,6):
+        # save_to_video(f"logs/4_make_living_room_dark/floorplan201/test_{i}")
+        # save_to_video(f"logs/4_make_living_room_dark/floorplan202/test_{i}")
+        # save_to_video(f"logs/4_make_living_room_dark/floorplan203/test_{i}")
+        # save_to_video(f"logs/4_make_living_room_dark/floorplan204/test_{i}")
+        # save_to_video(f"logs/4_make_living_room_dark/floorplan205/test_{i}")
+        # save_to_video(f"logs/4_make_living_room_dark/floorplan206/test_{i}")
+    save_to_video("logs/put_computer,_book,_and_remotecontrol_on_the_sofa/test_1")
