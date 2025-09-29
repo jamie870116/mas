@@ -1,7 +1,7 @@
 {
   "num_agents": 2,
   "scene": "FloorPlan1",
-  "task": "put all shakers and tomato on the counter top",
+  "task": "put all shakers and tomato on the counter top(any countertop is okay)",
   "timeout": 30,
   "model": "gpt-4.1-2025-04-14",
   "use_obs_summariser": false,

@@ -88,7 +88,7 @@ class BaseEnv:
              "Shelf", "SideTable", "SinkBasin","ArmChair", "Box","CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin"]
         self.small_objects = [
             # kitchen
-            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl"
+            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl","Drawer"
             # living room
             "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox","LightSwitch","DeskLamp"
             # bedroom
@@ -115,9 +115,9 @@ class BaseEnv:
                 return pickle.load(f)
         return {}
     
-    def create_save_dirs(self, test_case_id: str = None):
+    def create_save_dirs(self, test_case_id: str = None, scene: str = None):
         """Create directories for saving images under a task-specific folder with test case subfolder."""
-        self.base_path = Path("logs/" + self.task.replace(" ", "_"))
+        self.base_path = Path("logs/" + self.task.replace(" ", "_") + "/" + scene)
         if test_case_id:
             self.base_path = self.base_path / f"test_{test_case_id}"
         for agent_name in self.agent_names:
@@ -595,7 +595,7 @@ class AI2ThorEnv_cen(BaseEnv):
         event = self.controller.step(action="AddThirdPartyCamera", **event.metadata["actionReturn"])
 
         if not self.skip_save_dir:
-            self.create_save_dirs(test_case_id)
+            self.create_save_dirs(test_case_id, self.scene)
         
         for agent_id in range(self.num_agents):
             self.event = self.controller.step(

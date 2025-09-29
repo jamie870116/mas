@@ -1,6 +1,7 @@
 """
 Pre-initialization for FloorPlan201 task.
 FloorPlan201 does not need any modifications for the task of putting items on a sofa.
+For both plate and bowl in Box (No valid positions to place object found)
 """
 
 class SceneInitializer:

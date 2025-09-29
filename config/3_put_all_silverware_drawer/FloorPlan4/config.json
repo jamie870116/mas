@@ -1,7 +1,7 @@
 {
   "num_agents": 2,
   "scene": "FloorPlan4",
-  "task": "Put all silverware in the drawer",
+  "task": "Put all silverware in the drawer(any drawer is okay)",
   "timeout": 30,
   "model": "gpt-4.1-2025-04-14",
   "use_obs_summariser": false,
