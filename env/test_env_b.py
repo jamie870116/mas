@@ -1,6 +1,8 @@
 # test_env_b_script.py
 # from env_b import AI2ThorEnv
-from env_cen import AI2ThorEnv_cen as AI2ThorEnv
+# from env_cen import AI2ThorEnv_cen as AI2ThorEnv
+
+from env_log import AI2ThorEnv_cen as AI2ThorEnv
 import os
 import sys
 import json
@@ -211,7 +213,7 @@ if __name__ == "__main__":
     # # print(objs)
     high_level_tasks = [
         #  ["RotateRight"], ["Idle"]
-        ['NavigateTo(Plate_1)',  'PickupObject(Plate_1)', 'NavigateTo(Box_1)', 'PutObject(Box_1)', 'NavigateTo(Bowl_1)',  'PickupObject(Bowl_1)', 'NavigateTo(Box_1)', 'PutObject(Box_1)'],  ['Idle']
+        ['NavigateTo(Lettuce_1)',  'PutObject(CreditCard_1)', ],  ['Idle']
     ]
     # high_level_tasks = [
     #     ["NavigateTo(RemoteControl_1)", "PickupObject(RemoteControl_1)", "NavigateTo(Box_1)", "PutObject(Box_1)"],
@@ -226,7 +228,7 @@ if __name__ == "__main__":
         env,
         high_level_tasks=high_level_tasks,
         test_name="Test 18",
-        test_id=18,
+        test_id=19,
         task_name = task_name,
     )
     # input_llm = env.get_obs_llm_input()

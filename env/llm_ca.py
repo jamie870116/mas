@@ -1,8 +1,5 @@
 '''
-Baseline : Centralized LLM + replanning + shared memory(llm based)
-
-TBD:
-- () more test 
+Baseline : Centralized LLM + replanning
 
 structure same as llm_c.py but with more information about the environment and positions, failures, etc.:
 1. initial planning (remain the same as previous method: given task, let planner and editor to generate a list of subtasks (this will be the open subtasks)
