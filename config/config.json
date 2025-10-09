@@ -1,7 +1,7 @@
 {
     "num_agents": 2,
-    "scene": "FloorPlan201",
-    "task": "Make the living room dark",
+    "scene": "FloorPlan9",
+    "task": "Open all the cabinets",
     "timeout": 60,
     "model": "gpt-4.1-2025-04-14",
     "use_obs_summariser": false,
@@ -17,5 +17,5 @@
     "overhead": true,
     "test_id": 5,
     "save_logs": true,
-    "task_folder": "4_make_livingroom_dark"
+    "task_folder": "2_open_all_cabinets"
 }

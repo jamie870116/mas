@@ -314,7 +314,7 @@ VERIFY_EXAMPLE = f"""
 # Error and Faulures handling
 - Navigation: "no-path", "object-not-in-view", "distance-too-far": Use micro-movements (MoveAhead, RotateRight, etc.) to get in view/reach, using current/target positions and available observations. For example, you can have subtasks like "look down and navigate to potato" if previous failure reason of "pick up potato" was "object-not-in-view". Or you can have subtask like "use micro-movements to navigate to potato" if previous subtask "navigate to potato" was failured.
 example: 
-** If the input reports "no-path" to <Obj> while <Obj> exists and the images/observations indicate a physical occluder (e.g., an open fridge door between the agent and the target or blocked by other agent), issue a short detour macro before retrying. For example: RotateRight twice, then MoveAhead once, then retry NavigateTo(<Obj>).This decision must use multiple signals—images/2D detections, object states (e.g., isOpen for doors), recent actions, and visible objects—not just the Reachable positions list. Or navigate to somewhere far away to clean the paht.
+** If the input reports "no-path" to <Obj> while <Obj> exists and the images/observations indicate a physical occluder (e.g., an open fridge door between the agent and the target or blocked by other agent), issue a short detour macro before retrying. For example: RotateRight twice, then MoveAhead once, then retry NavigateTo(<Obj>).This decision must use multiple signals—images/2D detections, object states (e.g., isOpen for doors), recent actions, and visible objects—not just the Reachable positions list. Or navigate to somewhere far away to clean the path.
 ** When the input shows "no-path" and a likely cause is another agent blocking the aisle or target approach (same narrow corridor, same target, or the other agent is on the planned route), assign a yield/wait behavior to avoid deadlock: have the blocked agent Idle for 1 or 2 steps or take a small lateral/back step (MoveRight/MoveLeft/MoveBack) to clear space, or temporarily reassign the blocking agent to a different subtask/movement. After the yielding action, retry NavigateTo(<Obj>).
 ** when given input shows "object-not-in-view" for subtask "navigate to tomato", and based on other input information, that the distance between the agent and the tomato is already close enough, then you can have subtask "Lookdown" or "Lookup" to find the tomato or "RotateRight" or "RotateLetf".
 ** when when given input shows "object-not-in-view" for subtask "navigate to tomato and pick up tomato", but you can still see a tomato based on the given point of view image, then try directly pick up the tomato without navigation.
@@ -442,7 +442,7 @@ COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that m
 - After Slicing: When an object is sliced, it becomes multiple pieces that keep the same base name but receive new indices/unique IDs. E.g., slicing Apple_1 yields Apple_1, Apple_2, …
 - Toasting (bread): first slice the bread using a butterknife or knife (do not pick up the bread before slicing); then pick up one slice(it should be Bread_1 ~ Bread_9 not BreadSliced), navigate to the toaster, put the slice into the toaster, and turn on the toaster.
 - Each robot can hold only one object at a time. When holding an item, the robot **cannot** perform interactions that require a free hand (e.g., OpenObject, CloseObject, ToggleObjectOn/Off); empty the hand first (put on a surface or drop) before such actions.
-- Clean only when explicitly required, using CleanObject or put it under a running faucet.
+- Clean only when explicitly required, using CleanObject or put it under a running faucet. Do not use a sponge or soap unless specified.
 - Avoid unnecessary/redundant actions; minimize steps.
 - Do not assume default receptacles (e.g., CounterTop, Table) unless explicitly mentioned/present.
 - Close any opened object before leaving when appropriate.
@@ -1131,15 +1131,29 @@ def encode_image(image_path: str):
         return base64.b64encode(image_file.read()).decode("utf-8")
 
 
+# def verify_actions(env, info={}, need_process=False):
+#     verify_prompt, verify_user_prompt = prepare_prompt(env, mode="verifier", need_process=need_process)
+#     base64_image = [encode_image(env.get_frame(i)) for i in range(len(AGENT_NAMES))]
+
+#     image_urls = [
+#         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}"}}
+#         for image in base64_image
+#     ]
+#     verify_payload = prepare_payload(verify_prompt, verify_user_prompt, img_urls=image_urls)
+#     # print("verify prompt: ", verify_user_prompt)
+#     res, res_content = get_llm_response(verify_payload, model=config['model'])
+#     # print('verify llm output', res_content)
+#     need_replan, reason, suggestion = process_llm_output(res_content, mode="verifier")
+#     verify_res = {
+#         "need_replan": need_replan,
+#         "reason": reason,
+#         "suggestion": suggestion
+#     }
+#     return verify_res
+
 def verify_actions(env, info={}, need_process=False):
     verify_prompt, verify_user_prompt = prepare_prompt(env, mode="verifier", need_process=need_process)
-    base64_image = [encode_image(env.get_frame(i)) for i in range(len(AGENT_NAMES))]
-
-    image_urls = [
-        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}"}}
-        for image in base64_image
-    ]
-    verify_payload = prepare_payload(verify_prompt, verify_user_prompt, img_urls=image_urls)
+    verify_payload = prepare_payload(verify_prompt, verify_user_prompt)
     # print("verify prompt: ", verify_user_prompt)
     res, res_content = get_llm_response(verify_payload, model=config['model'])
     # print('verify llm output', res_content)
@@ -1174,10 +1188,6 @@ import difflib
 
 def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
     """
-    用寬鬆比對把已完成的 subtasks 從 open_subtasks 中剔除，並加入 closed_subtasks。
-    - 先做正規化（去掉 'Alice:' 這類 agent 前綴、strip）
-    - 再嘗試：精確比對 → 子字串 / 前綴 → 相似度比對（difflib）
-
     Args:
         env: 你的環境物件
         info: dict，至少包含 "success_subtasks"
@@ -1273,9 +1283,9 @@ def bundle_task_plan(subtasks, actions, decomp_actions):
     Pack corresponding subtask, actions, and decomposed actions into aligned dicts.
     [
         { # for each agent
-            "subtask": str,       # 語意任務的自然語言描述
-            "actions": List[str], # 高階動作清單（LLM 輸出）
-            "steps": List[List[str]]  # 每個 high-level action 對應的原子步驟序列
+            "subtask": str,       
+            "actions": List[str],
+            "steps": List[List[str]]
         }
         ...
     ]
@@ -1342,106 +1352,6 @@ def set_env_with_config(config_file: str):
     with open(config_file, "r") as f:
         config = json.load(f)
     return env, config
-
-# def run_main():
-#     # --- Init.
-#     env, config = set_env_with_config('config/config.json')
-#     agents = env.agent_names
-#     task = config["task"]
-#     timeout = config["timeout"]
-#     obs = env.reset(test_case_id=config['test_id'])
-#     # --- initial subtask planning
-#     open_subtasks, completed_subtasks = initial_subtask_planning(env, config)
-#     info = {}
-#     # --- loop start
-#     cnt = 0
-#     start_time = time.time()
-#     logs = []
-#     filename = env.base_path / "logs_llm.txt"
-#     while open_subtasks and (time.time() - start_time < timeout):
-#         print(f"\n--- Loop {cnt + 1} ---")
-#         logs.append(f"\n--- Loop {cnt + 1} ---")
-
-#         env.update_plan(open_subtasks, completed_subtasks)
-#         logs.append(f"----")
-#         logs.append(f"open_subtasks: {env.open_subtasks}")
-#         logs.append(f'completed_subtasks: {env.closed_subtasks}')
-#         print("open_subtasks: ", env.open_subtasks)
-#         print("closed_subtasks: ", env.closed_subtasks)
-
-#         # 2. allocate subtasks to each agent
-#         logs.append(f"----allocating subtasks to agents----")
-#         agent_assignments, remain = allocate_subtasks_to_agents(env)
-#         print("agent_assignments: ", agent_assignments)
-#         logs.append(f"agent_assignments: {agent_assignments}")
-#         # print("remain unassigned subtasks: ", remain)
-        
-#         # # 3. decompose subtask to smaller actions
-#         logs.append(f"----decomposing subtasks to agents----")
-#         if info:
-#             actions = decompose_subtask_to_actions(env, agent_assignments, info)
-#         else:
-#             actions = decompose_subtask_to_actions(env, agent_assignments)
-#         # print("actions: ", actions)
-#         logs.append(f"actions: {actions}")
-#         decomp_actions = get_steps_by_actions(env, actions)
-        
-#         # # 4. execution
-#         # print("decomp_actions: ", decomp_actions)
-#         logs.append(f"decomp_actions: {decomp_actions}")
-#         cur_plan = bundle_task_plan(agent_assignments, actions, decomp_actions)
-#         # print("cur_plan: ", cur_plan)
-#         logs.append(f"cur_plan: {cur_plan}")
-#         logs.append(f"----executing subtasks to agents----")
-#         isSuccess, info = env.stepwise_action_loop(cur_plan)
-#         # print('info', info)
-#         logs.append(f"info: {info}")
-#         logs.append(f"----verifying subtasks to agents----")
-#         # # 5. verify which subtasks are done 
-#         open_subtasks, completed_subtasks = verify_subtask_completion(env, info)
-#         print("after verify open_subtasks: ", open_subtasks)
-#         print("after verify closed_subtasks: ", completed_subtasks)
-#         logs.append(f"after verify open_subtasks: {open_subtasks}")
-#         logs.append(f"after verify closed_subtasks: {completed_subtasks}")
-#         env.update_plan(open_subtasks, completed_subtasks)
-
-#         # 6. replan if needed
-#         if open_subtasks or not isSuccess:
-#             logs.append(f"----replanning subtasks to agents----")
-#             verify_res = verify_actions(env, info)
-#             print("verify result: ", verify_res)
-#             logs.append(f"verify result: {verify_res}")
-            
-#             open_subtasks, completed_subtasks = replan_open_subtasks(env, info, completed_subtasks, verify_res)
-#             # print("replan open_subtasks: ", open_subtasks)
-#             # print("replan closed_subtasks: ", completed_subtasks)
-#             logs.append(f"replan open_subtasks: {open_subtasks}")
-#             logs.append(f"replan closed_subtasks: {completed_subtasks}")
-            
-#             start_time = time.time()
-#             get_object_dict = env.get_object_dict()
-#             logs.append(f"current Object dictionary: {get_object_dict}")
-#             # print("current Object dictionary:", get_object_dict)
-#             for i in range(len(env.agent_names)):
-#                 state = env.get_agent_state(i)
-#                 view = env.get_object_in_view(i)
-#                 mapping = env.get_mapping_object_pos_in_view(i)
-
-#                 logs.append(f"Agent {i} ({env.agent_names[i]}) observation: I see: {mapping}")
-#                 logs.append(f"Agent {i} ({env.agent_names[i]}) state: {state}")
-#                 logs.append(f"Agent {i} ({env.agent_names[i]}) can see object: {view}")
-
-#             # break
-#             with open(filename, "a", encoding="utf-8") as f:
-#                 for log in logs:
-#                     f.write(str(log) + "\n")
-#             logs = []
-       
-#         cnt += 1 
-#     env.save_log()
-    
-    
-#     env.close()
 
 
 def run_main(test_id = 0, config_path="config/config.json"):
@@ -1565,7 +1475,210 @@ def run_main(test_id = 0, config_path="config/config.json"):
 
     env.close()
 
+def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0):
+    """
+    tasks: e.g. TASKS_1, TASKS_2 ...
+    base_dir: the root config folder
+    repeat: how many times each config runs
+    sleep_after: seconds to sleep between runs
+    """
+    script_dir = Path(__file__).parent  # /mas/utils
+    base_path = (script_dir / ".." / base_dir).resolve()
+
+    for task in tasks:
+        task_folder = task["task_folder"]
+        for scene in task["scenes"]:
+            cfg_path = base_path / task_folder / scene / "config.json"
+
+            if not cfg_path.exists():
+                print(f"[WARN] Config not found: {cfg_path}")
+                continue
+
+            print(f"==== Using config: {cfg_path} ====")
+
+            for r in range(start, end + 1):
+                print(f"---- Run {r}/{end} for {cfg_path} ----")
+                run_main(test_id = r, config_path=str(cfg_path))
+                time.sleep(sleep_after)
+
+            print(f"==== Finished {cfg_path} ====")
+
 
 if __name__ == "__main__":
-    run_main(test_id = 1, config_path="config/config.json")
+    TASKS_1 = [
+    # {
+    #     "task_folder": "1_put_bread_lettuce_tomato_fridge",
+    #     "task": "put bread, lettuce, and tomato in the fridge",
+    #     "scenes": ["FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", 
+    # },
+    # {
+    #     "task_folder": "1_put_computer_book_remotecontrol_sofa",
+    #     "task": "put laptop, book and remote control on the sofa",
+    #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203", "FloorPlan209", "FloorPlan224"] 
+    # },
+    # {
+    #     "task_folder": "1_put_knife_bowl_mug_countertop",
+    #     "task": "put knife, bowl, and mug on the counter top",
+    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # ,"FloorPlan1", "FloorPlan4", "FloorPlan5"
+    # },
+    # {
+    #     "task_folder": "1_put_plate_mug_bowl_fridge",
+    #     "task": "put plate, mug, and bowl in the fridge",
+    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] 
+    # },
+    # {
+    #     "task_folder": "1_put_remotecontrol_keys_watch_box",
+    #     "task": "put remote control, keys, and watch in the box",
+    #     "scenes": ["FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207","FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", ] # 
+    # },
+    # {
+    #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
+    #     "task": "put vase, tissue box, and remote control on the side table1",
+    #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan216"] # , "FloorPlan219"
+    # },
+    # {
+    #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
+    #     "task": "put vase, tissue box, and remote control on the desk",
+    #     "scenes": ["FloorPlan229"] #"FloorPlan201", "FloorPlan203", "FloorPlan216",
+    # },
+    # {
+    #     "task_folder": "1_slice_bread_lettuce_tomato_egg",
+    #     "task": "slice bread, lettuce, tomato, and egg with knife",
+    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", 
+    # },
+    # {
+    #     "task_folder": "1_turn_off_faucet_light",
+    #     "task": "turn off the sink faucet and turn off the light switch",
+    #     "scenes": [ "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3",
+    # },
+    {
+        "task_folder": "1_wash_bowl_mug_pot_pan",
+        "task": "clean the bowl, mug, pot, and pan",
+        "scenes": ["FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", 
+    },
+]
+
+    TASKS_2 = [
+        # {
+        #     "task_folder": "2_open_all_cabinets",
+        #     "task": "open all the cabinets",
+        #     "scenes": [ "FloorPlan10"]#"FloorPlan1", "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9",
+        # },
+        # {
+        #     "task_folder": "2_open_all_drawers",
+        #     "task": "open all the drawers",
+        #     "scenes": [ "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4",
+        # },
+        {
+            "task_folder": "2_put_all_creditcards_remotecontrols_box",
+            "task": "put all credit cards and remote controls in the box",
+            "scenes": ["FloorPlan201", "FloorPlan203","FloorPlan204", "FloorPlan205"]
+        },
+        {
+            "task_folder": "2_put_all_vases_countertop",
+            "task": "put all the vases on the counter top",
+            "scenes": ["FloorPlan1", "FloorPlan5"]
+        },
+        {
+            "task_folder": "2_put_all_tomatoes_potatoes_fridge",
+            "task": "put all tomatoes and potatoes in the fridge",
+            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        },
+        
+        {
+            "task_folder": "2_turn_on_all_stove_knobs",
+            "task": "turn on all the stove knobs",
+            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9"]
+        },  
+    ]
+
+    TASKS_3 = [
+        # {-
+        #     "task_folder": "3_clear_table_to_sofa",
+        #     "task": "Put all readable objects on the sofa",
+        #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"]
+        # },
+        # {
+        #     "task_folder": "3_put_all_food_countertop",
+        #     "task": "Put all food on the countertop",
+        #     "scenes": [ "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3",
+        # },
+        # {
+        #     "task_folder": "3_put_all_groceries_fridge",
+        #     "task": "Put all groceries in the fridge",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        # },
+        # {
+        #     "task_folder": "3_put_all_kitchenware_box",
+        #     "task": "Put all kitchenware in the cardboard box",
+        #     "scenes": ["FloorPlan201"]
+        # },
+        # {
+        #     "task_folder": "3_put_all_school_supplies_sofa",
+        #     "task": "Put all school supplies on the sofa",
+        #     "scenes": ["FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"]
+        # },
+        # {
+        #     "task_folder": "3_put_all_shakers_fridge",
+        #     "task": "Put all shakers in the fridge",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        # },  
+        # {
+        #     "task_folder": "3_put_all_shakers_tomato", # on countertop
+        #     "task": "put all shakers and tomato on the counter top",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        # },  
+        # {
+        #     "task_folder": "3_put_all_silverware_drawer",
+        #     "task": "Put all silverware in the drawer",
+        #     "scenes": [ "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+        # },  
+        # {
+        #     "task_folder": "3_put_all_tableware_countertop",
+        #     "task": "Put all tableware on the countertop",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        # },  
+        # {-
+        #     "task_folder": "3_transport_groceries",
+        #     "task": "put_all_food_countertops",
+        #     "scenes": ["FloorPlan1"]
+        # },  
+        
+    ]
+
+    TASKS_4 = [
+    {
+        "task_folder": "4_clear_couch_livingroom",
+        "task": "Clear the couch by placing the items in other appropriate positions ",
+        "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan209", ] #"FloorPlan212" hen
+    },
+    {
+        "task_folder": "4_clear_countertop_kitchen",
+        "task": "Clear the countertop by placing items in their appropriate positions",
+        "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"]
+    },
+    {
+        "task_folder": "4_clear_floor_kitchen",
+        "task": "Clear the floor by placing items at their appropriate positions",
+        "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+    },
+    {
+        "task_folder": "4_clear_table_kitchen",
+        "task": "Clear the table by placing the items in their appropriate positions",
+        "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
+    },
+    # {
+    #     "task_folder": "4_make_livingroom_dark",
+    #     "task": "Make the living room dark",
+    #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"]
+    # },
+    {
+        "task_folder": "4_put_appropriate_storage",
+        "task": "Place all utensils into their appropriate positions",
+        "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+    },  
+]
+    
+    batch_run(TASKS_2, base_dir="config", start=1, end=1, sleep_after=50)
+    # run_main(test_id = 1, config_path="config/config.json")
 

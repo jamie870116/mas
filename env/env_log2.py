@@ -704,7 +704,12 @@ class AI2ThorEnv_cen(BaseEnv):
 
     def generate_obs_text(self, agent_id: int, prefix: str = "I see: ", mode="list") -> Tuple[str, List[str]]:
         """Generate observation text and list."""
-
+        """
+        mode: "list" | "mapping"
+        - "list": 回傳 ['Tomato_1', 'Fridge_1', ...]
+        - "mapping": 回傳 { 'Tomato_1': {'x': .., 'z': ..}, ... }
+                    並產出一段以鍵名為主的摘要文字
+        """
         if mode == "mapping":
             mapping = self.get_mapping_object_pos_in_view(agent_id)  # {Name_Idx: {'x','z'}}
             names = sorted(mapping.keys())
@@ -713,6 +718,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 obs_text = prefix + str(self.summarise_obs(names))
             return obs_text, mapping
 
+        # 預設行為：list
         objects_in_view = self.get_object_in_view(agent_id)
         obs_list = self.get_readable_object_list(objects_in_view)
         if self.use_obs_summariser:
@@ -725,6 +731,16 @@ class AI2ThorEnv_cen(BaseEnv):
         """Placeholder for observation summarization. (LLM) """
         return obs_list
     
+    """
+    available actions
+    self.return_actions = ["Return"]
+    self.move_actions = ["MoveAhead", "MoveBack", "MoveRight", "MoveLeft"]
+    self.rotate_actions = ["RotateRight", "RotateLeft"]
+    self.look_actions = ["LookUp", "LookDown"]
+    self.idle_actions = ["Done", "Idle"]
+    self.object_interaction_actions = ["PickupObject", "PutObject", "OpenObject", "CloseObject", "ToggleObjectOn", "ToggleObjectOff", "BreakObject", "CookObject", "SliceObject", "DirtyObject", "CleanObject", "FillObjectWithLiquid", "EmptyLiquidFromObject", "UseUpObject"]
+    self.object_interaction_without_navigation  = ["DropHandObject", "ThrowObject"]
+    """
        
     def get_navigation_step(self, action: str, agent_id: int) -> List[str]:
         object_name = action.split("(")[1].rstrip(")")
@@ -875,16 +891,13 @@ class AI2ThorEnv_cen(BaseEnv):
         
 
         for aid in range(self.num_agents):
-            log_dict = {
-                'timestemp':self.step_num[aid],
-                'agent_id':aid,
-                'agent_name':self.agent_names[aid],
-                'curr_subtask':self.current_hl.get(aid, None),
-                'type': 'Attempt',
-                'payload':{}
-            }
-
-
+            log_dict = {}
+            log_dict['timestemp'] = self.step_num[aid]
+            log_dict['agent_id'] = aid
+            log_dict['agent_name'] = self.agent_names[aid]
+            log_dict['curr_subtask'] = self.current_hl[aid]
+            log_dict['type'] = 'Attempt'
+            log_dict['payload'] = {}
             if self.current_hl[aid]:
                 actions = ["Idle"] * self.num_agents
                 actions[aid] = self.current_hl[aid]
@@ -1039,7 +1052,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 log_dict['payload']['inventory'] = self.get_agent_object_held(aid)
                 log_dict['payload']['observation'] = obs
 
-                filename = self.base_path / f"event_{aid}.jsonl"
+                filename = self.base_path / "event.jsonl"
                 with open(filename, "a", encoding="utf-8") as f:
                     f.write(json.dumps(log_dict, ensure_ascii=False) + "\n")
 
@@ -1056,9 +1069,57 @@ class AI2ThorEnv_cen(BaseEnv):
 
         return self.get_observations(), act_successes
     
-    
+    def get_rightside_block_positions(self, obj_meta, add_pos, block_step=0.25, steps=4, y_offset=0.901):
+        """
+        根據冰箱 metadata 推算門打開後右側需要手動 block 的位置列表。
+        :return: List[Dict]，要遮擋的世界座標點 (x, y, z)
+        """
+        fx, _, fz = obj_meta["position"]["x"], obj_meta["position"]["y"], obj_meta["position"]["z"]
+        yaw = obj_meta["rotation"]["y"] % 360
+        yaw_rad = math.radians(yaw)
+
+        if 315 <= yaw or yaw < 45:
+            facing = "+Z"
+        elif 45 <= yaw < 135:
+            facing = "+X"
+        elif 135 <= yaw < 225:
+            facing = "-Z"
+        else:
+            facing = "-X"
+
+        def world_to_local(x, z):
+            dx = x - fx
+            dz = z - fz
+            local_x = dx * math.sin(yaw_rad) - dz * math.cos(yaw_rad)
+            local_z = dx * math.cos(yaw_rad) + dz * math.sin(yaw_rad)
+            return (local_x, local_z)
+
+        local_points = [(pt, world_to_local(pt[0], pt[2])) for pt in add_pos]
+        local_points_sorted = sorted(local_points, key=lambda p: p[1][0], reverse=True)
+        rightmost_world_pt = local_points_sorted[0][0]
+
+        dir_x = math.sin(yaw_rad)
+        dir_z = -math.cos(yaw_rad)
+
+        blocked_positions = []
+
+        for i in range(0, steps):
+            dx = dir_x * block_step * i
+            dz = dir_z * block_step * i
+            x = round(rightmost_world_pt[0] + dx, 3)
+            z = round(rightmost_world_pt[2] + dz, 3)
+            y = round(y_offset, 3)
+
+            # 原始高度
+            blocked_positions.append({"x": x, "y": y, "z": z})
+            # 門下方 + 0.25
+            blocked_positions.append({"x": x, "y": y, "z": round(z - 0.25, 3)})
+
+        return blocked_positions
+
+
     def action_loop(self, high_level_tasks: List[str]):
-        """execute the actions from high level for testing
+        """execute the actions from high level
         high_level_tasks: e.g.
           [
             [subtasks for agent_0],
@@ -1150,6 +1211,7 @@ class AI2ThorEnv_cen(BaseEnv):
 
     def actions_decomp(self, actions: List[str]):
         '''
+        從llm_c.py接收一系列動作，將其各自分解成可執行的原子動作
         Input:
         actions:
         [
@@ -1311,12 +1373,16 @@ class AI2ThorEnv_cen(BaseEnv):
             self.logs = []  # clear logs after saving
 
     def _record_subtask_failure(self, agent_id: int, reason: str, at_action: str | None = None):
-
+        """
+        將當前 agent 所屬的「自然語言 subtask」記一筆失敗理由。
+        - reason: "no-path" / "failed-at: MoveAhead" / "object-not-in-view" / "distance-too-far (1.73m)" / try/except 錯誤訊息 ...
+        - at_action: 可填入目前的高階或低階動作字串，便於 LLM 重建脈絡
+        """
         print(f'Recording subtask failure for agent {agent_id} ({self.agent_names[agent_id]}): {reason}')
         agent_name = self.agent_names[agent_id]
         nl_subtask = None
         if self.cur_plan and agent_id < len(self.cur_plan):
-            nl_subtask = self.cur_plan[agent_id].get("subtask") 
+            nl_subtask = self.cur_plan[agent_id].get("subtask")  # 自然語言版本
 
         if nl_subtask is None:
             nl_subtask = self.current_hl.get(agent_id) or "Unknown-Subtask"
@@ -1359,19 +1425,25 @@ class AI2ThorEnv_cen(BaseEnv):
         suc = False
         if subtask in self.idle_actions or subtask in self.move_actions or subtask in self.rotate_actions or subtask in self.look_actions or subtask in self.object_interaction_without_navigation: 
             suc = True
+            # print('cam degree ', self.event.events[agent_id].metadata["agent"]["cameraHorizon"])
+            # self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
             return suc
         
 
+        # subtask  "PickupObject(Tomato_1)"
         name, obj = subtask[:-1].split("(", 1)
         # print(f'checking action: {name} with obj: {obj}')
         if name in self.look_actions:
             suc = True
-   
+            # print('cam degree ', self.event.events[agent_id].metadata["agent"]["cameraHorizon"])
+            # self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
+            # return suc
         
         elif name == "PickupObject":
             suc = self.inventory[agent_id] == obj
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-picked-up"
+            # return self.inventory[agent_id] == obj
 
         elif name == "PutObject":
             if self.inventory[agent_id] != "nothing":
@@ -1379,7 +1451,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 if not suc:
                     self.last_check_reason[self.agent_names[agent_id]] = f"object({self.inventory[agent_id]})-not-put-down"
                 return suc
-            else: 
+            else: # TBD: need more test
                 recep_status = self.get_object_status(obj)
                 contains = recep_status.get("contains") or []
                 prev_sub = ""
@@ -1415,19 +1487,23 @@ class AI2ThorEnv_cen(BaseEnv):
             suc = self.get_object_status(obj).get("is_open", False)
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-opened"
+            # return self.get_object_status(obj).get("is_open", False)
         elif name == "CloseObject":
             suc = not self.get_object_status(obj).get("is_open", False)
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-closed"
+            # return not self.get_object_status(obj).get("is_open", False)
 
         elif name == "ToggleObjectOn":
             suc = self.get_object_status(obj).get("is_on", False)
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-toggled-on"
+            # return self.get_object_status(obj).get("is_on", False)
         elif name == "ToggleObjectOff":
             suc = not self.get_object_status(obj).get("is_on", False)
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-toggled-off"
+            # return not self.get_object_status(obj).get("is_on", False)
 
         elif name == "BreakObject":
             suc = self.get_object_status(obj).get("isBroken", False)
@@ -1436,6 +1512,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 # print(self.object_dict)
             else:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-broken"
+            # return self.get_object_status(obj).get("isBroken", False)
         elif name == "SliceObject":
             suc = self.get_object_status(obj).get("isSliced", False)
             if suc:
@@ -1444,11 +1521,13 @@ class AI2ThorEnv_cen(BaseEnv):
             else:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-sliced"
             # print(self.get_all_objects())
+            # return self.get_object_status(obj).get("isSliced", False)
 
         elif name == "FillObjectWithLiquid":
             suc = self.get_object_status(obj).get("isFilledWithLiquid", False)
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-filled-with-liquid"
+            # return self.get_object_status(obj).get("isFilledWithLiquid", False)
         elif name == "EmptyLiquidFromObject":
             suc = not self.get_object_status(obj).get("isFilledWithLiquid", True)
             if not suc:
@@ -1458,6 +1537,7 @@ class AI2ThorEnv_cen(BaseEnv):
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-used-up"
             # print(self.get_object_status(obj))
+            # return not self.get_object_status(obj).get("isFilledWithLiquid", True)
         elif name == "DirtyObject":
             suc = self.get_object_status(obj).get("isDirty", False)
             if not suc:
@@ -1473,6 +1553,7 @@ class AI2ThorEnv_cen(BaseEnv):
             try:
                 obj_id = self.convert_readable_object_to_id(obj)
             except ValueError:
+                # 記錄失敗並回報 False
                 # self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-exist"
                 # self._record_subtask_failure(agent_id, reason=f"object({obj})-not-exist", at_action=subtask)
                 return False
@@ -1600,6 +1681,7 @@ class AI2ThorEnv_cen(BaseEnv):
         command, _ = self.get_pitch_reset_command(cur_pitch)
         if self.save_logs:
             self.logs.append(f'Reset command: {command}')
+        # print('Reset command:', command)
         if command:
             self.pending_high_level[agent_id].appendleft(command)
 
@@ -1634,10 +1716,11 @@ class AI2ThorEnv_cen(BaseEnv):
         # offset: + if object is on right side, - if on left
         offset = bbox_center_x - frame_center_x
 
+        # 假設最大視角為 90 度，估算角度差異（簡化線性推估）
         max_angle = 90
         angle_diff = (offset / (frame_width / 2)) * (max_angle / 2)
 
-        if abs(angle_diff) < 30: 
+        if abs(angle_diff) < 30:  # 小於5度視為已對準
             return 0, ""
 
         action = "RotateRight" if angle_diff > 0 else "RotateLeft"
@@ -1787,7 +1870,8 @@ class AI2ThorEnv_cen(BaseEnv):
     
     def get_single_readable_object(self, object_id: str) -> str:
         """
-         objectId to readable (如 Tomato_1)
+        將單一 objectId 轉為可讀名稱 (如 Tomato_1) ，
+        同時更新 self.object_dict 內部索引。
         """
         obj_name, obj_coord = self.parse_object(object_id)
 
@@ -1811,6 +1895,7 @@ class AI2ThorEnv_cen(BaseEnv):
         """
         mapping: Dict[str, str] = {}
 
+        # 逐一處理 event.metadata["objects"] 內的 objectId
         for obj in self.event.metadata["objects"]:
             obj_id = obj["objectId"]
             readable = self.get_single_readable_object(obj_id)
@@ -1920,7 +2005,19 @@ class AI2ThorEnv_cen(BaseEnv):
         return logs
 
     def get_obs_llm_input(self, recent_logs=False, need_process=False):
-        
+        """
+        ### Output FORMAT ###
+        {{
+        Task: description of the task the robots are supposed to do,
+        Number of agents: number of agents in the environment,
+        Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
+        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
+        # Reachable positions: list of reachable positions in the environment,
+        Objects in environment: list of all objects in the environment,
+        {agent_name[i]}'s observation: list of objects and its postion the {agent_name[i]} is observing,
+        {agent_name[i]}'s state: description of {agent_name[i]}'s state(position, facing direction and inventory),
+
+        """
         contains_list = self.get_obj_in_containers()
         obj_list = self.get_all_objects()
         

@@ -99,4 +99,4 @@ if __name__ == "__main__":
         # save_to_video(f"logs/4_make_living_room_dark/floorplan204/test_{i}")
         # save_to_video(f"logs/4_make_living_room_dark/floorplan205/test_{i}")
         # save_to_video(f"logs/4_make_living_room_dark/floorplan206/test_{i}")
-    save_to_video("logs/put_computer,_book,_and_remotecontrol_on_the_sofa/test_1")
+    save_to_video("logs/clean_the_bowl/FloorPlan1/test_1")

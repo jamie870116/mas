@@ -1,7 +1,7 @@
 {
   "num_agents": 2,
   "scene": "FloorPlan3",
-  "task": "put knife, bowl, and mug on the counter top",
+  "task": "put butter knife, bowl, and mug on the counter top1",
   "timeout": 30,
   "model": "gpt-4.1-2025-04-14",
   "use_obs_summariser": false,

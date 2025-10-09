@@ -1,7 +1,7 @@
 {
   "num_agents": 2,
   "scene": "FloorPlan1",
-  "task": "clean the bowl, mug, pot, and pan",
+  "task": "clean the bowl, mug, pot, and pan (do not use dish sponge or soap)",
   "timeout": 30,
   "model": "gpt-4.1-2025-04-14",
   "use_obs_summariser": false,

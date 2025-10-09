@@ -213,7 +213,8 @@ if __name__ == "__main__":
     # # print(objs)
     high_level_tasks = [
         #  ["RotateRight"], ["Idle"]
-        ['NavigateTo(Lettuce_1)',  'PutObject(CreditCard_1)', ],  ['Idle']
+        ["NavigateTo(Cabinet_1)", "OpenObject(Cabinet_1)"],
+    ["NavigateTo(Cabinet_2)", "OpenObject(Cabinet_2)"]
     ]
     # high_level_tasks = [
     #     ["NavigateTo(RemoteControl_1)", "PickupObject(RemoteControl_1)", "NavigateTo(Box_1)", "PutObject(Box_1)"],

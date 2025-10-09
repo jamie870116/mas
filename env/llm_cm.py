@@ -1633,11 +1633,11 @@ if __name__ == "__main__":
 ]
 
     TASKS_2 = [
-        # {
-        #     "task_folder": "2_open_all_cabinets",
-        #     "task": "open all the cabinets",
-        #     "scenes": ["FloorPlan1", "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9", "FloorPlan10"]
-        # },
+        {
+            "task_folder": "2_open_all_cabinets",
+            "task": "open all the cabinets",
+            "scenes": ["FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan10"] #"FloorPlan1", 
+        },
         # {
         #     "task_folder": "2_open_all_drawers",
         #     "task": "open all the drawers",
@@ -1755,6 +1755,6 @@ if __name__ == "__main__":
 
     # batch_run(TASKS_1, base_dir="config", repeat=3, sleep_after=50)
 
-    # batch_run(TASKS_2, base_dir="config", repeat=3, sleep_after=50)
-    batch_run(TASKS_3, base_dir="config", repeat=1, sleep_after=50)
+    batch_run(TASKS_2, base_dir="config", repeat=1, sleep_after=50)
+    # batch_run(TASKS_3, base_dir="config", repeat=1, sleep_after=50)
     batch_run(TASKS_4, base_dir="config", repeat=1, sleep_after=50)
