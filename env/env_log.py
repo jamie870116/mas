@@ -1,3 +1,4 @@
+# 改成各自存log file -> llm_log2.py
 import json
 import os
 from pathlib import Path
@@ -1039,7 +1040,12 @@ class AI2ThorEnv_cen(BaseEnv):
                 log_dict['payload']['inventory'] = self.get_agent_object_held(aid)
                 log_dict['payload']['observation'] = obs
 
-                filename = self.base_path / f"event_{aid}.jsonl"
+                if log_dict['type'] == 'Success' or log_dict['type'] == 'Failed':
+                    filename = self.base_path / f"event_{aid}.jsonl"
+                    with open(filename, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(log_dict, ensure_ascii=False) + "\n")
+
+                filename = self.base_path / f"event_details.jsonl"
                 with open(filename, "a", encoding="utf-8") as f:
                     f.write(json.dumps(log_dict, ensure_ascii=False) + "\n")
 
@@ -1508,7 +1514,7 @@ class AI2ThorEnv_cen(BaseEnv):
             #         suc = True
             #         self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
             #         return suc
-            else:
+            elif dist <= 1.0:
                 if obj_id not in self.get_object_in_view(agent_id) and obj_name not in self.small_objects:
                     # not in view
                     self.last_check_reason[self.agent_names[agent_id]] = "object-not-in-view"
@@ -1882,6 +1888,26 @@ class AI2ThorEnv_cen(BaseEnv):
     
     def get_event_log(self):
         file = self.base_path / "event.jsonl"
+        events = []
+        with open(file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    event = json.loads(line)
+                    events.append(event)
+        return events
+    
+    def get_event_log_by_aid(self, aid: int):
+        file = self.base_path / f"event_{aid}.jsonl"
+        events = []
+        with open(file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    event = json.loads(line)
+                    events.append(event)
+        return events
+    
+    def get_event_log_detail(self):
+        file = self.base_path / "event_details.jsonl"
         events = []
         with open(file, "r", encoding="utf-8") as f:
             for line in f:

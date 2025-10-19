@@ -1,5 +1,5 @@
 '''
-Baseline : Centralized LLM + replanning + shared memory(log based)
+Baseline : Centralized LLM + replanning + shared memory(log based) llm decide whether to append the log or not
 
 
 structure same as llm_c.py but with more information about the environment and positions, failures, etc.:
@@ -29,7 +29,7 @@ from pathlib import Path
 import time
 import base64
 from openai import OpenAI
-from env_log2 import AI2ThorEnv_cen as AI2ThorEnv
+from env_log import AI2ThorEnv_cen as AI2ThorEnv
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.helpers import save_to_video
@@ -693,7 +693,62 @@ The output must be a single JSON object, with no extra explanation:
 First, think carefully step by step about **mapping each assignment to atomic actions**, closely adhering to the **Instruction and Global Constraints and Navigation rules**. Then, **output only the Actions JSON with no explanations**.
 """
 
+LOG_PROMPT = f"""
+# Role and Objective
+You are a lightweight memory gate for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
+Your sole job is to compress the current timestamp’s logs + per-agent POV images into a minimal summary for the next planning round. You do NOT plan actions.
 
+You will receive:
+- The task description
+- Open/closed subtasks
+- Per-agent observations/states
+- Recent action history and failure reasons
+- A verifier summary with a short narrative memory
+- Per-agent POV images (use them to infer current states succinctly)
+
+# Instructions
+- Keep only what materially improves next-step planning.
+- Prefer including:
+  - Dynamic world changes (on/off, open/close, place/pick, moved, blocked)
+  - Stable object locations or containment relations essential to the goal
+  - Structural/repeated navigation failures (no-path, blocked, distance-too-far)
+  - Device/tool states that alter reachable space or task preconditions
+  - Cross-agent dependencies (handoffs, role assignments)
+- Exclude noise:
+  - One-off view lists, verbose inventories, generic successes with no strategic effect
+  - Redundant pose details already evident from the image unless tied to a failure/success
+- Be concise. Each output field must be 2-3 sentences, and the whole content of each field must be under 50 words.
+
+# Reasoning Steps
+- Internally analyze task, observations, inventories, failures, verifier summary, subtask progress, and images.
+- Decide the minimal facts to carry forward.
+- Use images to confirm current states but avoid restating raw visuals; summarize only what helps replanning.
+
+# OUTPUT FORMAT
+Output a single JSON object with EXACTLY these keys:
+{{
+  "timestamp": <int>,                                   # the given timestamp
+  "environment_changes": "<2-3 sentences, <50 words>",  # persistent changes only
+  "agent_action": {                                     # one entry per agent
+    "<AgentName>": "<2-3 sentences, <50 words: action history + current state + result/fail reason>",
+    "...": "..."
+  }
+}}
+
+# Writing Rules
+- Natural, compact English; no bullet points; no lists.
+- Do not exceed 3 sentences or 50 words per field/agent entry.
+- Summarize actions as: latest key actions → result; include brief fail reason if any (e.g., blocked, not-visible, not-reachable, collision, timeout).
+- Do not invent facts. If uncertain, omit.
+
+# Input Context
+{MEMORY_GATE_INPUT_FORMAT}
+
+
+# Final instructions
+Think carefully about what minimal facts help the next plan. 
+Then output ONLY the specified JSON object with the three fields and their length limits, nothing else.
+"""
 
 def get_verifier_prompt(need_process=False):
     if need_process:
@@ -910,7 +965,7 @@ def set_env_with_config(config_file: str):
     return env, config
 
 
-def get_llm_response(payload, model = "gpt-4o", temperature= 0.7, max_tokens=2048) -> str:
+def get_llm_response(payload, model = "gpt-4o", temperature= 0.7, max_tokens=1024) -> str:
     # print("using model:", model)
     # print("payload:", payload)
     if model.startswith("gpt-4"):
@@ -1011,6 +1066,11 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         system_prompt = get_verifier_prompt(need_process)
         input = env.get_llm_log_input(need_process)
 
+        user_prompt = convert_dict_to_string(input)
+        user_prompt = json.dumps(input, ensure_ascii=False)
+    elif mode == "log":
+        system_prompt = LOG_PROMPT
+        input = env.get_obs_llm_input()
         user_prompt = convert_dict_to_string(input)
         user_prompt = json.dumps(input, ensure_ascii=False)
     user_prompt += addendum
@@ -1164,6 +1224,13 @@ def verify_actions(env, info={}, need_process=False):
         "suggestion": suggestion
     }
     return verify_res
+
+def log_summariser(env):
+    log_prompt, log_user_prompt = prepare_prompt(env, mode="log")
+    log_payload = prepare_payload(log_prompt, log_user_prompt)
+    res, res_content = get_llm_response(log_payload, model=config['model'])
+    print('log summariser llm output', res_content)
+    return res_content
 
 def get_steps_by_actions(env, actions):
     print("get_steps_by_actions: ", actions)
@@ -1554,7 +1621,7 @@ if __name__ == "__main__":
     {
         "task_folder": "1_wash_bowl_mug_pot_pan",
         "task": "clean the bowl, mug, pot, and pan",
-        "scenes": ["FloorPlan1", "FloorPlan2", ] #"FloorPlan3", "FloorPlan4", "FloorPlan5"
+        "scenes": ["FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", 
     },
 ]
 
@@ -1582,18 +1649,18 @@ if __name__ == "__main__":
         {
             "task_folder": "2_put_all_tomatoes_potatoes_fridge",
             "task": "put all tomatoes and potatoes in the fridge",
-            "scenes": [ "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2",
+            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
         },
         
-        # {
-        #     "task_folder": "2_turn_on_all_stove_knobs",
-        #     "task": "turn on all the stove knobs",
-        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9"]
-        # },  
+        {
+            "task_folder": "2_turn_on_all_stove_knobs",
+            "task": "turn on all the stove knobs",
+            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9"]
+        },  
     ]
 
     TASKS_3 = [
-        # {
+        # {-
         #     "task_folder": "3_clear_table_to_sofa",
         #     "task": "Put all readable objects on the sofa",
         #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"]
@@ -1601,12 +1668,12 @@ if __name__ == "__main__":
         # {
         #     "task_folder": "3_put_all_food_countertop",
         #     "task": "Put all food on the countertop",
-        #     "scenes": [ "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4", "FloorPlan5"] # 
+        #     "scenes": [ "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3",
         # },
         # {
         #     "task_folder": "3_put_all_groceries_fridge",
         #     "task": "Put all groceries in the fridge",
-        #     "scenes": ["FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
         # },
         # {
         #     "task_folder": "3_put_all_kitchenware_box",
@@ -1616,17 +1683,17 @@ if __name__ == "__main__":
         # {
         #     "task_folder": "3_put_all_school_supplies_sofa",
         #     "task": "Put all school supplies on the sofa",
-        #     "scenes": ["FloorPlan212"] #"FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", 
+        #     "scenes": ["FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"]
         # },
         # {
         #     "task_folder": "3_put_all_shakers_fridge",
         #     "task": "Put all shakers in the fridge",
-        #     "scenes": [  "FloorPlan5"] #"FloorPlan1", "FloorPlan2","FloorPlan3", "FloorPlan4",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
         # },  
         # {
         #     "task_folder": "3_put_all_shakers_tomato", # on countertop
         #     "task": "put all shakers and tomato on the counter top",
-        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # 
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
         # },  
         # {
         #     "task_folder": "3_put_all_silverware_drawer",
@@ -1636,9 +1703,9 @@ if __name__ == "__main__":
         # {
         #     "task_folder": "3_put_all_tableware_countertop",
         #     "task": "Put all tableware on the countertop",
-        #     "scenes": ["FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", 
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
         # },  
-        # {
+        # {-
         #     "task_folder": "3_transport_groceries",
         #     "task": "put_all_food_countertops",
         #     "scenes": ["FloorPlan1"]
@@ -1647,26 +1714,26 @@ if __name__ == "__main__":
     ]
 
     TASKS_4 = [
-    # {
-    #     "task_folder": "4_clear_couch_livingroom",
-    #     "task": "Clear the couch by placing the items in other appropriate positions ",
-    #     "scenes": ["FloorPlan203","FloorPlan209", ] #"FloorPlan212" hen"FloorPlan201", "FloorPlan202",
-    # },
-    # {
-    #     "task_folder": "4_clear_countertop_kitchen",
-    #     "task": "Clear the countertop by placing items in their appropriate positions",
-    #     "scenes": ["FloorPlan10", "FloorPlan6"] #"FloorPlan1", "FloorPlan2", "FloorPlan30", 
-    # },
-    # {
-    #     "task_folder": "4_clear_floor_kitchen",
-    #     "task": "Clear the floor by placing items at their appropriate positions",
-    #     "scenes": [ "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1",
-    # },
-    # {
-    #     "task_folder": "4_clear_table_kitchen",
-    #     "task": "Clear the table by placing the items in their appropriate positions",
-    #     "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
-    # },
+    {
+        "task_folder": "4_clear_couch_livingroom",
+        "task": "Clear the couch by placing the items in other appropriate positions ",
+        "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan209", ] #"FloorPlan212" hen
+    },
+    {
+        "task_folder": "4_clear_countertop_kitchen",
+        "task": "Clear the countertop by placing items in their appropriate positions",
+        "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"]
+    },
+    {
+        "task_folder": "4_clear_floor_kitchen",
+        "task": "Clear the floor by placing items at their appropriate positions",
+        "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+    },
+    {
+        "task_folder": "4_clear_table_kitchen",
+        "task": "Clear the table by placing the items in their appropriate positions",
+        "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
+    },
     # {
     #     "task_folder": "4_make_livingroom_dark",
     #     "task": "Make the living room dark",
@@ -1675,10 +1742,10 @@ if __name__ == "__main__":
     {
         "task_folder": "4_put_appropriate_storage",
         "task": "Place all utensils into their appropriate positions",
-        "scenes": ["FloorPlan6"] #"FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", 
+        "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
     },  
 ]
     
-    batch_run(TASKS_1, base_dir="config", start=2, end=2, sleep_after=50)
+    batch_run(TASKS_2, base_dir="config", start=1, end=1, sleep_after=50)
     # run_main(test_id = 1, config_path="config/config.json")
 

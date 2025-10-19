@@ -92,11 +92,24 @@ def save_to_video(file_name: str, fps: int = 10, project_root: str = None):
 
 if __name__ == "__main__":
     # Example usage with relative path
-    # for i in range(1,6):
-        # save_to_video(f"logs/4_make_living_room_dark/floorplan201/test_{i}")
-        # save_to_video(f"logs/4_make_living_room_dark/floorplan202/test_{i}")
-        # save_to_video(f"logs/4_make_living_room_dark/floorplan203/test_{i}")
-        # save_to_video(f"logs/4_make_living_room_dark/floorplan204/test_{i}")
-        # save_to_video(f"logs/4_make_living_room_dark/floorplan205/test_{i}")
-        # save_to_video(f"logs/4_make_living_room_dark/floorplan206/test_{i}")
-    save_to_video("logs/clean_the_bowl/FloorPlan1/test_1")
+    for i in range(3,4):
+        save_to_video(f"logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan201/test_{i}")
+        save_to_video(f"logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan202/test_{i}")
+        save_to_video(f"logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan203/test_{i}")
+        save_to_video(f"logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan207/test_{i}")
+        save_to_video(f"logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan209/test_{i}")
+        save_to_video(f"logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan215/test_{i}")
+        save_to_video(f"logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan226/test_{i}")
+        save_to_video(f"logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan228/test_{i}")
+        # save_to_video(f"logs/Summary/open_all_the_drawers/Floorplan6/test_{i}")
+        # save_to_video(f"logs/Summary/open_all_the_drawers/Floorplan7/test_{i}")
+        # save_to_video(f"logs/Summary/open_all_the_drawers/Floorplan8/test_{i}")
+    # save_to_video(f"logs/Summary/Put_all_readable_objects_on_the_sofa/Floorplan201/test_1")
+    # save_to_video(f"logs/Summary/Put_all_kitchenware_in_the_cardboard_box/Floorplan201/test_2")
+
+        # save_to_video(f"logs/Summary/2_put_all_creditcards_and_remotecontrols_into_the_box/Floorplan201/test_{i}")
+        # save_to_video(f"logs/Summary/2_put_all_creditcards_and_remotecontrols_into_the_box/Floorplan202/test_{i}")
+        # save_to_video(f"logs/Summary/2_put_all_creditcards_and_remotecontrols_into_the_box/Floorplan203/test_{i}")
+        # save_to_video(f"logs/Summary/2_put_all_creditcards_and_remotecontrols_into_the_box/Floorplan204/test_{i}")
+        # save_to_video(f"logs/Summary/2_put_all_creditcards_and_remotecontrols_into_the_box/Floorplan205/test_{i}")
+    # save_to_video(f"logs/Summary/1_put_laptop,_book_and_remote_control_on_the_sofa/Floorplan202/test_1")

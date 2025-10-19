@@ -7,7 +7,7 @@ class SceneInitializer:
     def __init__(self) -> None:
         pass
 
-    def preinit(event, controller):
+    def preinit(self,event, controller):
         """Pre-initialize the environment for the task.
         Args:
             event: env.event object

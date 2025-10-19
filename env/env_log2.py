@@ -1,3 +1,4 @@
+# 存single log file -> llm_log.py
 import json
 import os
 from pathlib import Path
@@ -889,7 +890,7 @@ class AI2ThorEnv_cen(BaseEnv):
         # print("curr action queue: ", self.action_queue)
         act_texts, act_successes = [], []
         
-
+        start_time = time.time()
         for aid in range(self.num_agents):
             log_dict = {}
             log_dict['timestemp'] = self.step_num[aid]
@@ -1062,7 +1063,8 @@ class AI2ThorEnv_cen(BaseEnv):
             # if not self.skip_save_dir:
             self.save_last_frame(agent_id=aid, view="pov",
                                      filename=f"frame_{self.step_num[aid]}.png")
-
+            
+        self.total_elapsed_time = time.time() - start_time
         # if self.overhead and not self.skip_save_dir:
         self.save_last_frame(view="overhead",
                                  filename=f"frame_{self.step_num[0]}.png")
@@ -1570,11 +1572,11 @@ class AI2ThorEnv_cen(BaseEnv):
             if self.save_logs:
                 self.logs.append(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
             print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
-            if dist > 1.0 and dist < 1.8 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
+            if dist > 1.0 and dist < 2.0 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
-            elif agent_id > 0 and dist > 1.0 and dist < 2.5 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
+            elif agent_id > 0 and dist > 1.0 and dist < 2.3 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
@@ -1589,7 +1591,8 @@ class AI2ThorEnv_cen(BaseEnv):
             #         suc = True
             #         self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
             #         return suc
-            else:
+
+            elif dist <= 1.0:
                 if obj_id not in self.get_object_in_view(agent_id) and obj_name not in self.small_objects:
                     # not in view
                     self.last_check_reason[self.agent_names[agent_id]] = "object-not-in-view"
