@@ -28,11 +28,12 @@ import argparse
 from pathlib import Path
 import time
 import base64
+import difflib
+
 from openai import OpenAI
 from env_log import AI2ThorEnv_cen as AI2ThorEnv
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils.helpers import save_to_video
 
 client = OpenAI(api_key=Path('api_key_ucsb.txt').read_text())
 
@@ -484,7 +485,7 @@ Each line follows this format:
 [t=timestamp] agent_name → curr_subtask → result_type (reason)
 """
 
-LOF_ORIGINAL_INPUT_FORMAT = """
+LOG_ORIGINAL_INPUT_FORMAT = """
 - "Logs": a list of JSON objects. Each object represents one action execution log for a specific agent at a certain timestamp.
 JSON field description:
 - "timestemp" (number): The timestamp of the action.
@@ -518,8 +519,8 @@ ACTION_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + AGENT_INPUT_FORMAT
 VERIFIER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + LOG_PROCESSED_INPUT_FORMAT
 REPLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + SUGGESTION_INPUT_FORMAT + LOG_PROCESSED_INPUT_FORMAT
 
-VERIFIER_ORG_LOG_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + LOF_ORIGINAL_INPUT_FORMAT
-REPLANNER_ORG_LOG_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + SUGGESTION_INPUT_FORMAT + LOF_ORIGINAL_INPUT_FORMAT
+VERIFIER_ORG_LOG_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + LOG_ORIGINAL_INPUT_FORMAT
+REPLANNER_ORG_LOG_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + SUGGESTION_INPUT_FORMAT + LOG_ORIGINAL_INPUT_FORMAT
 
 PLANNER_PROMPT = f"""
 # Role and Objective
@@ -696,15 +697,14 @@ First, think carefully step by step about **mapping each assignment to atomic ac
 LOG_PROMPT = f"""
 # Role and Objective
 You are a lightweight memory gate for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
-Your sole job is to compress the current timestamp’s logs + per-agent POV images into a minimal summary for the next planning round. You do NOT plan actions.
+Your sole job is to compress the current timestamp's logs + per-agent POV images into a minimal summary for the next planning round. You do NOT plan actions.
 
 You will receive:
 - The task description
 - Open/closed subtasks
-- Per-agent observations/states
-- Recent action history and failure reasons
-- A verifier summary with a short narrative memory
-- Per-agent POV images (use them to infer current states succinctly)
+- Objects in the environment
+- Per-agent POV images and an overhead image (use them to infer current states succinctly) 
+- The execution logs at the current timestamp for each agent
 
 # Instructions
 - Keep only what materially improves next-step planning.
@@ -720,7 +720,7 @@ You will receive:
 - Be concise. Each output field must be 2-3 sentences, and the whole content of each field must be under 50 words.
 
 # Reasoning Steps
-- Internally analyze task, observations, inventories, failures, verifier summary, subtask progress, and images.
+- Internally analyze task, observations, inventories, failures, subtask progress, and images.
 - Decide the minimal facts to carry forward.
 - Use images to confirm current states but avoid restating raw visuals; summarize only what helps replanning.
 
@@ -729,10 +729,10 @@ Output a single JSON object with EXACTLY these keys:
 {{
   "timestamp": <int>,                                   # the given timestamp
   "environment_changes": "<2-3 sentences, <50 words>",  # persistent changes only
-  "agent_action": {                                     # one entry per agent
+  "agent_action": {{                                     # one entry per agent
     "<AgentName>": "<2-3 sentences, <50 words: action history + current state + result/fail reason>",
     "...": "..."
-  }
+    }}
 }}
 
 # Writing Rules
@@ -742,7 +742,7 @@ Output a single JSON object with EXACTLY these keys:
 - Do not invent facts. If uncertain, omit.
 
 # Input Context
-{MEMORY_GATE_INPUT_FORMAT}
+{LOG_ORIGINAL_INPUT_FORMAT}
 
 
 # Final instructions
@@ -1070,7 +1070,7 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         user_prompt = json.dumps(input, ensure_ascii=False)
     elif mode == "log":
         system_prompt = LOG_PROMPT
-        input = env.get_obs_llm_input()
+        input = env.get_llm_log_input(need_process, mode='last')
         user_prompt = convert_dict_to_string(input)
         user_prompt = json.dumps(input, ensure_ascii=False)
     user_prompt += addendum
@@ -1105,6 +1105,8 @@ def process_llm_output(res_content, mode):
             _get(data, "reason"),
             _get(data, "suggestion"),
         )
+    if mode == 'log':
+        return data
 
     return data
 
@@ -1227,10 +1229,18 @@ def verify_actions(env, info={}, need_process=False):
 
 def log_summariser(env):
     log_prompt, log_user_prompt = prepare_prompt(env, mode="log")
-    log_payload = prepare_payload(log_prompt, log_user_prompt)
+    # print("log system prompt: ", log_prompt)
+    # print("log user prompt: ", log_user_prompt)
+    base64_image = [encode_image(env.get_frame(i)) for i in range(len(AGENT_NAMES))]
+    image_urls = [
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}"}}
+        for image in base64_image
+    ]
+    log_payload = prepare_payload(log_prompt, log_user_prompt, img_urls=image_urls)
     res, res_content = get_llm_response(log_payload, model=config['model'])
-    print('log summariser llm output', res_content)
-    return res_content
+    # print('log summariser llm output', res_content)
+    summarized_log = process_llm_output(res_content, "log")
+    return summarized_log
 
 def get_steps_by_actions(env, actions):
     print("get_steps_by_actions: ", actions)
@@ -1251,7 +1261,6 @@ def verify_subtask_completion(env, info):
             closed_subtasks.append(c)
     return open_subtasks, closed_subtasks
 
-import difflib
 
 def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
     """
@@ -1421,7 +1430,7 @@ def set_env_with_config(config_file: str):
     return env, config
 
 
-def run_main(test_id = 0, config_path="config/config.json"):
+def run_main(test_id = 0, config_path="config/config.json", delete_frames=False):
     # --- Init.
     env, config = set_env_with_config(config_path)
     timeout = 250
@@ -1432,7 +1441,7 @@ def run_main(test_id = 0, config_path="config/config.json"):
     # --- initial subtask planning
     open_subtasks, completed_subtasks = initial_subtask_planning(env, config)
     info = {}
-    need_process = True
+    need_process = False
 
     # --- loop start
     cnt = 0
@@ -1440,6 +1449,7 @@ def run_main(test_id = 0, config_path="config/config.json"):
     logs = []
     filename = env.base_path / "logs_llm.txt"
     while open_subtasks and (time.time() - start_time < timeout):
+        
         print(f"\n--- Loop {cnt + 1} ---")
         logs.append(f"\n--- Loop {cnt + 1} ---")
 
@@ -1486,13 +1496,23 @@ def run_main(test_id = 0, config_path="config/config.json"):
         logs.append(f"after verify open_subtasks: {open_subtasks}")
         logs.append(f"after verify closed_subtasks: {completed_subtasks}")
         env.update_plan(open_subtasks, completed_subtasks)
-        # 6. verify the execution and update memory
+
+        # 6. log summariser
+        summarized_log = log_summariser(env)
+        # print("summarized_log: ", summarized_log)
+        env.save_log_result(summarized_log) # append to event.json
+
+
+        # 7. verify the execution and update memory
         logs.append(f"----replanning subtasks to agents----")
         verify_res = verify_actions(env, info, need_process)
         print("verify result: ", verify_res)
         logs.append(f"verify result: {verify_res}")
 
-        # 7. replan if needed
+        
+        
+
+        # 8. replan if needed
         if open_subtasks or not isSuccess or verify_res['need_replan']:
             
             open_subtasks, completed_subtasks = replan_open_subtasks(env, completed_subtasks, verify_res, need_process)
@@ -1540,9 +1560,10 @@ def run_main(test_id = 0, config_path="config/config.json"):
         for obj_id, status in obj_status.items():
             f.write(f"{obj_id}: {status}\n")
 
+    env.save_to_video(delete_frames=delete_frames)
     env.close()
 
-def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0):
+def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delete_frames=False):
     """
     tasks: e.g. TASKS_1, TASKS_2 ...
     base_dir: the root config folder
@@ -1565,7 +1586,7 @@ def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0):
 
             for r in range(start, end + 1):
                 print(f"---- Run {r}/{end} for {cfg_path} ----")
-                run_main(test_id = r, config_path=str(cfg_path))
+                run_main(test_id = r, config_path=str(cfg_path), delete_frames=delete_frames)
                 time.sleep(sleep_after)
 
             print(f"==== Finished {cfg_path} ====")
@@ -1576,17 +1597,17 @@ if __name__ == "__main__":
     # {
     #     "task_folder": "1_put_bread_lettuce_tomato_fridge",
     #     "task": "put bread, lettuce, and tomato in the fridge",
-    #     "scenes": ["FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", 
+    #     "scenes": ["FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", 
     # },
     # {
     #     "task_folder": "1_put_computer_book_remotecontrol_sofa",
     #     "task": "put laptop, book and remote control on the sofa",
-    #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203", "FloorPlan209", "FloorPlan224"] 
+    #     "scenes": [ "FloorPlan209", "FloorPlan224"] #"FloorPlan201", "FloorPlan202","FloorPlan203",
     # },
     # {
     #     "task_folder": "1_put_knife_bowl_mug_countertop",
     #     "task": "put knife, bowl, and mug on the counter top",
-    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # ,"FloorPlan1", "FloorPlan4", "FloorPlan5"
+    #     "scenes": ["FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #
     # },
     # {
     #     "task_folder": "1_put_plate_mug_bowl_fridge",
@@ -1596,7 +1617,7 @@ if __name__ == "__main__":
     # {
     #     "task_folder": "1_put_remotecontrol_keys_watch_box",
     #     "task": "put remote control, keys, and watch in the box",
-    #     "scenes": ["FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207","FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", ] # 
+    #     "scenes": ["FloorPlan207","FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", ] # "FloorPlan201", "FloorPlan202", "FloorPlan203", 
     # },
     # {
     #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
@@ -1621,7 +1642,7 @@ if __name__ == "__main__":
     {
         "task_folder": "1_wash_bowl_mug_pot_pan",
         "task": "clean the bowl, mug, pot, and pan",
-        "scenes": ["FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", 
+        "scenes": ["FloorPlan4", "FloorPlan5"] #"FloorPlan3","FloorPlan1", "FloorPlan2",  
     },
 ]
 
@@ -1714,38 +1735,42 @@ if __name__ == "__main__":
     ]
 
     TASKS_4 = [
-    {
-        "task_folder": "4_clear_couch_livingroom",
-        "task": "Clear the couch by placing the items in other appropriate positions ",
-        "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan209", ] #"FloorPlan212" hen
-    },
-    {
-        "task_folder": "4_clear_countertop_kitchen",
-        "task": "Clear the countertop by placing items in their appropriate positions",
-        "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"]
-    },
-    {
-        "task_folder": "4_clear_floor_kitchen",
-        "task": "Clear the floor by placing items at their appropriate positions",
-        "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-    },
-    {
-        "task_folder": "4_clear_table_kitchen",
-        "task": "Clear the table by placing the items in their appropriate positions",
-        "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
-    },
     # {
-    #     "task_folder": "4_make_livingroom_dark",
-    #     "task": "Make the living room dark",
-    #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"]
+    #     "task_folder": "4_clear_couch_livingroom",
+    #     "task": "Clear the couch by placing the items in other appropriate positions ",
+    #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan209", ] #"FloorPlan212" hen
+    # },
+    # {
+    #     "task_folder": "4_clear_countertop_kitchen",
+    #     "task": "Clear the countertop by placing items in their appropriate positions",
+    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"]
+    # },
+    # {
+    #     "task_folder": "4_clear_floor_kitchen",
+    #     "task": "Clear the floor by placing items at their appropriate positions",
+    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+    # },
+    # {
+    #     "task_folder": "4_clear_table_kitchen",
+    #     "task": "Clear the table by placing the items in their appropriate positions",
+    #     "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
     # },
     {
-        "task_folder": "4_put_appropriate_storage",
-        "task": "Place all utensils into their appropriate positions",
-        "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
-    },  
+        "task_folder": "4_make_livingroom_dark",
+        "task": "Make the living room dark",
+        "scenes": [ "FloorPlan205"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204",
+    },
+    # {
+    #     "task_folder": "4_put_appropriate_storage",
+    #     "task": "Place all utensils into their appropriate positions",
+    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+    # },  
 ]
     
-    batch_run(TASKS_2, base_dir="config", start=1, end=1, sleep_after=50)
-    # run_main(test_id = 1, config_path="config/config.json")
+    # batch_run(TASKS_1, base_dir="config", start=1, end=1, sleep_after=50, delete_frames=False)
+    # batch_run(TASKS_1, base_dir="config", start=2, end=2, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_4, base_dir="config", start=1, end=1, sleep_after=50, delete_frames=False)
+    batch_run(TASKS_4, base_dir="config", start=2, end=2, sleep_after=50, delete_frames=True)
+    # run_main(test_id = 3, config_path="config/config.json", delete_frames=True)
+    # run_main(test_id = 2, config_path="config/config.json")
 

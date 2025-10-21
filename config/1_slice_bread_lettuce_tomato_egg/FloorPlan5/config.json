@@ -1,7 +1,7 @@
 {
   "num_agents": 2,
   "scene": "FloorPlan5",
-  "task": "slice bread, lettuce, tomato, and egg with knife",
+  "task": "slice bread, lettuce, tomato  with knife and break the egg",
   "timeout": 30,
   "model": "gpt-4.1-2025-04-14",
   "use_obs_summariser": false,

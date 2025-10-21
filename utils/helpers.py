@@ -90,6 +90,7 @@ def save_to_video(file_name: str, fps: int = 10, project_root: str = None):
         video_writer.release()
         print(f"Video saved at {video_path}")
 
+
 if __name__ == "__main__":
     # Example usage with relative path
     for i in range(3,4):

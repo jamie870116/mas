@@ -12,6 +12,7 @@ import time
 from collections import deque, defaultdict
 from thortils.navigation import get_shortest_path_to_object
 from thortils.constants import H_ANGLES, V_ANGLES
+import re
 
 import traceback
 import math
@@ -122,7 +123,98 @@ class BaseEnv:
         event_log_path = self.base_path / "event.jsonl"
         with open(event_log_path, "w") as f:
             f.write("")  # Clear previous log
+        for i in range(self.num_agents):
+            event_log_path = self.base_path / f"event_{i}.jsonl"
+            with open(event_log_path, "w") as f:
+                f.write("")  # Clear previous log
     
+    def extract_frame_indices(self, filename):
+        """
+        Extracts the primary and optional secondary frame index from filename like 'frame_0_2.png' or 'frame_1.png'.
+        Returns a tuple (primary, secondary) for sorting.
+        """
+        match = re.match(r"frame_(\d+)(?:_(\d+))?\.png", filename)
+        if match:
+            primary = int(match.group(1))
+            secondary = int(match.group(2)) if match.group(2) else 0
+            return (primary, secondary)
+        return (float('inf'), float('inf')) 
+
+    def save_to_video(self, fps: int = 10, delete_frames: bool = False):
+        """
+        Convert saved frames into videos for each agent's POV and overhead view.
+        
+        Args:
+            file_name (str): The task folder name (e.g., 'logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan201/test_{i}')
+            fps (int): Frames per second for the output video (default: 30).
+            delete_frames (bool): Whether to delete frame images after video creation.
+        """
+        task_path = self.base_path
+       
+        print(f"Resolved task path: {task_path}")
+        
+        if not task_path.exists() or not task_path.is_dir():
+            raise ValueError(f"Task folder {task_path} does not exist or is not a directory.")
+        
+        # Find all subfolders (e.g., Alice/pov, Bob/pov, overhead)
+        subfolders = []
+        # Look for agent POV folders (e.g., Alice/pov)
+        for agent_folder in task_path.iterdir():
+            if agent_folder.is_dir() and (agent_folder / "pov").exists():
+                subfolders.append(agent_folder / "pov")
+            elif agent_folder.name == "overhead" and agent_folder.is_dir():
+                subfolders.append(agent_folder)
+        
+        if not subfolders:
+            raise ValueError(f"No valid subfolders (agent POV or overhead) found in {task_path}.")
+        
+        # Process each subfolder to create a video
+        for subfolder in subfolders:
+            # Collect all frame files in the subfolder
+            # frame_files = sorted(
+            #     [f for f in subfolder.iterdir() if f.is_file() and f.suffix == ".png"],
+            #     key=lambda x: int(re.search(r'frame_(\d+)\.png', x.name).group(1))
+            # )
+            frame_files = sorted(
+                [f for f in subfolder.iterdir() if f.is_file() and f.suffix == ".png"],
+                key=lambda x: self.extract_frame_indices(x.name)
+            )
+            
+            if not frame_files:
+                print(f"No frames found in {subfolder}. Skipping video creation.")
+                continue
+            
+            # Read the first frame to get dimensions
+            first_frame = cv2.imread(str(frame_files[0]))
+            height, width, _ = first_frame.shape
+            
+            # Define the output video path
+            video_name = subfolder.name if subfolder.name == "overhead" else f"{subfolder.parent.name}_{subfolder.name}"
+            video_path = task_path / f"{video_name}.mp4"
+            
+            # Initialize video writer
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for mp4
+            video_writer = cv2.VideoWriter(str(video_path), fourcc, fps, (width, height))
+            
+            # Write each frame to the video
+            for frame_file in frame_files:
+                frame = cv2.imread(str(frame_file))
+                video_writer.write(frame)
+            
+            # Release the video writer
+            video_writer.release()
+
+            print(f"Video saved at {video_path}")
+            if delete_frames:
+                for frame_file in frame_files:
+                    try:
+                        frame_file.unlink()
+                    except Exception as e:
+                        print(f"Warning: could not delete {frame_file}: {e}")
+                print(f"Deleted {len(frame_files)} frame images from {subfolder}")
+
+
+
     def get_agent_state(self, agent_id: int) -> str:
         """Return a string describing the agent's state."""
         pos = self.get_agent_position(agent_id)
@@ -1033,7 +1125,7 @@ class AI2ThorEnv_cen(BaseEnv):
                         self.logs.append(f'last reason: {last_reason}')
 
                 
-            if log_dict:
+            if log_dict and log_dict['curr_subtask'] != None:
                 obs, _ = self.generate_obs_text(aid, mode="mapping")
                 log_dict['payload']['postion'] = self.get_agent_position(aid)
                 log_dict['payload']['rotation'] = self.get_agent_rotation(aid)
@@ -1887,6 +1979,7 @@ class AI2ThorEnv_cen(BaseEnv):
         }
     
     def get_event_log(self):
+        # 存llm留下來的重要log
         file = self.base_path / "event.jsonl"
         events = []
         with open(file, "r", encoding="utf-8") as f:
@@ -1896,24 +1989,42 @@ class AI2ThorEnv_cen(BaseEnv):
                     events.append(event)
         return events
     
-    def get_event_log_by_aid(self, aid: int):
+    def get_event_log_by_aid(self, aid: int, timestamp: int = -1):
+        # last event log for each agent for each step
         file = self.base_path / f"event_{aid}.jsonl"
         events = []
+        last_event = None
         with open(file, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     event = json.loads(line)
-                    events.append(event)
+                    cur_ts = event.get("timestemp")
+                    if timestamp >= 0:
+                        if event.get("timestemp") == timestamp:
+                            events.append(event)
+                        elif cur_ts is not None and cur_ts < timestamp:
+                            # 維護「最接近且早於等於 timestamp」的單一事件
+                            if (last_event is None) or (cur_ts > last_event.get("timestemp", -1)):
+                                last_event = event  
+                    else:  
+                        events.append(event)
+        if timestamp >= 0 and last_event:
+            events.append(last_event)
         return events
     
-    def get_event_log_detail(self):
+    def get_event_log_detail(self, timestamp: int = -1):
+        # including attempt/success/fail info in each step
         file = self.base_path / "event_details.jsonl"
         events = []
         with open(file, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     event = json.loads(line)
-                    events.append(event)
+                    if timestamp >= 0:
+                        if event.get("timestemp") == timestamp:
+                            events.append(event)  
+                    else:  
+                        events.append(event)
         return events
 
     def format_log(self, logs):
@@ -1928,9 +2039,9 @@ class AI2ThorEnv_cen(BaseEnv):
         [t=17] Alice → NavigateTo(FloorLamp_1) → Attempt ()
         '''
         lines = []
-        logs = sorted(logs, key=lambda x: x["timestemp"])
+        logs = sorted(logs, key=lambda x: x["timestamp"])
         for log in logs:
-            ts = log["timestemp"]
+            ts = log["timestamp"]
             agent = log["agent_name"]
             subtask = log.get("curr_subtask", "")
             result = log["type"]
@@ -1939,8 +2050,24 @@ class AI2ThorEnv_cen(BaseEnv):
             lines.append(f"[t={ts}] {agent} → {subtask} → {result} ({reason})")
         return "\n".join(lines)
 
-    def get_log_llm_input(self, need_process = False):
-        logs = self.get_event_log()
+    def get_log_llm_input(self, need_process = False, mode = 'default'):
+        '''
+        mode: 'default' / 'detail' / 'last'
+        1. default: get_event_log() use event.jsonl
+        2. detail: get_event_log_detail() use event_details.jsonl
+        3. last: get_event_log_by_aid() for each agent(event_{aid}.json) and combine 
+        '''
+        if mode == 'detail':
+            logs = self.get_event_log_detail()
+        elif mode == 'last':
+            logs = []
+            for aid in range(self.num_agents):
+                log = self.get_event_log_by_aid(aid, timestamp=self.step_num[aid]-1)
+                
+                logs.append(log)
+        else:
+            logs = self.get_event_log()
+
         if need_process:
             logs = self.format_log(logs)
         return logs
@@ -1967,10 +2094,10 @@ class AI2ThorEnv_cen(BaseEnv):
         return snap
 
     
-    def get_llm_log_input(self, need_process=False):
+    def get_llm_log_input(self, need_process=False, mode = 'default'):
         contains_list = self.get_obj_in_containers()
         obj_list = self.get_all_objects()
-        logs = self.get_log_llm_input(need_process  = need_process)
+        logs = self.get_log_llm_input(need_process  = need_process, mode = mode)
             
         snap: Dict[str, Any] = {
             "Task": self.task,
@@ -1982,7 +2109,11 @@ class AI2ThorEnv_cen(BaseEnv):
             "Logs": logs
         }
         return snap
-        
+    
+    def save_log_result(self, summary):
+        filename = self.base_path / f"event.jsonl"
+        with open(filename, "a", encoding="utf-8") as f:
+            f.write(json.dumps(summary, ensure_ascii=False) + "\n")
 
     def convert_to_dict_objprop(self, objs, obj_mass, obj_id):
         objs_dict = []
