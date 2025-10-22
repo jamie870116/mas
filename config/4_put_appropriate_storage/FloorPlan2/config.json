@@ -1,8 +1,8 @@
 {
   "num_agents": 2,
   "scene": "FloorPlan2",
-  "task": "Place all utensils into their appropriate positions",
-  "timeout": 30,
+  "task": "Put appropriate utensils in proper storage",
+  "timeout": 60,
   "model": "gpt-4.1-2025-04-14",
   "use_obs_summariser": false,
   "use_act_summariser": false,

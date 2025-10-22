@@ -172,13 +172,13 @@ if __name__ == "__main__":
 
     '''
 
-    env = AI2ThorEnv("config/config.json")
-    with open("config/config.json", "r") as f:
+    env = AI2ThorEnv("config/4_put_appropriate_storage/FloorPlan2/config.json")
+    with open("config/4_put_appropriate_storage/FloorPlan2/config.json", "r") as f:
             config = json.load(f)
             task_name = config["task"]
     
     
-    obs = env.reset(test_case_id="18")
+    # obs = env.reset(test_case_id="19")
     
     # input_llm = env.get_obs_llm_input()
     # print("LLM input:\n", input_llm)
@@ -195,9 +195,9 @@ if __name__ == "__main__":
     # contain = env.get_obj_in_containers()
     # print(contain)
    
-    obj_status = env.get_all_object_status()
-    # print("---------")
-    print("After Object status:", obj_status)
+    # obj_status = env.get_all_object_status()
+    # # print("---------")
+    # print("After Object status:", obj_status)
     # iscomplete, report = env.run_task_check()
     # print("---------")
     # print("Is task complete?", iscomplete, "Report:", report)
@@ -213,8 +213,22 @@ if __name__ == "__main__":
     # # print(objs)
     high_level_tasks = [
         #  ["RotateRight"], ["Idle"]
-        ["NavigateTo(Cabinet_1)", "OpenObject(Cabinet_1)"],
-    ["NavigateTo(Cabinet_2)", "OpenObject(Cabinet_2)"]
+        [
+      "NavigateTo(Spatula_1)",
+      "PickupObject(Spatula_1)",
+      "NavigateTo(Fridge_1)",
+      "OpenObject(Fridge_1)",
+      "PutObject(Fridge_1)",
+      "CloseObject(Fridge_1)"
+    ],
+    [
+      "NavigateTo(ButterKnife_1)",
+      "PickupObject(ButterKnife_1)",
+    #   "NavigateTo(Drawer_3)",
+    #   "OpenObject(Drawer_3)",
+    #   "PutObject(Drawer_3)",
+    #   "CloseObject(Drawer_3)"
+    ]
     ]
     # high_level_tasks = [
     #     ["NavigateTo(RemoteControl_1)", "PickupObject(RemoteControl_1)", "NavigateTo(Box_1)", "PutObject(Box_1)"],

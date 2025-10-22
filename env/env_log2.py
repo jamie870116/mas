@@ -318,6 +318,24 @@ class BaseEnv:
             action_dict["action"] = action_name
             degrees = action.split("(")[1].rstrip(")")
             action_dict["degrees"] = int(degrees)
+        elif action.startswith("AlignOrientation"):
+            action_dict["agentId"] = agent_id
+            # TODO: does adding current pitch fix it?
+            pitch, yaw, z = action.split("(")[1].split(")")[0].split(",")
+            agent_metadata = self.event.events[agent_id].metadata["agent"]
+            horizon = agent_metadata["cameraHorizon"]
+
+            action_dict["action"] = "TeleportFull"
+            action_dict["rotation"] = dict(x=pitch, y=yaw, z=0)
+            action_dict["position"] = agent_metadata["position"]
+            z = eval(z) 
+            if z:
+                action_dict["horizon"] = 0
+            else:
+                action_dict["horizon"] = horizon
+
+            action_dict["standing"] = True
+            action_dict["forceAction"] = True
         else:
             raise ValueError(f"Unsupported action: {action}")
         return action_dict
@@ -792,19 +810,34 @@ class AI2ThorEnv_cen(BaseEnv):
             obj_pos = obj_meta["position"]
             obj_base_name = object_name.split("_")[0]
             dist = ((agent_pos["x"] - obj_pos["x"]) ** 2 + (agent_pos["z"] - obj_pos["z"]) ** 2) ** 0.5
+            print(f"[Navigation] Agent {self.agent_names[agent_id]} cannot find path to {object_name}. Distance: {dist:.2f} meters.")
             if dist < 1.0 and obj_base_name in self.small_objects:
                 if obj_id not in self.get_object_in_view(agent_id):
                     return [f"LookDown(30)"]
                 
+            if dist < 1.0 and obj_base_name.startswith("Drawer"):
+                print(f"{obj_id} detected within 1 meter but no path found.")
+                # if obj_id not in self.get_object_in_view(agent_id):
+                return [f"LookDown(30)"]
+                
             self.nav_no_plan[self.agent_names[agent_id]] = True
             self._record_subtask_failure(agent_id, reason="no-path", at_action=action)
             return []
-
         micro_actions: List[str] = []
+        xx, yy, zz = cur_rot
+        align_initial_action = f"AlignOrientation({xx},{yy},{False})"
+        micro_actions.append(align_initial_action)
+        print('align_initial_action: ',align_initial_action)
+        
         for act_name, params in plan:
             action_str = self.convert_thortils_action((act_name, params))
             micro_actions.append(action_str)
 
+        if poses and poses[-1] is not None:
+            goal_pitch, goal_yaw = poses.pop()
+            align_final_action = f"AlignOrientation({goal_pitch},{goal_yaw},{False})"
+            micro_actions.append(align_final_action)
+            print('align_initial_action: ',align_initial_action)
         
         # print(f"nav_actions: {micro_actions}")
         return micro_actions

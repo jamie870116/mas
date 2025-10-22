@@ -27,7 +27,7 @@ def build_checker(env=None):
     receptacle = "Box_1"
     
 
-    required = ["Bowl", "Pencil", "Plate"]
+    required = ["Bowl", "Plate"]
 
     cfg = {
         "receptacle": receptacle,

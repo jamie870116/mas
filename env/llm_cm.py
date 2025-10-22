@@ -273,9 +273,15 @@ High-level task: "Put the vase, tissue box, and remote control on the table", wi
 High-level task: "Put the lettuce and potato in the fridge" with 2 agents, example output:
 [
 "navigate to the fridge and open the fridge, without picking up any objects, before putting anything inside",
-"navigate to the lettece, pick up the lettuce,  navigate to the fridge, put it in the fridge",
+"navigate to the lettece, pick up the lettuce,  navigate to the fridge,  open the fridge, put it in the fridge, and close the fridge",
 "navigate to the potato, pick up the potato, navigate to the fridge and put it in the fridge",
 "navigate to the fridge and close the fridge, without picking up any objects"
+]
+
+High-level task: "Put the spoon and knife in any drawer" with 2 agents, example output (Note: "any drawer" means any suitable drawer in the environment):
+[
+"navigate to the spoon, pick up the spoon,  navigate to the drawer,  open the drawer, put it in the drawer, and close the drawer",
+"navigate to the knife, pick up the knife,  navigate to the drawer,  open the drawer, put it in the drawer, and close the drawer",
 ]
 
 High-level task: "Turn on the laptop and television and turn off the light switch" with 3 agents, example output:
@@ -452,16 +458,19 @@ Do not include explanations, comments, or markdown formatting.
     ]
 }
 """
+#- For openable containers (e.g., fridge, drawer, cabinet, box is not required to close):
+#   - Open before use; the robot's hand must be empty before opening or closing.
+#   - Close after use.
+#   - To place an object inside: open → pick up the object → deposit it inside → close.
 
 COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that mirrors real-world physics and affordances, but with explicit constraints enumerated below.
 - Use only objects listed in the current environment and reflect real-world affordances.
 - Navigate directly to the target object, not to the receptacle(such as Table, Dinning Table, COunterTop, etc.) it is in or on top. 
 - Do not search inside containers unless the task explicitly requires it.
 - Never use OpenObject on non-openable surfaces (e.g., tables, countertops, dresser, curtains).
-- For openable containers (e.g., fridge, drawer, cabinet, box is not required to close):
-  - Open before use; the robot's hand must be empty before opening or closing.
-  - Close after use.
-  - To place an object inside: open → pick up the object → deposit it inside → close.
+- For openable containers (box is not required to close):
+  - Open before use and always Close after use.
+  - To place an object inside: navigate to the target object → pick up the object → navigate to the container → open the contatiner →  deposit it inside → close.
 - To place on a receptacle: pick up → navigate/approach → place.
 - Cooking: item in a pan/pot → pan/pot on a stove burner → turn on the stove knob (turn off if the task requires).
 - Slicing: the robot must be holding a knife, and do **not** pick up the item being sliced.
@@ -471,8 +480,9 @@ COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that m
 - To clean or wash an object, directly navigate to the object and apply CleanObject. Do not use a dishSponge or soapbottle. Do not go to the sink or use the sink.
 - Do not assume default receptacles (e.g., CounterTop, Table) unless explicitly mentioned/present.
 - Close any opened object before leaving when appropriate.
+- If task do not specify which receptacle (e.g any drawers, any countertop), any suitable receptacle is acceptable. Try different number of receptacles when previous attempts fail. (e.g., if Drawer_1 is not reachable, try Drawer_2, etc.)
 - Avoid agents blocking each other where possible.
-- Curtains cannot be opened or closed by robots.
+- Curtains and Side Table cannot be opened or closed by robots.
 - Object cannot be given to other agent.
 - Unless otherwise specified, assume robots start with empty hands.
 - For electronic items (e.g., television, laptop, phone), toggle power directly on the device; **do not use remote controls** unless explicitly required.
@@ -552,7 +562,7 @@ Begin with a concise checklist (3-7 bullets) of what you will do; keep items con
 - Decompose the main task into subtasks that the robots can complete, taking into account the robots' abilities and the objects available.
 - Make sure to cover all the subtasks to complete the final goal.
 - Merge steps that must occur in a strict sequence into a **single** subtask.
-- Navigate directly to the target object, not to the container or receptacle it is in.
+- *Navigate directly to the target object*, not to the container or receptacle it is in or on.
 {COMMON_GUIDELINES}
 - Output only the subtasks JSON as specified, with no extra explanations or formatting.
 
@@ -680,6 +690,8 @@ You are an expert multi-robot controller, managing {len(AGENT_NAMES)} embodied r
 - If a referenced object is missing, inventory is full (when pickup is needed), agent state/observation is missing, or Subtask is None: output an empty list for that subtask (or {{ "Actions": [] }} if Subtasks is None).
 - Assign only objects listed in the provided list. If multiple instances of the same type exist (e.g., Countertop_1, Countertop_2), select the most appropriate one based on the agent's current position and its proximity to the objects.
 - when assigning actions which interact with objects and with navigation, always use NavigateTo<object_name> to approach the object first. Unless the targert obect is close enough and in the view of the agent.
+- Avoid assigning the same object to multiple agents in the same step. 
+- If there are multiple same object type, assign the most reachable one according the given observation of the agent.
 - If the subtask requires micro-movements to approach an Object_name, use only Movement, Rotation, and Look actions based on position and failure reason—avoid using NavigateTo<Object_name> initially. Try one atomic movement at a time before attempting NavigateTo<Object_name> again.
     - When failure reason is "object-not-in-view", first try  Lookdown  or Lookup action based on the target object's most likely to be. (you can assume the agent always starts looking front. 
     - When failure reason is "no-plan", try moving around first—sometimes an obstacle (e.g., a door) may be blocking the path before re-attempting NavigateTo.
@@ -1580,41 +1592,37 @@ if __name__ == "__main__":
     #     if i < end - 1:
     #         time.sleep(50)
     TASKS_1 = [
-    # {
-    #     "task_folder": "1_put_bread_lettuce_tomato_fridge",
-    #     "task": "put bread, lettuce, and tomato in the fridge",
-    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-    # },
-    # {
-    #     "task_folder": "1_put_computer_book_remotecontrol_sofa",
-    #     "task": "put laptop, book and remote control on the sofa",
-    #     "scenes": ["FloorPlan203", "FloorPlan209", "FloorPlan224"] # 201, 202
-    # },
+    {
+        "task_folder": "1_put_bread_lettuce_tomato_fridge",
+        "task": "put bread, lettuce, and tomato in the fridge",
+        "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+    },
+    {
+        "task_folder": "1_put_computer_book_remotecontrol_sofa",
+        "task": "put laptop, book and remote control on the sofa",
+        "scenes": ["FloorPlan203", "FloorPlan209", "FloorPlan224"] # 201, 202
+    },
     # {
     #     "task_folder": "1_put_knife_bowl_mug_countertop",
     #     "task": "put knife, bowl, and mug on the counter top",
     #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
     # },
-    # {
-    #     "task_folder": "1_put_plate_mug_bowl_fridge",
-    #     "task": "put plate, mug, and bowl in the fridge",
-    #     "scenes": ["FloorPlan4", "FloorPlan5"] #FloorPlan1,2,3
-    # },
-    # {
-    #     "task_folder": "1_put_remotecontrol_keys_watch_box",
-    #     "task": "put remote control, keys, and watch in the box",
-    #     "scenes": [ "FloorPlan228"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207","FloorPlan209", "FloorPlan215", "FloorPlan226",
-    # },
+    {
+        "task_folder": "1_put_plate_mug_bowl_fridge",
+        "task": "put plate, mug, and bowl in the fridge",
+        "scenes": ["FloorPlan4", "FloorPlan5"] #FloorPlan1,2,3
+    },
+    {
+        "task_folder": "1_put_remotecontrol_keys_watch_box",
+        "task": "put remote control, keys, and watch in the box",
+        "scenes": [ "FloorPlan228"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207","FloorPlan209", "FloorPlan215", "FloorPlan226",
+    },
     {
         "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
         "task": "put vase, tissue box, and remote control on the side table1",
-        "scenes": [ "FloorPlan219"] #"FloorPlan201", "FloorPlan203", "FloorPlan216",
+        "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan216","FloorPlan219", "FloorPlan229"] #"FloorPlan201", "FloorPlan203", "FloorPlan216","FloorPlan219"
     },
-    {
-        "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
-        "task": "put vase, tissue box, and remote control on the desk",
-        "scenes": ["FloorPlan229"] #"FloorPlan201", "FloorPlan203", "FloorPlan216",
-    },
+
     # {
     #     "task_folder": "1_slice_bread_lettuce_tomato_egg",
     #     "task": "slice bread, lettuce, tomato, and egg with knife",
@@ -1753,8 +1761,9 @@ if __name__ == "__main__":
     },  
 ]
 
-    # batch_run(TASKS_1, base_dir="config", repeat=3, sleep_after=50)
+    # batch_run(TASKS_1, base_dir="config", repeat=1, sleep_after=50)
 
-    batch_run(TASKS_2, base_dir="config", repeat=1, sleep_after=50)
+    # batch_run(TASKS_2, base_dir="config", repeat=1, sleep_after=50)
     # batch_run(TASKS_3, base_dir="config", repeat=1, sleep_after=50)
-    batch_run(TASKS_4, base_dir="config", repeat=1, sleep_after=50)
+    # batch_run(TASKS_4, base_dir="config", repeat=1, sleep_after=50)
+    run_main(test_id = 4, config_path="config/4_put_appropriate_storage/FloorPlan2/config.json")

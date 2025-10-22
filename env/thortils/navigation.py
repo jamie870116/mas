@@ -638,6 +638,12 @@ def get_shortest_path_to_object(controller, object_id,
         return None, None
         # raise ValueError("Plan not found from {} to {}"\
         #                  .format((start_position, start_rotation), object_id))
+
+    all_angles=[i for i in range(360)]
+    _yaw,_pitch=None,None
+    _yaw=_yaw_facing(start_position, target_position, all_angles)
+    _pitch=_pitch_facing(start_position, target_position, v_angles)
+
     if len(tentative_plan) == 0:
         final_plan = []   # it appears that the robot is at where it should be
 
@@ -666,6 +672,8 @@ def get_shortest_path_to_object(controller, object_id,
                                           navigation_actions,
                                           reachable_positions,
                                           **params)
+        _yaw=_yaw_facing(last_position, target_position, all_angles)
+        _pitch=_pitch_facing(last_position, target_position, v_angles)
     
     poses = []
     actions = []
@@ -688,6 +696,8 @@ def get_shortest_path_to_object(controller, object_id,
 
     if return_plan:
         # print(f'returning plan: {actions}, poses: {poses}')
+        _pitch=0 if _pitch is not None else _pitch
+        poses.append((_pitch, _yaw))
         return poses, actions
     else:
         return poses
@@ -836,8 +846,8 @@ def _pitch_facing(robot_position, target_position, angles):
     angles = normalize_angles(angles)
     rx, ry, rz = robot_position
     tx, ty, tz = target_position
-    horiz = tx - rx
-    horiz = math.sqrt((rx - tx) ** 2 + (rz - tz) ** 2) #ry - ty, tx - rx
+    # horiz = tx - rx
+    horiz = math.sqrt((rx - tx) ** 2 + (rz - tz) ** 2) #ry - ty, tx - rx 
     # remember for pitch in thor, negative is up, positive is down
     pitch = to_degrees(math.atan2(ry - ty, # reverse y axis direction because of ^^
                                   horiz)) % 360

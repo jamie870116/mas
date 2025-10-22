@@ -1,7 +1,7 @@
 {
   "num_agents": 2,
   "scene": "FloorPlan203",
-  "task": "put vase, tissue box, and remote control on the dinning table",
+  "task": "put tissue box, vase and remote control on the dinning table",
   "timeout": 30,
   "model": "gpt-4.1-2025-04-14",
   "use_obs_summariser": false,

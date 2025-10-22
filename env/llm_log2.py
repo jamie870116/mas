@@ -433,10 +433,9 @@ COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that m
 - Use only objects listed in the current environment and reflect real-world affordances.
 - Do not search inside containers unless the task explicitly requires it.
 - Never use OpenObject on non-openable surfaces (e.g., tables, countertops).
-- For openable containers (e.g., fridge, drawer, cabinet):
-  - Open before use; the robot's hand must be empty before opening or closing.
-  - Close after use.
-  - To place an object inside: open → pick up the object → deposit it inside → close.
+- For openable containers (box is not required to close):
+  - Open before use and always Close after use.
+  - To place an object inside: navigate to the target object → pick up the object → navigate to the container → open the contatiner →  deposit it inside → close.
 - To place on a receptacle: pick up → navigate/approach → place.
 - Cooking: item in a pan/pot → pan/pot on a stove burner → turn on the stove knob (turn off if the task requires).
 - Slicing: the robot must be holding a knife, and do **not** pick up the item being sliced.
@@ -661,6 +660,8 @@ You are an expert multi-robot controller, managing {len(AGENT_NAMES)} embodied r
 - If a referenced object is missing, inventory is full (when pickup is needed), agent state/observation is missing, or Subtask is None: output an empty list for that subtask (or {{ "Actions": [] }} if Subtasks is None).
 - Assign only objects listed in the provided list. If multiple instances of the same type exist (e.g., Countertop_1, Countertop_2), select the most appropriate one based on the agent's current position and its proximity to the objects.
 - when assigning actions which interact with objects and with navigation, always use NavigateTo<object_name> to approach the object first. Unless the targert obect is close enough and in the view of the agent.
+- Avoid assigning the same object to multiple agents in the same step. 
+- If there are multiple same object type, assign the most reachable one according the given observation of the agent.
 - If the subtask requires micro-movements to approach an Object_name, use only Movement, Rotation, and Look actions based on position and failure reason—avoid using NavigateTo<Object_name> initially. Try one atomic movement at a time before attempting NavigateTo<Object_name> again.
     - When failure reason is "object-not-in-view", first try  Lookdown  or Lookup action based on the target object's most likely to be. (you can assume the agent always starts looking front. 
     - When failure reason is "no-plan", try moving around first—sometimes an obstacle (e.g., a door) may be blocking the path before re-attempting NavigateTo.
@@ -1755,22 +1756,22 @@ if __name__ == "__main__":
     #     "task": "Clear the table by placing the items in their appropriate positions",
     #     "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
     # },
-    {
-        "task_folder": "4_make_livingroom_dark",
-        "task": "Make the living room dark",
-        "scenes": [ "FloorPlan205"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204",
-    },
     # {
-    #     "task_folder": "4_put_appropriate_storage",
-    #     "task": "Place all utensils into their appropriate positions",
-    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
-    # },  
+    #     "task_folder": "4_make_livingroom_dark",
+    #     "task": "Make the living room dark",
+    #     "scenes": [ "FloorPlan205"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204",
+    # },
+    {
+        "task_folder": "4_put_appropriate_storage",
+        "task": "Place all utensils into their appropriate positions",
+        "scenes": ["FloorPlan2"] # , "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6
+    },  
 ]
     
     # batch_run(TASKS_1, base_dir="config", start=1, end=1, sleep_after=50, delete_frames=False)
     # batch_run(TASKS_1, base_dir="config", start=2, end=2, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_4, base_dir="config", start=1, end=1, sleep_after=50, delete_frames=False)
-    batch_run(TASKS_4, base_dir="config", start=2, end=2, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_4, base_dir="config", start=1, end=1, sleep_after=50, delete_frames=True)
     # run_main(test_id = 3, config_path="config/config.json", delete_frames=True)
     # run_main(test_id = 2, config_path="config/config.json")
 

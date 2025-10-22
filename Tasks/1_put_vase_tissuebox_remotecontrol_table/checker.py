@@ -26,19 +26,37 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from env.task_config_checker import TaskConfigChecker
 
+# def build_checker(env=None):
+#     receptacle = ["CounterTop_1", "CounterTop_2"]
+    
+#     required = ["Bowl_1", "ButterKnife_1", "Mug_1"]
+
+#     cfg = {
+#         "is_multiple": True,
+#         "receptacle": receptacle,
+#         "recept_require_items": required,
+#         # "status_check": {"is_on": False},      
+#         # "status_require_items": [faucet],
+#     }
+
+
 def build_checker(env=None):
     current_scene = env.scene if env else "FloorPlan201"
-    if current_scene == "FloorPlan201":
-        receptacle = "SideTable_1"
-    elif current_scene == "FloorPlan229":
-        receptacle = "Desk_1"
-    else:
-        receptacle = "DiningTable_1"
+    if current_scene == "FloorPlan201" or current_scene == "FloorPlan216":
+        receptacle = ["SideTable_1", "SideTable_2", "SideTable_3", "DiningTable_1"]
     
+    elif current_scene == "FloorPlan229":
+        receptacle = ["Desk_1", "SideTable_1", "SideTable_2"]
+    
+    elif current_scene == "FloorPlan219":
+        receptacle = ["SideTable_1"]
+    else:  # FloorPlan203
+        receptacle = ["DiningTable_1","SideTable_1"]
 
     required = ["Vase", "RemoteControl", "Tissuebox"]
 
     cfg = {
+        "is_multiple": True,
         "receptacle": receptacle,
         "recept_require_items": required,
         # "status_check": {"is_on": False},      

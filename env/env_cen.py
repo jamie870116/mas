@@ -302,6 +302,8 @@ class BaseEnv:
             if action_name == "PickupObject":
                 print('try to pick up ', object_id)
                 action_dict["forceAction"] = True
+            if action_name == "OpenObject" or action_name == "CloseObject":
+                action_dict["forceAction"] = True
             # if action_name == "PutObject" and "Fridge" in object_id:
             #     action_dict["forceAction"] = True
         elif action.startswith("DropHandObject"):
@@ -317,6 +319,23 @@ class BaseEnv:
             action_dict["action"] = action_name
             degrees = action.split("(")[1].rstrip(")")
             action_dict["degrees"] = int(degrees)
+        elif action.startswith("AlignOrientation"):
+            action_dict["agentId"] = agent_id
+            pitch, yaw, z = action.split("(")[1].split(")")[0].split(",")
+            agent_metadata = self.event.events[agent_id].metadata["agent"]
+            horizon = agent_metadata["cameraHorizon"]
+
+            action_dict["action"] = "TeleportFull"
+            action_dict["rotation"] = dict(x=pitch, y=yaw, z=0)
+            action_dict["position"] = agent_metadata["position"]
+            z = eval(z) 
+            if z:
+                action_dict["horizon"] = 0
+            else:
+                action_dict["horizon"] = horizon
+
+            action_dict["standing"] = True
+            action_dict["forceAction"] = True
         else:
             raise ValueError(f"Unsupported action: {action}")
         return action_dict
@@ -791,19 +810,34 @@ class AI2ThorEnv_cen(BaseEnv):
             obj_pos = obj_meta["position"]
             obj_base_name = object_name.split("_")[0]
             dist = ((agent_pos["x"] - obj_pos["x"]) ** 2 + (agent_pos["z"] - obj_pos["z"]) ** 2) ** 0.5
+            print(f"[Navigation] Agent {self.agent_names[agent_id]} cannot find path to {object_name}. Distance: {dist:.2f} meters.")
             if dist < 1.0 and obj_base_name in self.small_objects:
                 if obj_id not in self.get_object_in_view(agent_id):
                     return [f"LookDown(30)"]
                 
+            if dist < 1.0 and obj_base_name.startswith("Drawer"):
+                print(f"{obj_id} detected within 1 meter but no path found.")
+                # if obj_id not in self.get_object_in_view(agent_id):
+                return [f"LookDown(30)"]
+                
             self.nav_no_plan[self.agent_names[agent_id]] = True
             self._record_subtask_failure(agent_id, reason="no-path", at_action=action)
             return []
-
         micro_actions: List[str] = []
+        xx, yy, zz = cur_rot
+        align_initial_action = f"AlignOrientation({xx},{yy},{False})"
+        micro_actions.append(align_initial_action)
+        # print('align_initial_action: ',align_initial_action)
+        
         for act_name, params in plan:
             action_str = self.convert_thortils_action((act_name, params))
             micro_actions.append(action_str)
 
+        if poses and poses[-1] is not None:
+            goal_pitch, goal_yaw = poses.pop()
+            align_final_action = f"AlignOrientation({goal_pitch},{goal_yaw},{False})"
+            micro_actions.append(align_final_action)
+            # print('align_initial_action: ',align_initial_action)
         
         # print(f"nav_actions: {micro_actions}")
         return micro_actions
@@ -892,7 +926,7 @@ class AI2ThorEnv_cen(BaseEnv):
         # print("Executing actions:", actions)
         for aid in range(self.num_agents):
 
-            if self.current_hl[aid]:
+            if self.current_hl[aid] and not self.action_queue[aid]:
                 actions = ["Idle"] * self.num_agents
                 actions[aid] = self.current_hl[aid]
                 _ = self.step_decomp(actions, agent_id=aid)
@@ -905,15 +939,24 @@ class AI2ThorEnv_cen(BaseEnv):
             # print(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
             # print("******")
             # print(f"before exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
+
+            # handle AlignOrientation separately
+            if self.action_queue[aid] and self.action_queue[aid][0].startswith("AlignOrientation"):
+                act = self.action_queue[aid].popleft()
+                action_dict = self.parse_action(act, aid)
+                if self.save_logs:
+                    self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
+                self.event = self.controller.step(action_dict)
+                success = self.event.events[aid].metadata["lastActionSuccess"]
+            
+
+
+
             act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
             # print(f"After exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
             # print("******")
             # print(act)
-            # for testing
-            before_reachable_position = self.get_cur_reachable_positions()
-            # if act.startswith('Open'):
-            #     status = self.get_object_status('Fridge_1')
-            #     print(f"Before openning Object Fridge_1 status: {status}")
+
 
             if act != "Idle":
                 if act.startswith('Rotate'):
@@ -1047,7 +1090,16 @@ class AI2ThorEnv_cen(BaseEnv):
                 #     self.step_decomp([ sub if i==aid else "Idle"
                 #                        for i in range(self.num_agents) ])
 
-            self.action_queue[aid].clear()
+            # handle AlignOrientation separately
+            if self.action_queue[aid] and self.action_queue[aid][0].startswith("AlignOrientation"):
+                act = self.action_queue[aid].popleft()
+                action_dict = self.parse_action(act, aid)
+                if self.save_logs:
+                    self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
+                self.event = self.controller.step(action_dict)
+                success = self.event.events[aid].metadata["lastActionSuccess"]
+            if (sub and not sub.startswith("NavigateTo")):  
+                self.action_queue[aid].clear()
             self.logs.append(f"Current success subtask: {self.subtask_success_history}")
 
             # if not self.skip_save_dir:
@@ -1059,6 +1111,149 @@ class AI2ThorEnv_cen(BaseEnv):
                                  filename=f"frame_{self.step_num[0]}.png")
 
         return self.get_observations(), act_successes
+    
+    # def exe_step(self, actions: List[str]):
+    #     """execute one step, all"""
+    #     act_texts, act_successes = [], []
+    #     failure_triggered = False  
+
+    #     for aid in range(self.num_agents):
+
+    #         if self.current_hl[aid]:
+    #             actions = ["Idle"] * self.num_agents
+    #             actions[aid] = self.current_hl[aid]
+    #             plan = self.step_decomp(actions, agent_id=aid)
+    #             if not plan:
+    #                 # navigation failure
+    #                 failure_triggered = True
+                    
+
+    #         if self.save_logs:
+    #             self.logs.append(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
+    #             self.logs.append(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
+
+    #         # 連續執行：直到 queue 空、或遇到失敗為止
+    #         while True:
+    #             act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
+
+    #             if act == "Idle":
+    #                 # Idle 視為成功一次，結束此 agent 的本輪執行
+    #                 success = True
+    #             else:
+    #                 # === 以下完全沿用你原本的動作執行邏輯 ===
+    #                 if act.startswith('Rotate'):
+    #                     action_dict = {"agentId": aid, "action": act, "degrees": 30}
+    #                     for i in range(2):
+    #                         self.event = self.controller.step(action_dict)
+    #                         success = self.event.events[aid].metadata["lastActionSuccess"]
+    #                         self.save_last_frame(agent_id=aid, view="pov",
+    #                                             filename=f"frame_{self.step_num[aid]}_{i+1}.png")
+    #                         self.save_last_frame(view="overhead",
+    #                                             filename=f"frame_{self.step_num[0]}_{i+1}.png")
+    #                         if not success:
+    #                             break
+    #                     # 再執行一次與原程式一致
+    #                     self.event = self.controller.step(action_dict)
+    #                     if self.save_logs:
+    #                         self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
+    #                     success = self.event.events[aid].metadata["lastActionSuccess"]
+    #                 else:
+    #                     action_dict = self.parse_action(act, aid)
+    #                     if self.save_logs:
+    #                         self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
+    #                     self.event = self.controller.step(action_dict)
+    #                     success = self.event.events[aid].metadata["lastActionSuccess"]
+
+    #             # === 成敗後處理（原樣保留） ===
+    #             self.step_num[aid] += 1
+    #             if not success:
+    #                 obs, obs_list = self.generate_obs_text(aid, mode="mapping")
+    #                 print(f"Failed to Executing action for agent {aid} at {act} obs: {obs}")
+    #                 if self.save_logs:
+    #                     self.logs.append(f"Failed to Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
+    #                     self.logs.append(f'errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else "no-event"}')
+
+    #                 err = self.event.events[aid].metadata.get("errorMessage") or "unknown-error"
+    #                 if "already" in err:
+    #                     success = True
+    #                     self.agent_failure_acts[self.agent_names[aid]] = []
+    #                     if act.startswith("PickupObject"):
+    #                         self.inventory[aid] = self.get_agent_object_held(aid)
+    #                     elif act.startswith(("PutObject", "DropHandObject")):
+    #                         self.inventory[aid] = "nothing"
+    #                 else:
+    #                     self._record_subtask_failure(aid, reason=f"failed-at: {act} ({err})", at_action=act)
+    #                     self.agent_failure_acts[self.agent_names[aid]].append(act)
+    #                     failure_triggered = True     # ⬅️ 任一失敗：標記並準備總體退出
+    #             else:
+    #                 self.agent_failure_acts[self.agent_names[aid]] = []
+    #                 if act.startswith("PickupObject"):
+    #                     self.inventory[aid] = self.get_agent_object_held(aid)
+    #                 elif act.startswith(("PutObject", "DropHandObject")):
+    #                     self.inventory[aid] = "nothing"
+
+    #             self.action_history[self.agent_names[aid]].append(act)
+    #             self.action_success_history[self.agent_names[aid]].append(success)
+    #             act_texts.append(self.get_act_text(act, success, aid))
+    #             act_successes.append(success)
+
+    #             sub = self.current_hl.get(aid)
+    #             if sub:
+    #                 if self.save_logs:
+    #                     self.logs.append(f'Checking if subtask: {sub} for agent {aid} ({self.agent_names[aid]}) is completed')
+    #                     self.logs.append(f'previous success: {self.subtask_success_history[self.agent_names[aid]]}')
+    #                 if success and self.is_subtask_done(sub, aid):
+    #                     if self.save_logs:
+    #                         self.logs.append(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
+    #                     print(f"Subtask {sub} for agent {aid} ({self.agent_names[aid]}) is done.")
+    #                     self.subtask_success_history[self.agent_names[aid]].append(sub)
+    #                     self.subtask_failure_reasons[self.agent_names[aid]] = []
+    #                     self.current_hl[aid] = None
+    #                     self.action_queue[aid].clear()
+    #                     self.last_check_reason[self.agent_names[aid]] = None
+    #                     self.nav_no_plan[self.agent_names[aid]] = False
+    #                 else:
+    #                     last_reason = self.last_check_reason[self.agent_names[aid]]
+    #                     terminal = False
+    #                     if last_reason and (last_reason == 'no-path' or 'not-exist' in last_reason) or self.nav_no_plan[self.agent_names[aid]]:
+    #                         terminal = True
+    #                     elif last_reason and last_reason.startswith("distance-too-far") and not self.action_queue[aid]:
+    #                         last_reason += " (may be stuck because of unknown reason)"
+    #                         terminal = True
+
+    #                     if terminal:
+    #                         self._record_subtask_failure(aid, reason=last_reason or "terminal-failure", at_action=sub)
+    #                         self.current_hl[aid] = None
+    #                         self.action_queue[aid].clear()
+    #                         # 標記失敗，並在本 agent 結束
+    #                         if len(act_successes) > aid:
+    #                             act_successes[aid] = False
+    #                         failure_triggered = True
+    #                     else:
+    #                         print(f'subtask: {sub} failed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
+    #                     if self.save_logs:
+    #                         self.logs.append(f'subtask: {sub} for agent {aid} ({self.agent_names[aid]}) failed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
+    #                         self.logs.append(f'last reason: {last_reason}')
+
+    #             # 每個動作結束後都存影像（原樣）
+    #             self.save_last_frame(agent_id=aid, view="pov",
+    #                                 filename=f"frame_{self.step_num[aid]}.png")
+
+    #             if failure_triggered:
+    #                 break
+
+    #             if not self.action_queue[aid] or act == "Idle":
+    #                 break
+
+    #         # 若任何 agent 觸發失敗，整體提早結束
+    #         if failure_triggered:
+    #             break
+
+    #     # overhead 影像仍在本輪最後存一次（原樣）
+    #     self.save_last_frame(view="overhead",
+    #                         filename=f"frame_{self.step_num[0]}.png")
+
+    #     return self.get_observations(), act_successes
     
     def get_rightside_block_positions(self, obj_meta, add_pos, block_step=0.25, steps=4, y_offset=0.901):
         """
@@ -1559,31 +1754,32 @@ class AI2ThorEnv_cen(BaseEnv):
             if self.save_logs:
                 self.logs.append(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
             print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
-            if dist > 1.0 and dist < 1.8 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
+            if dist > 1.0 and dist < 1.5 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
-            elif agent_id > 0 and dist > 1.0 and dist < 2.5 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
+            elif agent_id > 0 and dist > 1.0 and dist < 1.5 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
-            elif dist > 1.2:
-                # error_type += f": distance-too-far ({dist:.2f}m)"
-                if not self.action_queue[agent_id]:
-                    self.last_check_reason[self.agent_names[agent_id]] = f"no path to object {obj_id} with distance ({dist:.2f}m), may be block by other agent, should wait for one step"
-                suc = False
-                return suc 
+            # elif dist > 1.2:
+            #     # error_type += f": distance-too-far ({dist:.2f}m)"
+            #     if not self.action_queue[agent_id]:
+            #         self.last_check_reason[self.agent_names[agent_id]] = f"no path to object {obj_id} with distance ({dist:.2f}m), may be block by other agent, should wait for one step"
+            #     suc = False
+            #     return suc 
             # elif obj_id in self.get_object_in_view(agent_id):
             #         #  and obj_name in self.receptacle_objects
             #         suc = True
             #         self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
             #         return suc
-            else:
-                if obj_id not in self.get_object_in_view(agent_id) and obj_name not in self.small_objects:
+            elif dist <= 1.0:
+                if obj_id not in self.get_object_in_view(agent_id) and obj_name not in self.small_objects and not self.action_queue[agent_id]:
                     # not in view
                     self.last_check_reason[self.agent_names[agent_id]] = "object-not-in-view"
                     suc = False
                     return suc
+
                 else:
                     # agnet_rot = self.event.events[agent_id].metadata["agent"]["rotation"]["y"]
                     # agent_cam = self.event.events[agent_id].metadata["agent"]["cameraHorizon"]
