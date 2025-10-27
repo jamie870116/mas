@@ -16,7 +16,7 @@ from thortils.constants import H_ANGLES, V_ANGLES
 import traceback
 import math
 import importlib.util
-
+import re
 
 def import_scene_initializer(task: str, floor_plan: str):
     file_path = os.path.join("Tasks", task, f"{floor_plan}.py")
@@ -477,6 +477,93 @@ class BaseEnv:
                 failure_text += " and "
         failure_text += " but was unsuccessful."
         return failure_text
+    
+    def extract_frame_indices(self, filename):
+        """
+        Extracts the primary and optional secondary frame index from filename like 'frame_0_2.png' or 'frame_1.png'.
+        Returns a tuple (primary, secondary) for sorting.
+        """
+        match = re.match(r"frame_(\d+)(?:_(\d+))?\.png", filename)
+        if match:
+            primary = int(match.group(1))
+            secondary = int(match.group(2)) if match.group(2) else 0
+            return (primary, secondary)
+        return (float('inf'), float('inf')) 
+    
+    def save_to_video(self, fps: int = 10, delete_frames: bool = False):
+        """
+        Convert saved frames into videos for each agent's POV and overhead view.
+        
+        Args:
+            file_name (str): The task folder name (e.g., 'logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan201/test_{i}')
+            fps (int): Frames per second for the output video (default: 30).
+            delete_frames (bool): Whether to delete frame images after video creation.
+        """
+        task_path = self.base_path
+       
+        print(f"Resolved task path: {task_path}")
+        
+        if not task_path.exists() or not task_path.is_dir():
+            raise ValueError(f"Task folder {task_path} does not exist or is not a directory.")
+        
+        # Find all subfolders (e.g., Alice/pov, Bob/pov, overhead)
+        subfolders = []
+        # Look for agent POV folders (e.g., Alice/pov)
+        for agent_folder in task_path.iterdir():
+            if agent_folder.is_dir() and (agent_folder / "pov").exists():
+                subfolders.append(agent_folder / "pov")
+            elif agent_folder.name == "overhead" and agent_folder.is_dir():
+                subfolders.append(agent_folder)
+        
+        if not subfolders:
+            raise ValueError(f"No valid subfolders (agent POV or overhead) found in {task_path}.")
+        
+        # Process each subfolder to create a video
+        for subfolder in subfolders:
+            # Collect all frame files in the subfolder
+            # frame_files = sorted(
+            #     [f for f in subfolder.iterdir() if f.is_file() and f.suffix == ".png"],
+            #     key=lambda x: int(re.search(r'frame_(\d+)\.png', x.name).group(1))
+            # )
+            frame_files = sorted(
+                [f for f in subfolder.iterdir() if f.is_file() and f.suffix == ".png"],
+                key=lambda x: self.extract_frame_indices(x.name)
+            )
+            
+            if not frame_files:
+                print(f"No frames found in {subfolder}. Skipping video creation.")
+                continue
+            
+            # Read the first frame to get dimensions
+            first_frame = cv2.imread(str(frame_files[0]))
+            height, width, _ = first_frame.shape
+            
+            # Define the output video path
+            video_name = subfolder.name if subfolder.name == "overhead" else f"{subfolder.parent.name}_{subfolder.name}"
+            video_path = task_path / f"{video_name}.mp4"
+            
+            # Initialize video writer
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for mp4
+            video_writer = cv2.VideoWriter(str(video_path), fourcc, fps, (width, height))
+            
+            # Write each frame to the video
+            for frame_file in frame_files:
+                frame = cv2.imread(str(frame_file))
+                video_writer.write(frame)
+            
+            # Release the video writer
+            video_writer.release()
+
+            print(f"Video saved at {video_path}")
+            if delete_frames:
+                for frame_file in frame_files:
+                    try:
+                        frame_file.unlink()
+                    except Exception as e:
+                        print(f"Warning: could not delete {frame_file}: {e}")
+                print(f"Deleted {len(frame_files)} frame images from {subfolder}")
+
+
 
 class AI2ThorEnv_cen(BaseEnv):
     """Main AI2THOR environment for multi-agent tasks with global timer and frame saving."""
@@ -987,27 +1074,6 @@ class AI2ThorEnv_cen(BaseEnv):
             else:
                 success = True
 
-            # still testing
-            # after_reachable_position = self.get_cur_reachable_positions()
-            # if (act.startswith("Open") or act.startswith("Close")) and 'Fridge' in action_dict["objectId"]:
-            #     if act.startswith('Open'):
-            #         before_set = set(before_reachable_position)
-            #         after_set = set(after_reachable_position)
-            #         # 找出 after 新增的點
-            #         added_positions = after_set - before_set
-            #         object_name = act.split("(")[1].rstrip(")")
-                    
-            #         status = self.get_object_status(object_name)
-            #         print(f'check position of {object_name}, status: {status}')
-            #         block = self.get_rightside_block_positions(status, added_positions)
-            #         self.mannual_block_pos[object_name] = block
-            #         print('mannual block positions:', self.mannual_block_pos)
-            #         # print(f"After openning Object Fridge_1 status: {status}")
-            #     elif act.startswith('Close'):
-            #         object_name = act.split("(")[1].rstrip(")")
-            #         self.mannual_block_pos[object_name] = []
-
-
 
             self.step_num[aid] += 1
             if not success:
@@ -1132,15 +1198,15 @@ class AI2ThorEnv_cen(BaseEnv):
     #             self.logs.append(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
     #             self.logs.append(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
 
-    #         # 連續執行：直到 queue 空、或遇到失敗為止
+    #         
     #         while True:
     #             act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
 
     #             if act == "Idle":
-    #                 # Idle 視為成功一次，結束此 agent 的本輪執行
+    #                 
     #                 success = True
     #             else:
-    #                 # === 以下完全沿用你原本的動作執行邏輯 ===
+    #                 
     #                 if act.startswith('Rotate'):
     #                     action_dict = {"agentId": aid, "action": act, "degrees": 30}
     #                     for i in range(2):
@@ -1152,7 +1218,7 @@ class AI2ThorEnv_cen(BaseEnv):
     #                                             filename=f"frame_{self.step_num[0]}_{i+1}.png")
     #                         if not success:
     #                             break
-    #                     # 再執行一次與原程式一致
+    #                     
     #                     self.event = self.controller.step(action_dict)
     #                     if self.save_logs:
     #                         self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
@@ -1164,7 +1230,7 @@ class AI2ThorEnv_cen(BaseEnv):
     #                     self.event = self.controller.step(action_dict)
     #                     success = self.event.events[aid].metadata["lastActionSuccess"]
 
-    #             # === 成敗後處理（原樣保留） ===
+    #             
     #             self.step_num[aid] += 1
     #             if not success:
     #                 obs, obs_list = self.generate_obs_text(aid, mode="mapping")
@@ -1184,7 +1250,7 @@ class AI2ThorEnv_cen(BaseEnv):
     #                 else:
     #                     self._record_subtask_failure(aid, reason=f"failed-at: {act} ({err})", at_action=act)
     #                     self.agent_failure_acts[self.agent_names[aid]].append(act)
-    #                     failure_triggered = True     # ⬅️ 任一失敗：標記並準備總體退出
+    #                     failure_triggered = True 
     #             else:
     #                 self.agent_failure_acts[self.agent_names[aid]] = []
     #                 if act.startswith("PickupObject"):
@@ -1225,7 +1291,7 @@ class AI2ThorEnv_cen(BaseEnv):
     #                         self._record_subtask_failure(aid, reason=last_reason or "terminal-failure", at_action=sub)
     #                         self.current_hl[aid] = None
     #                         self.action_queue[aid].clear()
-    #                         # 標記失敗，並在本 agent 結束
+    #                         
     #                         if len(act_successes) > aid:
     #                             act_successes[aid] = False
     #                         failure_triggered = True
@@ -1235,7 +1301,7 @@ class AI2ThorEnv_cen(BaseEnv):
     #                         self.logs.append(f'subtask: {sub} for agent {aid} ({self.agent_names[aid]}) failed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
     #                         self.logs.append(f'last reason: {last_reason}')
 
-    #             # 每個動作結束後都存影像（原樣）
+    #             
     #             self.save_last_frame(agent_id=aid, view="pov",
     #                                 filename=f"frame_{self.step_num[aid]}.png")
 
@@ -1245,64 +1311,16 @@ class AI2ThorEnv_cen(BaseEnv):
     #             if not self.action_queue[aid] or act == "Idle":
     #                 break
 
-    #         # 若任何 agent 觸發失敗，整體提早結束
+    #         
     #         if failure_triggered:
     #             break
 
-    #     # overhead 影像仍在本輪最後存一次（原樣）
+    #     
     #     self.save_last_frame(view="overhead",
     #                         filename=f"frame_{self.step_num[0]}.png")
 
     #     return self.get_observations(), act_successes
     
-    def get_rightside_block_positions(self, obj_meta, add_pos, block_step=0.25, steps=4, y_offset=0.901):
-        """
-        根據冰箱 metadata 推算門打開後右側需要手動 block 的位置列表。
-        :return: List[Dict]，要遮擋的世界座標點 (x, y, z)
-        """
-        fx, _, fz = obj_meta["position"]["x"], obj_meta["position"]["y"], obj_meta["position"]["z"]
-        yaw = obj_meta["rotation"]["y"] % 360
-        yaw_rad = math.radians(yaw)
-
-        if 315 <= yaw or yaw < 45:
-            facing = "+Z"
-        elif 45 <= yaw < 135:
-            facing = "+X"
-        elif 135 <= yaw < 225:
-            facing = "-Z"
-        else:
-            facing = "-X"
-
-        def world_to_local(x, z):
-            dx = x - fx
-            dz = z - fz
-            local_x = dx * math.sin(yaw_rad) - dz * math.cos(yaw_rad)
-            local_z = dx * math.cos(yaw_rad) + dz * math.sin(yaw_rad)
-            return (local_x, local_z)
-
-        local_points = [(pt, world_to_local(pt[0], pt[2])) for pt in add_pos]
-        local_points_sorted = sorted(local_points, key=lambda p: p[1][0], reverse=True)
-        rightmost_world_pt = local_points_sorted[0][0]
-
-        dir_x = math.sin(yaw_rad)
-        dir_z = -math.cos(yaw_rad)
-
-        blocked_positions = []
-
-        for i in range(0, steps):
-            dx = dir_x * block_step * i
-            dz = dir_z * block_step * i
-            x = round(rightmost_world_pt[0] + dx, 3)
-            z = round(rightmost_world_pt[2] + dz, 3)
-            y = round(y_offset, 3)
-
-            # 原始高度
-            blocked_positions.append({"x": x, "y": y, "z": z})
-            # 門下方 + 0.25
-            blocked_positions.append({"x": x, "y": y, "z": round(z - 0.25, 3)})
-
-        return blocked_positions
-
 
     def action_loop(self, high_level_tasks: List[str]):
         """execute the actions from high level

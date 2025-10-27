@@ -18,37 +18,37 @@ class SceneInitializer:
     
             
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+00.65|+00.48|-01.72',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+00.65|+00.48|+00.24',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+00.95|+02.16|-02.38',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+00.95|+02.16|-00.76',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+00.95|+02.16|-00.14',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+00.95|+02.44|-01.78',
         forceAction=True
         )

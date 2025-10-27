@@ -395,8 +395,8 @@ class BaseEnv:
             if action_name == "PickupObject":
                 print('try to pick up ', object_id)
                 action_dict["forceAction"] = True
-            # if action_name == "PutObject" and "Fridge" in object_id:
-            #     action_dict["forceAction"] = True
+            if action_name == "OpenObject" or action_name == "CloseObject":
+                action_dict["forceAction"] = True
         elif action.startswith("DropHandObject"):
             action_dict["action"] = "DropHandObject"
             action_dict["forceAction"] = True
@@ -483,7 +483,93 @@ class BaseEnv:
         return res
         # raise ValueError(f"Object {object_name} not found in the current scene.")
     
-    
+    def extract_frame_indices(self, filename):
+        """
+        Extracts the primary and optional secondary frame index from filename like 'frame_0_2.png' or 'frame_1.png'.
+        Returns a tuple (primary, secondary) for sorting.
+        """
+        match = re.match(r"frame_(\d+)(?:_(\d+))?\.png", filename)
+        if match:
+            primary = int(match.group(1))
+            secondary = int(match.group(2)) if match.group(2) else 0
+            return (primary, secondary)
+        return (float('inf'), float('inf')) 
+
+    def save_to_video(self, fps: int = 10, delete_frames: bool = False):
+        """
+        Convert saved frames into videos for each agent's POV and overhead view.
+        
+        Args:
+            file_name (str): The task folder name (e.g., 'logs/Summary/put_remote_control,_keys,_and_watch_in_the_box/Floorplan201/test_{i}')
+            fps (int): Frames per second for the output video (default: 30).
+            delete_frames (bool): Whether to delete frame images after video creation.
+        """
+        task_path = self.base_path
+       
+        print(f"Resolved task path: {task_path}")
+        
+        if not task_path.exists() or not task_path.is_dir():
+            raise ValueError(f"Task folder {task_path} does not exist or is not a directory.")
+        
+        # Find all subfolders (e.g., Alice/pov, Bob/pov, overhead)
+        subfolders = []
+        # Look for agent POV folders (e.g., Alice/pov)
+        for agent_folder in task_path.iterdir():
+            if agent_folder.is_dir() and (agent_folder / "pov").exists():
+                subfolders.append(agent_folder / "pov")
+            elif agent_folder.name == "overhead" and agent_folder.is_dir():
+                subfolders.append(agent_folder)
+        
+        if not subfolders:
+            raise ValueError(f"No valid subfolders (agent POV or overhead) found in {task_path}.")
+        
+        # Process each subfolder to create a video
+        for subfolder in subfolders:
+            # Collect all frame files in the subfolder
+            # frame_files = sorted(
+            #     [f for f in subfolder.iterdir() if f.is_file() and f.suffix == ".png"],
+            #     key=lambda x: int(re.search(r'frame_(\d+)\.png', x.name).group(1))
+            # )
+            frame_files = sorted(
+                [f for f in subfolder.iterdir() if f.is_file() and f.suffix == ".png"],
+                key=lambda x: self.extract_frame_indices(x.name)
+            )
+            
+            if not frame_files:
+                print(f"No frames found in {subfolder}. Skipping video creation.")
+                continue
+            
+            # Read the first frame to get dimensions
+            first_frame = cv2.imread(str(frame_files[0]))
+            height, width, _ = first_frame.shape
+            
+            # Define the output video path
+            video_name = subfolder.name if subfolder.name == "overhead" else f"{subfolder.parent.name}_{subfolder.name}"
+            video_path = task_path / f"{video_name}.mp4"
+            
+            # Initialize video writer
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for mp4
+            video_writer = cv2.VideoWriter(str(video_path), fourcc, fps, (width, height))
+            
+            # Write each frame to the video
+            for frame_file in frame_files:
+                frame = cv2.imread(str(frame_file))
+                video_writer.write(frame)
+            
+            # Release the video writer
+            video_writer.release()
+
+            print(f"Video saved at {video_path}")
+            if delete_frames:
+                for frame_file in frame_files:
+                    try:
+                        frame_file.unlink()
+                    except Exception as e:
+                        print(f"Warning: could not delete {frame_file}: {e}")
+                print(f"Deleted {len(frame_files)} frame images from {subfolder}")
+
+
+
 
     def get_object_status_byID(self, obj_id: str) -> Dict[str, Any]:
         """Return the status of a specific object given its readable name."""
@@ -885,19 +971,14 @@ class AI2ThorEnv_cen(BaseEnv):
             obj_pos = obj_meta["position"]
             obj_base_name = object_name.split("_")[0]
             dist = ((agent_pos["x"] - obj_pos["x"]) ** 2 + (agent_pos["z"] - obj_pos["z"]) ** 2) ** 0.5
-            print(f"[Navigation] Agent {self.agent_names[agent_id]} cannot find path to {object_name}. Distance: {dist:.2f} meters.")
             if dist < 1.0 and obj_base_name in self.small_objects:
                 if obj_id not in self.get_object_in_view(agent_id):
                     return [f"LookDown(30)"]
                 
-            if dist < 1.0 and obj_base_name.startswith("Drawer"):
-                print(f"{obj_id} detected within 1 meter but no path found.")
-                # if obj_id not in self.get_object_in_view(agent_id):
-                return [f"LookDown(30)"]
-                
             self.nav_no_plan[self.agent_names[agent_id]] = True
             self._record_subtask_failure(agent_id, reason="no-path", at_action=action)
             return []
+
         micro_actions: List[str] = []
         xx, yy, zz = cur_rot
         align_initial_action = f"AlignOrientation({xx},{yy},{False})"
@@ -913,6 +994,12 @@ class AI2ThorEnv_cen(BaseEnv):
             align_final_action = f"AlignOrientation({goal_pitch},{goal_yaw},{False})"
             micro_actions.append(align_final_action)
             # print('align_initial_action: ',align_initial_action)
+        
+        # micro_actions: List[str] = []
+        # for act_name, params in plan:
+        #     action_str = self.convert_thortils_action((act_name, params))
+        #     micro_actions.append(action_str)
+
         
         # print(f"nav_actions: {micro_actions}")
         return micro_actions
@@ -1004,20 +1091,31 @@ class AI2ThorEnv_cen(BaseEnv):
                 'timestemp':self.step_num[aid],
                 'agent_id':aid,
                 'agent_name':self.agent_names[aid],
-                'curr_subtask':self.current_hl.get(aid, None),
+                'curr_subtask': self.cur_plan[aid]['subtask'],
                 'type': 'Attempt',
                 'payload':{}
             }
 
 
-            if self.current_hl[aid]:
+            if self.current_hl[aid] and not self.action_queue[aid]:
                 actions = ["Idle"] * self.num_agents
                 actions[aid] = self.current_hl[aid]
                 _ = self.step_decomp(actions, agent_id=aid)
+
             if self.save_logs:
                 # self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
                 self.logs.append(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
                 self.logs.append(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
+
+            # handle AlignOrientation separately
+            if self.action_queue[aid] and self.action_queue[aid][0].startswith("AlignOrientation"):
+                act = self.action_queue[aid].popleft()
+                action_dict = self.parse_action(act, aid)
+                if self.save_logs:
+                    self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
+                self.event = self.controller.step(action_dict)
+                success = self.event.events[aid].metadata["lastActionSuccess"]
+            
 
             act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
             log_dict['payload']['last_action'] = act
@@ -1086,7 +1184,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 # print(f'errorMessage: {self.event.events[aid].metadata["errorMessage"]}')
                 err = self.event.events[aid].metadata.get("errorMessage") or "unknown-error"
                 if "already" in err:
-                    success = True
+                    success = False
                     self.agent_failure_acts[self.agent_names[aid]] = []
                     if act.startswith("PickupObject"):
                         self.inventory[aid] = self.get_agent_object_held(aid)
@@ -1151,12 +1249,20 @@ class AI2ThorEnv_cen(BaseEnv):
                         self.nav_no_plan[self.agent_names[aid]] = False
 
                     else:
-                        print(f'subtask: {sub} failed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
+                        print(f'subtask: {sub} failed, errorMessage: {log_dict["payload"].get("failed_reason", "")}')
                     if self.save_logs:
-                        self.logs.append(f'subtask: {sub} for agent {aid} ({self.agent_names[aid]}) failed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
+                        self.logs.append(f'subtask: {sub} for agent {aid} ({self.agent_names[aid]}) failed, errorMessage: {log_dict["payload"].get("failed_reason", "")}')
                         self.logs.append(f'last reason: {last_reason}')
 
-                
+            # handle AlignOrientation separately
+            if self.action_queue[aid] and self.action_queue[aid][0].startswith("AlignOrientation"):
+                act = self.action_queue[aid].popleft()
+                action_dict = self.parse_action(act, aid)
+                if self.save_logs:
+                    self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
+                self.event = self.controller.step(action_dict)
+                success = self.event.events[aid].metadata["lastActionSuccess"]
+
             if log_dict and log_dict['curr_subtask'] != None:
                 obs, _ = self.generate_obs_text(aid, mode="mapping")
                 log_dict['payload']['postion'] = self.get_agent_position(aid)
@@ -1173,8 +1279,13 @@ class AI2ThorEnv_cen(BaseEnv):
                 with open(filename, "a", encoding="utf-8") as f:
                     f.write(json.dumps(log_dict, ensure_ascii=False) + "\n")
 
-            self.action_queue[aid].clear()
+            
+            if (sub and not sub.startswith("NavigateTo")):  
+                self.action_queue[aid].clear()
             self.logs.append(f"Current success subtask: {self.subtask_success_history}")
+
+            # self.action_queue[aid].clear()
+            # self.logs.append(f"Current success subtask: {self.subtask_success_history}")
 
             # if not self.skip_save_dir:
             self.save_last_frame(agent_id=aid, view="pov",
@@ -1619,11 +1730,11 @@ class AI2ThorEnv_cen(BaseEnv):
             if self.save_logs:
                 self.logs.append(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
             print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
-            if dist > 1.0 and dist < 1.8 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
+            if dist > 1.0 and dist < 1.5 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
-            elif agent_id > 0 and dist > 1.0 and dist < 2.5 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
+            elif agent_id > 0 and dist > 1.0 and dist < 1.5 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
@@ -2118,6 +2229,13 @@ class AI2ThorEnv_cen(BaseEnv):
             "Robots' open subtasks": self.open_subtasks,
             "Robots' completed subtasks": self.closed_subtasks,
         }
+
+        for aid, name in enumerate(self.agent_names):
+            # snap[f"{name}'s observation"]      = self.input_dict.get(f"{name}'s observation", "[]")
+            snap[f"{name}'s observation"] = self.get_mapping_object_pos_in_view(aid)
+            snap[f"{name}'s state"]            = self.input_dict.get(f"{name}'s state", "")
+           
+
         if recent_logs:
             logs = self.get_log_llm_input(need_process  = need_process)
             logs = logs[-self.num_agents:]  # get the most recent 

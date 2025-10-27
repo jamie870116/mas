@@ -18,79 +18,79 @@ class SceneInitializer:
     
             
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|-01.67|+02.01|-01.54',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|-00.57|+00.37|-01.24',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+00.38|+00.37|-01.24',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+00.78|+00.37|-01.24',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+01.78|+00.37|-01.24',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|-01.48|+00.37|-01.24',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+01.78|+02.01|-01.54',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+00.52|+02.01|-01.54',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|-02.22|+00.37|-01.87',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+01.45|+02.26|-01.54',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|-02.17|+02.01|-01.54',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|+00.85|+02.26|-01.54',
         forceAction=True
         )
         
         event=controller.step(
-        action='OpenObject',
+        action='CloseObject',
         objectId='Cabinet|-00.71|+02.01|-01.54',
         forceAction=True
         )
