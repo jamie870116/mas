@@ -1,7 +1,8 @@
 '''
-Baseline : Centralized LLM + replanning + shared memory(llm summary based)
+Baseline : Centralized LLM + replanning + shared memory(log based) llm decide whether to append the log or not
 
-structure same as llm_ca.py
+
+structure same as llm_c.py but with more information about the environment and positions, failures, etc.:
 1. initial planning (remain the same as previous method: given task, let planner and editor to generate a list of subtasks (this will be the open subtasks)
 2. start a loop, until timeout or all the open subtasks is empty:
 2.1 update open subtasks and completed subtask
@@ -10,6 +11,14 @@ structure same as llm_ca.py
 2.4 execute one subtask per agents
 2.5 verify if the subtask is completed and identify the failure reason and collect the history and suggest the next step
 2.6 replan: similar to initial planning : given task and closed subtask
+
+log example in event.jsonl:
+{"timestemp": 0, "agent_id": 0, "agent_name": "Alice", "curr_subtask": "NavigateTo(Lettuce_1)", "type": "Failed", "payload": {"last_action": "Idle", "failed_reason": "object(Lettuce_1)-not-exist (Object Lettuce_1 not found in object_dict)", "postion": "(-4.00, 1.50)", "rotation": "north", "inventory": "nothing", "observation": "I see: ['ArmChair_1', 'ArmChair_2', 'Bowl_1', 'Box_1', 'CoffeeTable_1', 'Curtains_1', 'Floor_1', 'Pillow_1', 'Shelf_2', 'Sofa_1', 'TVStand_1', 'Television_1', 'TissueBox_1', 'Window_2']"}}
+{"timestemp": 17, "agent_id": 1, "agent_name": "Bob", "curr_subtask": "ToggleObjectOff(LightSwitch_1)", "type": "Success", "payload": {"last_action": "ToggleObjectOff(LightSwitch_1)", "postion": "(-3.50, 0.75)", "rotation": "south", "inventory": "nothing", "observation": "I see: ['HousePlant_1', 'LightSwitch_1', 'Painting_1', 'RemoteControl_1', 'SideTable_2', 'SideTable_3']"}}
+{"timestemp": 17, "agent_id": 0, "agent_name": "Alice", "curr_subtask": "NavigateTo(FloorLamp_1)", "type": "Attempt", "payload": {"last_action": "MoveAhead", "postion": "(-1.25, 2.50)", "rotation": "east", "inventory": "nothing", "observation": "I see: ['Curtains_1', 'DeskLamp_1', 'KeyChain_1', 'SideTable_1', 'Vase_1', 'Window_1']"}}
+
+TBD: 單獨的 log 分析與回饋模組 
+checker for task type 4 要改
 '''
 
 import json
@@ -20,13 +29,12 @@ import argparse
 from pathlib import Path
 import time
 import base64
-from openai import OpenAI
-
-from env_cen import AI2ThorEnv_cen as AI2ThorEnv
 import difflib
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from openai import OpenAI
+from env_log import AI2ThorEnv_cen as AI2ThorEnv
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 client = OpenAI(api_key=Path('api_key_ucsb.txt').read_text())
 
@@ -263,7 +271,9 @@ def get_objects_by_floorplan(fpid: str) -> list[str]:
 CURRENT_OBJECT_REFERENCE = get_objects_by_floorplan(config["scene"])
 
 EXAMPLE_PLAN = f"""
-High-level task: "Put the vase, tissue box, and remote control on the table", with 2 agents, example output:
+High-level task: "Put the vase, tissue box, and remote control on the table", with 2 agents:
+
+example output:
 [
 "navigate to the vase, pick up the vase, navigate to the table, and put it on the table",
 "navigate to the tissue box, pick up the tissue box, navigate to the table, and put it on the table",
@@ -272,10 +282,8 @@ High-level task: "Put the vase, tissue box, and remote control on the table", wi
 
 High-level task: "Put the lettuce and potato in the fridge" with 2 agents, example output:
 [
-"navigate to the fridge and open the fridge, without picking up any objects, before putting anything inside",
 "navigate to the lettece, pick up the lettuce,  navigate to the fridge,  open the fridge, put it in the fridge, and close the fridge",
-"navigate to the potato, pick up the potato, navigate to the fridge and put it in the fridge",
-"navigate to the fridge and close the fridge, without picking up any objects"
+"navigate to the potato, pick up the potato,  navigate to the fridge,  open the fridge, put it in the fridge, and close the fridge",
 ]
 
 High-level task: "Put the spoon and knife in any drawer" with 2 agents, example output (Note: "any drawer" means any suitable drawer in the environment):
@@ -296,13 +304,6 @@ High-level task: "slice a tomato" with 2 agents, example output:
 'navigate to the knife, pick up the knife, navigate to the tomato, slice the tomato with the knife',
 ]
 
-High-level task: "clean the pot and bowl" with 2 agents, example output:
-[
-'navigate to the pot, clean the pot',
-'navigate to the bowl, clean the bowl',
-]
-
-
 """
 
 FALURE_EXAMPLES = f"""
@@ -319,10 +320,11 @@ VERIFY_EXAMPLE = f"""
 # Error and Faulures handling
 - Navigation: "no-path", "object-not-in-view", "distance-too-far": Use micro-movements (MoveAhead, RotateRight, etc.) to get in view/reach, using current/target positions and available observations. For example, you can have subtasks like "look down and navigate to potato" if previous failure reason of "pick up potato" was "object-not-in-view". Or you can have subtask like "use micro-movements to navigate to potato" if previous subtask "navigate to potato" was failured.
 example: 
-** If the input reports "no-path" to <Obj> while <Obj> exists and the images/observations indicate a physical occluder (e.g., an open fridge door between the agent and the target or blocked by other agent), issue a short detour macro before retrying. For example: RotateRight twice, then MoveAhead once, then retry NavigateTo(<Obj>).This decision must use multiple signals—images/2D detections, object states (e.g., isOpen for doors), recent actions, and visible objects—not just the Reachable positions list. Or navigate to somewhere far away to clean the paht.
+** If the input reports "no-path" to <Obj> while <Obj> exists and the images/observations indicate a physical occluder (e.g., an open fridge door between the agent and the target or blocked by other agent), issue a short detour macro before retrying. For example: RotateRight twice, then MoveAhead once, then retry NavigateTo(<Obj>).This decision must use multiple signals—images/2D detections, object states (e.g., isOpen for doors), recent actions, and visible objects—not just the Reachable positions list. Or navigate to somewhere far away to clean the path.
 ** When the input shows "no-path" and a likely cause is another agent blocking the aisle or target approach (same narrow corridor, same target, or the other agent is on the planned route), assign a yield/wait behavior to avoid deadlock: have the blocked agent Idle for 1 or 2 steps or take a small lateral/back step (MoveRight/MoveLeft/MoveBack) to clear space, or temporarily reassign the blocking agent to a different subtask/movement. After the yielding action, retry NavigateTo(<Obj>).
 ** when given input shows "object-not-in-view" for subtask "navigate to tomato", and based on other input information, that the distance between the agent and the tomato is already close enough, then you can have subtask "Lookdown" or "Lookup" to find the tomato or "RotateRight" or "RotateLetf".
 ** when when given input shows "object-not-in-view" for subtask "navigate to tomato and pick up tomato", but you can still see a tomato based on the given point of view image, then try directly pick up the tomato without navigation.
+** when given input shows "a held item: <object_id> with something if agent <navigation related action: e.g., rotates Left 30 degrees>", it means that the agent is currently in a narrow space and cannot do certain navigation(often happen when rotation), you can suggest the agent to do "MoveBack" or "MoveAhead" first to get out of the narrow space.
 ** for any other unknown reason or repeating failures, you can suggest assigning subtasks to other agents.
 
 - Object-related: "object-not-found", "object-not-reachable", "object-not-in-inventory", "object(<OBJ>)-not-picked-up", "object cannot be interacted":
@@ -330,8 +332,8 @@ example:
 ** when given input shows "object-not-found" and based on given object list of environment, that there's no target object, you can skipped the related subtask.
 ** when given input shows "object-not-in-inventory", means that the current agent didn't not pick up any object to perform the next step, you should have the subtask "pick up xxx, and do xxx". xxx depends on what is the subtask.
 ** when given input shows "object cannot be interacted", means that the target object maybe  broken/disabled/locked, you should skip the related subtask, or try replan/choose an alternative..
-** when given error shows "NullReferenceException: Target object not found within the specified visibility.", means that the target object is not visiable to the agent, you should try rotate the direction or looking up or down or open the container to find the target object, don't move forward, the object should be close enough already.
-** when given error shows "Object <OBJ> is not an Openable object", means that the target object is not openable, you should skip the related subtask.
+** when given error shows "NullReferenceException: Target object not found within the specified visibility.", means that the target object may be inside the container and is not visiable to the agent, you should try open the container to find the target object.
+
 - Ensure necessary object prerequisites.
 
 # Example:
@@ -362,7 +364,6 @@ output:
   "memory": "Alice has put the knife in the cabinet, and Bob has put the mug in the cabinet. The cabinet is now open.",
   "reason": "Alice should close the cabinet and move away. Charlie should move to another open space to reduce congestion. Bob should wait until the cabinet is accessible.",
   "suggestion": "next, Alice should move to other place, Bob should stay idle, Charlie should move to other place"
-  "need_plan": boolean (true/false) indicating whether a replan is needed.
 }}
 
 """
@@ -391,7 +392,6 @@ Output:
 {{
   "Actions": [
     ["NavigateTo(Fridge_1)", "OpenObject(Fridge_1)"],
-    ["Idle"],
     ["NavigateTo(Lettece_1)", "PickupObject(Lettece_1)"]
   ]
 }}
@@ -406,32 +406,6 @@ Output:
   "Actions": [
     ["NavigateTo(Laptop_1)", "ToggleObjectOn(Laptop_1)"],
     ["RotateRight", "MoveAhead"],
-  ]
-}}
-
-Example 4: Given Assignement:
-[
-'navigate to the pot, clean the pot',
-'navigate to the bowl, clean the bowl',
-]
-Output:
-{{
-"Actions": [
-    ["NavigateTo(Pot_1)", "CleanObject(Pot_1)"],
-    ["NavigateTo(Bowl_1)", "CleanObject(Bowl_1)"]
-  ]
-}}
-
-Example 5: Given Assignement:
-[
-'navigate to the sink, turn off the faucet',
-'navigate to the stove burner, turn off the stoveknob',
-]
-Output:
-{{
-"Actions": [
-    ["NavigateTo(Sink_1)", "CleanObject(Faucet_1)"],
-    ["NavigateTo(StoveBurner_1)", "CleanObject(StoveKnob_1)"]
   ]
 }}
 
@@ -459,31 +433,23 @@ Do not include explanations, comments, or markdown formatting.
     ]
 }
 """
-#- For openable containers (e.g., fridge, drawer, cabinet, box is not required to close):
-#   - Open before use; the robot's hand must be empty before opening or closing.
-#   - Close after use.
-#   - To place an object inside: open → pick up the object → deposit it inside → close.
 
 COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that mirrors real-world physics and affordances, but with explicit constraints enumerated below.
 - Use only objects listed in the current environment and reflect real-world affordances.
-- Navigate directly to the target object, not to the receptacle(such as Table, Dinning Table, COunterTop, etc.) it is in or on top. 
 - Do not search inside containers unless the task explicitly requires it.
-- Never use OpenObject on non-openable surfaces (e.g., tables, countertops, dresser, curtains).
-- For openable containers (box is not required to close):
+- Never use OpenObject on non-openable surfaces (e.g., tables, countertops).
+- For openable containers (do not close a box):
   - Open before use and always Close after use.
   - To place an object inside: navigate to the target object → pick up the object → navigate to the container → open the contatiner →  deposit it inside → close.
 - To place on a receptacle: pick up → navigate/approach → place.
 - Cooking: item in a pan/pot → pan/pot on a stove burner → turn on the stove knob (turn off if the task requires).
-- Slicing: the robot must be holding a knife, and do **not** pick up the item being sliced.
+- Slicing: the robot can slice either with or without a knife, and do **not** pick up the item being sliced.
 - After Slicing: When an object is sliced, it becomes multiple pieces that keep the same base name but receive new indices/unique IDs. E.g., slicing Apple_1 yields Apple_1, Apple_2, …
-- Toasting (bread): first slice the bread using a butterknife or knife (do not pick up the bread before slicing); then pick up one slice(it should be Bread_1 ~ Bread_9 not BreadSliced), navigate to the toaster, put the slice into the toaster, and turn on the toaster.
 - Each robot can hold only one object at a time. When holding an item, the robot **cannot** perform interactions that require a free hand (e.g., OpenObject, CloseObject, ToggleObjectOn/Off); empty the hand first (put on a surface or drop) before such actions.
-- To clean or wash an object, directly navigate to the object and apply CleanObject. Do not use a dishSponge or soapbottle. Do not go to the sink or use the sink.
+- When cleaning is required, you must only use the CleanObject action. Do not use any other methods (e.g., placing under faucet, using soap, or sponge). No need to pick up the dirty object first; clean it in place.
 - Do not assume default receptacles (e.g., CounterTop, Table) unless explicitly mentioned/present.
 - Close any opened object before leaving when appropriate.
-- If task do not specify which receptacle (e.g any drawers, any countertop), any suitable receptacle is acceptable. Try different number of receptacles when previous attempts fail. (e.g., if Drawer_1 is not reachable, try Drawer_2, etc.)
 - Avoid agents blocking each other where possible.
-- Curtains and Side Table cannot be opened or closed by robots.
 - Object cannot be given to other agent.
 - Unless otherwise specified, assume robots start with empty hands.
 - For electronic items (e.g., television, laptop, phone), toggle power directly on the device; **do not use remote controls** unless explicitly required.
@@ -516,44 +482,52 @@ ROBOTS_SUBTASKS_INPUT_FORMAT = """- "Robots' open subtasks": (list of strings) l
 - "Robots' completed subtasks": (list of strings) list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
 """
 
-AGENT_INPUT_FORMAT = """- "Agent's observation" (list):  list of objects and its postion the agent is observing.
-- "Agent's state": Agent's position, facing, and inventory.
+AGENT_INPUT_FORMAT = """- "Agent's observation" (list):  list of objects and its postion the agent is currently observing.
+- "Agent's state": Current agent's position, facing, and inventory.
 """
 
-MEMORY_AGENT_INPUT_FORMAT = """
-For each agent:
-- "name": (string) The agent's name.
-- "Agent's state": Agent's position, facing, and inventory.
-- "Agent's last_action": The most recent action the agent attempted.
-- "Agent's last_action_success": (boolean) Whether the last action succeeded.
-- "Agent's recent_actions": (list) The last N actions the agent attempted.
-- "Agent's recent_success_flags": (list[bool]) Whether those recent actions succeeded.
-- "Agent's subtask_failure_reasons": Previous step performance/failures, if any.
-- "Agent's previous failures": Action-level failures, if any.
-- "Agent's last_check_reason": Latest environment-based failure diagnosis, if any.
-- "Agent's observation": (list) List of visible objects with positions.
+LOG_PROCESSED_INPUT_FORMAT = """- "Logs": The following is a list of execution log lines, each describing one agent's subtask execution result at a specific timestamp.
+Each line follows this format: 
+[t=timestamp] agent_name → curr_subtask → result_type (reason)
 """
 
-MEMORY_HISTORY_INPUT_FORMAT = """- "Robots' memory": string of important information about the scene and action history that should be remembered for future steps,
-- "suggestion": a string of reasoning for what each robot should do next and a description of the next actions each robot should take,
+LOG_ORIGINAL_INPUT_FORMAT = """
+- "Logs": a list of JSON objects. Each object represents one action execution log for a specific agent at a certain timestamp.
+JSON field description:
+- "timestemp" (number): The timestamp of the action.
+- "agent_id" (integer): The ID of the agent (e.g., 0 or 1).
+- "agent_name" (string): The name of the agent.
+- "curr_subtask" (string): The subtask the agent is currently executing.
+- "type" (string): The result type of the action. Possible values: "Attempt", "Success", "Failed". "Attempt" indicates the subtask is still ongoing (not yet completed), which means that the action was interrupted because of other agent's failure.
+- "payload" (object): Detailed information about the agent's status during this action.
+    - "last_action" (string): The last atomic action executed.
+    - "last_action_status" (string, optional): The status of the last action, e.g., "Success" or "Failed". This status do not represent the overall subtask status.
+    - "failed_reason" (string, optional): If the type is "Failed", this field contains the error message.
+    - "postion" (string): The agent's position in the environment.
+    - "rotation" (string): The agent's facing direction.
+    - "inventory" (string): The items the agent is currently holding.
+    - "observation" (string): What the agent currently perceives in the environment.
 """
 
-HISTORY_INPUT_FORMAT = """
-- "subtask_success_history": (dict) Mapping from agent name to list of past successful subtasks.
-- "subtask_failure_reasons": (dict) Mapping from agent name to failure reason payloads.
+SUGGESTION_INPUT_FORMAT = """- "Reason": A detailed analysis of the failure, considering the task requirements, agent states, and environment conditions.
+- "Suggestion": Clear, actionable recommendations for the next steps each agent should take to overcome the failure and progress towards completing the task.
 """
 
 
-FAILURES_INPUT_FORMAT = """- "Agent's subtask_failure_reasons": Previous step performance/failures, if any,
-- "Agent's previous failures": Previous action failures, if any,
+PREVIOUS_LOG_FORMAT = """- "Previous Actions: agent's subtask execution result for last action, in the following format [t=timestamp] agent_name → curr_subtask → result_type (reason)
+
 """
+
 PLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT
 EDITOR_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + SUBTASK_INPUT_FORMAT
-ALLOCATOR_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + REACABLE_POSITION_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT + FAILURES_INPUT_FORMAT
-ACTION_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + REACABLE_POSITION_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT + ASSINMENG_INPUT_FORMAT
-VERIFIER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT
-REPLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT
-MEMORY_GATE_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + MEMORY_AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT + HISTORY_INPUT_FORMAT
+ALLOCATOR_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + PREVIOUS_LOG_FORMAT
+ACTION_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + AGENT_INPUT_FORMAT + ASSINMENG_INPUT_FORMAT
+
+VERIFIER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + LOG_PROCESSED_INPUT_FORMAT
+REPLANNER_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + SUGGESTION_INPUT_FORMAT + LOG_PROCESSED_INPUT_FORMAT
+
+VERIFIER_ORG_LOG_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + LOG_ORIGINAL_INPUT_FORMAT
+REPLANNER_ORG_LOG_INPUT_FORMAT = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + SUGGESTION_INPUT_FORMAT + LOG_ORIGINAL_INPUT_FORMAT
 
 PLANNER_PROMPT = f"""
 # Role and Objective
@@ -567,7 +541,6 @@ Begin with a concise checklist (3-7 bullets) of what you will do; keep items con
 - Decompose the main task into subtasks that the robots can complete, taking into account the robots' abilities and the objects available.
 - Make sure to cover all the subtasks to complete the final goal.
 - Merge steps that must occur in a strict sequence into a **single** subtask.
-- *Navigate directly to the target object*, not to the container or receptacle it is in or on.
 {COMMON_GUIDELINES}
 - Output only the subtasks JSON as specified, with no extra explanations or formatting.
 
@@ -670,6 +643,7 @@ Produce a JSON object with this structure:
 # Final instructions
 First, think carefully step by step about **which subtasks are executable now**, closely adhering to the **Allocation Rules**. Then, **return only the Allocation/Remain JSON with no extra text**.
 """
+#   - Prefer NavigateTo<Object> before interaction unless object is near and in view.
 
 ACTION_PROMPT = f"""
 # Role and Objective
@@ -680,13 +654,13 @@ You are an expert multi-robot controller, managing {len(AGENT_NAMES)} embodied r
 - For each "Assignment" subtask provided (one per agent), generate an ordered list of executable atomic actions using only the defined action set and schemas.
 - Treat each subtask independently, without inferring new subtasks, changing intent, or considering inter-agent dependencies unless explicitly described in the input.
 - Respect the affordances of objects, preconditions of actions, and environmental constraints in translating subtasks into actions.
-- Assign ["Idle"] only if the subtask is "Idle".
+- Assign ["Idle"] only if the subtask is "Idle". Do not assign empty lists.
 - Generate a list of action plans (lists), one per agent, in the same order as the input subtasks.
 - Navigation/Interaction:
-  - Prefer NavigateTo<Object> before interaction unless object is near and in view.
+  - Prefer NavigateTo<Object> before interaction unless object is near and in view or currently held by the agent.
   - For micro-approach, try Move/Rotate/Look first; then retry NavigateTo.
   - On "object-not-in-view": try LookDown/LookUp based on likely vertical location.
-  - On "no-plan": move around to clear obstacles then retry.
+  - On "no-plan" or "no-path": move around to clear obstacles then retry.
 - Feasibility:
   - Prefer closest suitable instance if multiple exist.
 
@@ -698,7 +672,7 @@ You are an expert multi-robot controller, managing {len(AGENT_NAMES)} embodied r
 - If there are multiple same object type, assign the most reachable one according the given observation of the agent.
 - If the subtask requires micro-movements to approach an Object_name, use only Movement, Rotation, and Look actions based on position and failure reason—avoid using NavigateTo<Object_name> initially. Try one atomic movement at a time before attempting NavigateTo<Object_name> again.
     - When failure reason is "object-not-in-view", first try  Lookdown  or Lookup action based on the target object's most likely to be. (you can assume the agent always starts looking front. 
-    - When failure reason is "no-plan", try moving around first—sometimes an obstacle (e.g., a door) may be blocking the path before re-attempting NavigateTo.
+    - When failure reason is "no-plan" or "no-path", try moving around first—sometimes an obstacle (e.g., a door) may be blocking the path before re-attempting NavigateTo.
 {COMMON_GUIDELINES}
 
 
@@ -707,7 +681,7 @@ You are an expert multi-robot controller, managing {len(AGENT_NAMES)} embodied r
 {AI2THOR_ACTIONS}
 
 # Input Context
-- Inputs include: task description, agent states/observations, open and completed subtasks, reachable positions, all objects in the environment, failed diagnostics (if any), and subtasks to be executed.
+- Inputs include: task description, agent states/observations, open and completed subtasks,  all objects in the environment, failed diagnostics (if any), and subtasks to be executed.
 {ACTION_INPUT_FORMAT}
 
 # Reasoning Steps
@@ -728,169 +702,245 @@ The output must be a single JSON object, with no extra explanation:
 # Final instructions
 First, think carefully step by step about **mapping each assignment to atomic actions**, closely adhering to the **Instruction and Global Constraints and Navigation rules**. Then, **output only the Actions JSON with no explanations**.
 """
+# errorMessage: StandardCounterHeightWidth is blocking Agent 0 from moving by (-0.2500, 0.0000, 0.0000).
 #   - If missing object/observation/inventory invalid/Subtask None → empty list at that index.
 
-REPLAN_PROMPT = f"""
+
+
+LOG_PROMPT = f"""
 # Role and Objective
-You are a capable planner and multi-robot controller assigned to help {len(AGENT_NAMES)} embodied robots named {', '.join(AGENT_NAMES[:-1]) + f', and {AGENT_NAMES[-1]}'} accomplish a specific goal.
-Your goal is to replan a valid and efficient sequence of subtasks based on the current environment state and prior action history. You will be given:
-- The original task description
-- Robots' previous plans (open and completed subtasks)
-- Robots' current observations and states
-- Objects in environment
-- Failure causes
-- Reasoning and suggestions for next actions
-
-# Instructions
-- Avoid repeating success subtasks unless conditions have changed; minimize steps.
-- Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. If the target object is not in visibility try RotateLeft/Right or LookUp/Down first.
-- By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
-{COMMON_GUIDELINES}
-
-- Plan Update Rules: atomic subtasks; combine strictly sequential steps; only necessary actions.
-- Please retain open subtasks that are not yet completed and are still required to accomplish the task.
-
-
-# Reasoning Steps
-- Internally analyze failures, memory, suggestions, and observations to adjust plan.
-
-
-# Output Format
-{OUTPUT_FORMAT_PLAN}
-
-# Examples
-{EXAMPLE_PLAN}
-
-# INPUT Context
-{REPLANNER_INPUT_FORMAT}
-{AI2THOR_ACTIONS}
-
-
-# Final instructions
-First, think carefully step by step about the **shortest valid subtask sequence** given the state, memory and failures, closely adhering to the **Common Guidelines**. Then, **return only the Subtasks JSON**.
-"""
-
-
-# identify the failure reason for the last action and suggest what to do next.
-VERIFIER_PROMPT = f"""
-# Role and Objective
-You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
-You will get a description of the task robots are supposed to do. You will get an image of the environment from {", ".join([f"{name}'s perspective" for name in AGENT_NAMES[:-1]]) + f", and {AGENT_NAMES[-1]}'s perspective"} as the observation input.
-To help you with detecting objects in the image, you will also get a list objects each agent is able to see in the environment. Here the objects are named as "<object_name>_<object_id>".
-So, along with the image inputs you will get the following information:
-- A task description
-- A list of objects each robot can currently see (formatted as "<object_name>_<object_no>") with positions
-- Observations, failure descriptions, and subtask progress
-
-You need to verfify the previous failure and suggest the **next single action** that each robot should take in the current timestep.
-
-
-# Instructions
-- Use observations, failure descriptions, memory, and progress to infer causes.
-- Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. 
-- By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
-{COMMON_GUIDELINES}
-
-- Environment Hazards: open objects can block paths; avoid mutual blocking/collisions.
-- Electronics: operate directly on the device—do not use remotes unless required.
-- Use navigate to the object, unless something wrong while navigation. (no-path, distance-too-far..etc)
-
-# Reasoning Steps
-- Internally reason over images/observations/states/failures to isolate the cause and fix.
-- you are supposed to reason over the image inputs, the robots' observations, previous actions, previous failures, previous memory, subtasks and the available actions the robots can perform, and think step by step and then output the following things:
-* Failure reason: If any robot's previous action failed, use the previous history and your understanding of causality to think and rationalize about why it failed. Output the reason for failure and how to fix this in the next timestep. If the previous action was successful, output "None".
-* Memory: Whatever important information about the scene you think you should remember for the future as a memory. Remember that this memory will be used in future steps to carry out the task. So, you should not include information that is not relevant to the task. You can also include information that is already present in its memory if you think it might be useful in the future.
-* Reason: The reasoning for what each robot is supposed to do next
-* suggestion: The actions the robots are supposed to take just in the next step such that they make progress towards completing the task. Make sure that this suggested actions make these robots more efficient in completing the task as compared only one agent solving the task.
-* need_plan: True or False. If you think the current plan is not efficient or not valid, output True. Otherwise, output False.
-
-#OUTPUT FORMAT
-You must output a JSON dictionary with:
-- "failure reason": string or "None"
-- "memory": string
-- "reason": string
-- "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...")
-- "need_plan": <true|false>
-
-# Errors Handling and Examples
-{VERIFY_EXAMPLE}
-
-# Context
-{VERIFIER_INPUT_FORMAT}
-{AI2THOR_ACTIONS}
-
-
-
-# Final instructions
-First, think carefully step by step about the **most likely failure cause and immediate fix**, closely adhering to the **Important Notes and Common Guidelines**. Then, **output only the specified dictionary**.
-"""
-
-
-MEMORY_PROMPT = f"""
-# Role and Objective
-You are a lightweight memory gate for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
-Your sole job is to decide whether the **current memory and recent history** should be **carried into the next planning round**, and if so, to output a concise shared memory string plus compact success/failure highlights. 
-You do **not** plan actions.
+You are the Memory Aggregator within a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
+Your task is to condense the full execution histories of all agents into a concise, structured summary that captures only facts relevant to future planning.
 
 You will receive:
 - The task description
 - Open/closed subtasks
-- Per-agent observations/states
-- Recent action history and failure reasons
-- a verifier summary already containing a short narrative memory
+- Objects in the environment
+- Per-agent POV images and an overhead image (use them to infer current states succinctly) 
+- Per-agent FULL logs up to now
 
 # Instructions
-- Judge whether the provided memory/history materially improves **next-step planning**.
-- Prefer including memory when it captures:
-  - Dynamic world changes (objects moved/broken/opened; blocked paths/doorways)
-  - Stable object locations or containment relations critical to the goal
-  - Repeated/navigation-structural failures (e.g., no-path, distance-too-far) that change strategy
-  - Tool/device states (e.g., appliance on/off, door open/closed) that alter reachable space
+- Keep only what materially improves next-step planning.
+- When interpreting logs, do not assume the entire subtask is complete just because one action in it succeeded. The subtask is only complete when the field "type" is "Success".
+- Prefer including:
+  - Dynamic world changes (on/off, open/close, place/pick, moved, blocked)
+  - Stable object locations or containment relations essential to the goal
+  - Structural/repeated navigation failures (no-path, blocked, distance-too-far)
+  - Device/tool states that alter reachable space or task preconditions
   - Cross-agent dependencies (handoffs, role assignments)
-- Exclude noisy/ephemeral facts (one-off view lists, transient distances, obvious successes that don't change strategy).
-- Object visibility is **not** a prerequisite—avoid “find/scan/explore” phrasing; prefer “NavigateTo(<object>)”.
-- Be concise. If memory is carried, keep it to a **short, task-relevant** string.
+  - Per-agent subtask progress and execution state (e.g., success, attempting or failed), especially when relevant for replanning or task reassignment.
+	- Logs with type "Attempt" indicate ongoing subtasks, which may be interrupted by other agents' failures, always prioritize the latest available status.
+	- The "last_action_status" field reflects only the outcome of the most recent atomic action and does not necessarily imply that the subtask is complete.
+
+    
+- Exclude noise:
+  - One-off view lists, verbose inventories, generic successes with no strategic effect
+  - Redundant pose details already evident from the image unless tied to a failure/success
+- Be concise. Each output field must be 2-3 sentences, and the whole content of each field must be under 50 words.
 
 # Reasoning Steps
-- Internally analyze task, observations, inventories, success/failure patterns, verifier summary, and subtask progress. 
-- Decide if including memory benefits replanning.
-- If yes, produce a compact `common_memory` capturing only strategic, reusable facts (locations, device states, constraints, dependencies).
-- Summarize **recent key failures** and **notable successes** per agent to help the planner avoid repeats.
+- Internally analyze task, observations, inventories, failures, subtask progress, and images.
+- Decide the minimal facts to carry forward.
+- Use images to confirm current states but avoid restating raw visuals; summarize only what helps replanning.
 
 # OUTPUT FORMAT
-You must output a JSON dictionary with:
+Output a single JSON object with EXACTLY these keys:
 {{
-  "use_in_next_plan": <true|false>,        
-  "why": "<≤50 words reason>",        
-  "common_memory": "<string>",     // the memory string to carry forward.
-  "failure_history": {{                      // compact per-agent failures using natural language
-    "<AgentName>": [""],
-    ...
-  }},
-  "success_history": {{                      // compact per-agent successes using natural language
-    "<AgentName>": [""],
-    ...
-  }}
+  "timestamp": <int>,                                   # the latest timestamp
+  "environment_changes": "<2-3 sentences, <50 words>",  # persistent changes only
+  "agent_action": {{                                     # one entry per agent
+    "<AgentName>": "<2-3 sentences, <50 words: action history + current state + result/fail reason>",
+    "...": "..."
+    }}
 }}
-* why: A brief reasoning for what each robot is supposed to do next.
-* common_memory: whatever important information about the scene you think you should remember for the future as a memory. Remember that this memory will be used in future steps to carry out the task. So, you should not include information that is not relevant to the task. You can also include information that is already present in its memory if you think it might be useful in the future.
 
+# Writing Rules
+- Natural, compact English; no bullet points; no lists.
+- Do not exceed 3 sentences or 50 words per field/agent entry.
+- Do not invent facts. If uncertain, omit.
 
 # Input Context
-{MEMORY_GATE_INPUT_FORMAT}
+{LOG_ORIGINAL_INPUT_FORMAT}
 
-# Notes:
-- Available atomic actions: {AI2THOR_ACTIONS}
-- Environment hazards: open objects may block paths; avoid mutual blocking/collisions.
-- Electronics: operate devices directly; avoid remotes unless required.
-- Prefer NavigateTo(<object>) unless navigation is structurally failing (no-path, distance-too-far, obstructed).
-{COMMON_GUIDELINES}
 
 # Final instructions
-First, think carefully step by step about whether carrying memory helps the next plan and what minimal facts are worth persisting. 
-Then, **output only the specified JSON dictionary**.
+Think carefully about what minimal facts help the next plan. 
+Then output ONLY the specified JSON object with the three fields and their length limits, nothing else.
 """
 
+def get_verifier_prompt(need_process=False):
+    if need_process:
+        VERIFIER_PROMPT = f"""
+        # Role and Objective
+        You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence, they may need to explore the environment to complete the task.
+        You will get a description of the task, current observations (including images if available), and a recent slice of execution logs.
+
+        You need to verify the previous outcome(s) and suggest the **next single action** that each robot should take in the current timestep.
+
+        # Instructions
+        - Use observations and execution logs to infer causes and decide next actions.
+        - Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred.
+        - By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
+        {COMMON_GUIDELINES}
+
+        - Environment Hazards: open objects can block paths; avoid mutual blocking/collisions.
+        - Electronics: operate directly on the device—do not use remotes unless required.
+        - Use NavigateTo(<Object>) unless there is a navigation issue (e.g., no-path, distance-too-far, etc.).
+
+        # Reasoning Steps
+        - Internally reason over observations and states, using the execution logs to isolate the cause and fix.
+        - You are supposed to reason over the image inputs (if any), the robots' observations, previous actions, execution logs (including any prior failures), current subtasks, and the available actions the robots can perform. Think step by step and then output the following:
+        * Reason: The reasoning for what each robot is supposed to do next.
+        * Suggestion: The actions the robots should take in the next step to make progress toward completing the task. Ensure these suggested actions improve efficiency compared to only one agent solving the task.
+
+        # OUTPUT FORMAT
+        You must output a JSON dictionary with:
+        - "need_replan": boolean (true/false) indicating whether a replan is needed.
+        - "reason": string
+        - "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...")
+        
+
+
+        # Errors Handling and Examples
+        {VERIFY_EXAMPLE}
+
+        # Context
+        {VERIFIER_INPUT_FORMAT}
+        {AI2THOR_ACTIONS}
+
+
+        # Final instructions
+        First, think carefully step by step about the **most likely failure cause and immediate fix**, closely adhering to the **Important Notes and Common Guidelines**. Then, **output only the specified dictionary**.
+        """
+    else:
+        VERIFIER_PROMPT = f"""
+        # Role and Objective
+        You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence, they may need to explore the environment to complete the task.
+        You will get a description of the task, current observations (including images if available), and a recent slice of execution logs.
+
+        You need to verify the previous outcome(s) and suggest the **next single action** that each robot should take in the current timestep.
+
+        # Instructions
+        - Use observations and execution logs to infer causes and decide next actions.
+        - Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred.
+        - By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
+        {COMMON_GUIDELINES}
+
+        - Environment Hazards: open objects can block paths; avoid mutual blocking/collisions.
+        - Electronics: operate directly on the device—do not use remotes unless required.
+        - Use NavigateTo(<Object>) unless there is a navigation issue (e.g., no-path, distance-too-far, etc.).
+
+        # Reasoning Steps
+        - Internally reason over observations and states, using the execution logs to isolate the cause and fix.
+        - You are supposed to reason over the image inputs (if any), the robots' observations, previous actions, execution logs (including any prior failures), current subtasks, and the available actions the robots can perform. Think step by step and then output the following:
+        * need_replan: True or False. If you think the current plan is not efficient or not valid, output True. Otherwise, output False.
+        * Reason: The reasoning for what each robot is supposed to do next.
+        * Suggestion: The actions the robots should take in the next step to make progress toward completing the task. Ensure these suggested actions improve efficiency compared to only one agent solving the task.
+
+        # OUTPUT FORMAT
+        You must output a JSON dictionary with:
+        - "need_replan": boolean (true/false) indicating whether a replan is needed.
+        - "reason": string
+        - "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...")
+
+
+        # Errors Handling and Examples
+        {VERIFY_EXAMPLE}
+
+        # Context
+        {VERIFIER_ORG_LOG_INPUT_FORMAT}
+        {AI2THOR_ACTIONS}
+
+
+        # Final instructions
+        First, think carefully step by step about the **most likely failure cause and immediate fix**, closely adhering to the **Important Notes and Common Guidelines**. Then, **output only the specified dictionary**.
+        """
+    return VERIFIER_PROMPT
+
+def get_replanner_prompt(need_process=False):
+    if need_process:
+        REPLAN_PROMPT = f"""
+        # Role and Objective
+        You are a capable planner and multi-robot controller assigned to help {len(AGENT_NAMES)} embodied robots named {', '.join(AGENT_NAMES[:-1]) + f', and {AGENT_NAMES[-1]}'} accomplish a specific goal.
+        Your goal is to replan a valid and efficient sequence of subtasks based on the current environment state and prior action history. You will be given:
+        - The original task description
+        - Robots' previous plans (open and completed subtasks)
+        - Robots' current observations and states
+        - Objects in environment
+        - Failure causes
+        - Reasoning and suggestions for next actions
+
+        # Instructions
+        - Avoid repeating success subtasks unless conditions have changed; minimize steps.
+        - Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. 
+        - By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
+        {COMMON_GUIDELINES}
+
+        - Plan Update Rules: atomic subtasks; combine strictly sequential steps; only necessary actions.
+        - Please retain open subtasks that are not yet completed and are still required to accomplish the task.
+
+
+        # Reasoning Steps
+        - Internally analyze failures, memory, suggestions, and observations to adjust plan.
+
+
+        # Output Format
+        {OUTPUT_FORMAT_PLAN}
+
+        # Examples
+        {EXAMPLE_PLAN}
+
+        # INPUT Context
+        {REPLANNER_INPUT_FORMAT}
+        {AI2THOR_ACTIONS}
+
+
+        # Final instructions
+        First, think carefully step by step about the **shortest valid subtask sequence** given the state, memory and failures, closely adhering to the **Common Guidelines**. Then, **return only the Subtasks JSON**.
+        """
+
+    else:
+        REPLAN_PROMPT = f"""
+        # Role and Objective
+        You are a capable planner and multi-robot controller assigned to help {len(AGENT_NAMES)} embodied robots named {', '.join(AGENT_NAMES[:-1]) + f', and {AGENT_NAMES[-1]}'} accomplish a specific goal.
+        Your goal is to replan a valid and efficient sequence of subtasks based on the current environment state and prior action history. You will be given:
+        - The original task description
+        - Robots' previous plans (open and completed subtasks)
+        - Robots' current observations and states
+        - Objects in environment
+        - Failure causes
+        - Reasoning and suggestions for next actions
+
+        # Instructions
+        - Avoid repeating success subtasks unless conditions have changed; minimize steps.
+        - Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. 
+        - By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
+        {COMMON_GUIDELINES}
+
+        - Plan Update Rules: atomic subtasks; combine strictly sequential steps; only necessary actions.
+        - Please retain open subtasks that are not yet completed and are still required to accomplish the task.
+
+
+        # Reasoning Steps
+        - Internally analyze failures, memory, suggestions, and observations to adjust plan.
+
+
+        # Output Format
+        {OUTPUT_FORMAT_PLAN}
+
+        # Examples
+        {EXAMPLE_PLAN}
+
+        # INPUT Context
+        {REPLANNER_ORG_LOG_INPUT_FORMAT}
+        {AI2THOR_ACTIONS}
+
+
+        # Final instructions
+        First, think carefully step by step about the **shortest valid subtask sequence** given the state, memory and failures, closely adhering to the **Common Guidelines**. Then, **return only the Subtasks JSON**.
+"""
+
+    return REPLAN_PROMPT
 
 def convert_dict_to_string(input_dict) -> str:
     """
@@ -951,9 +1001,8 @@ def set_env_with_config(config_file: str):
 #                                                     max_completion_tokens=max_tokens,)
 #     return response, response.choices[0].message.content.strip()
 
-import time
 
-def get_llm_response(payload, model="gpt-4.1", temperature=0.7, max_tokens=1024, max_retries=5) -> str:
+def get_llm_response(payload, model="gpt-4.1", temperature=0.7, max_tokens=2048, max_retries=5) -> str:
     attempt = 0
     while attempt < max_retries:
         try:
@@ -991,6 +1040,7 @@ def get_llm_response(payload, model="gpt-4.1", temperature=0.7, max_tokens=1024,
     raise RuntimeError(f"Failed after {max_retries} retries due to repeated rate limits.")
 
 
+
 def prepare_payload(system_prompt, user_prompt, img_urls=None) -> list:
     # print("system_prompt:", system_prompt)
     # print("user_prompt:", user_prompt)
@@ -1020,7 +1070,7 @@ def prepare_payload(system_prompt, user_prompt, img_urls=None) -> list:
     
     return payload
 
-def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subtasks=[], info={}, verify_info={}) -> str:
+def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subtasks=[], need_process=False, info=[]) -> str:
     """
     mode: str, choose from planner, action
     planner: for decomposing the task into subtasks
@@ -1045,7 +1095,7 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         if not subtasks:
             print("No subtasks provided")
             return None, None
-        input = env.get_obs_llm_input(prev_info=info)
+        input = env.get_obs_llm_input()
         input["Subtasks"] = subtasks
         del input["Robots' open subtasks"]
         del input["Robots' completed subtasks"]
@@ -1054,63 +1104,32 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
     elif mode == "allocator":
         # for allocating subtasks to robots
         system_prompt = ALLOCATOR_PROMPT
-        input = env.get_obs_llm_input(prev_info=info)
+        input = env.get_obs_llm_input(recent_logs=True)
         user_prompt = convert_dict_to_string(input)
 
     elif mode == "replan":
         # for replanning the subtasks based on the current state of the environment
-        system_prompt = REPLAN_PROMPT
-        try:
-            input = env.get_obs_llm_input(prev_info=info)
-            del input['Reachable positions']
-        except KeyError as e:
-            print(f"[Error] Missing key in info for replan: {e}")
-            return None, None
+
+        system_prompt = get_replanner_prompt(need_process)
+        input = env.get_llm_log_input(need_process)
+        input['Suggestion'] = info.get('suggestion', '')
+        input['Reason'] = info.get('reason', '')
         
         user_prompt = convert_dict_to_string(input)
         # print("replan prompt:", system_prompt)
         # print("replan use prompt:", user_prompt)
     elif mode == "verifier":
         # for verifying the actions taken by the robots
-        system_prompt = VERIFIER_PROMPT
-        input = env.get_obs_llm_input(prev_info=info)
-        del input['Reachable positions']
+
+        system_prompt = get_verifier_prompt(need_process)
+        input = env.get_llm_log_input(need_process)
 
         user_prompt = convert_dict_to_string(input)
-    elif mode == "memory":
-        system_prompt = MEMORY_PROMPT
-        snap = env.get_memory_snapshot()
-
-        input = {
-            "Task": snap["task"],
-            "Scene": snap["scene"],
-            "Step": snap["step"],
-            "Number of agents": snap["num_agents"],
-            "Robots' open subtasks": snap["open_subtasks"],
-            "Robots' completed subtasks": snap["closed_subtasks"],
-            "Robots' memory": snap.get("shared_memory", "None"),
-            "suggestion": snap.get("suggestion", ""),
-
-            "Agents": [
-                {
-                    "name": a["name"],
-                    "Agent's state": a["state"],
-                    "Agent's last_action": a["last_action"],
-                    "Agent's last_action_success": a["last_action_success"],
-                    # "Agent's recent_actions": a["recent_actions"],
-                    # "Agent's recent_success_flags": a["recent_success_flags"],
-                    # "Agent's subtask_failure_reasons": a["recent_fail_reasons"],
-                    # "Agent's previous failures": env.agent_failure_acts.get(a["name"], []),
-                    # "Agent's last_check_reason": a["last_check_reason"],
-                    "Agent's observation": a["visible_objects"],
-                }
-                for a in snap["agents"]
-            ],
-
-            "subtask_success_history": snap.get("subtask_success_history", {}),
-            "subtask_failure_reasons": snap.get("subtask_failure_reasons", {}),
-        }
-
+        user_prompt = json.dumps(input, ensure_ascii=False)
+    elif mode == "log":
+        system_prompt = LOG_PROMPT
+        input = env.get_llm_log_input(need_process, mode='agent') # use agent mode to get full logs of each agent
+        user_prompt = convert_dict_to_string(input)
         user_prompt = json.dumps(input, ensure_ascii=False)
     user_prompt += addendum
     return system_prompt, user_prompt
@@ -1140,14 +1159,13 @@ def process_llm_output(res_content, mode):
 
     if mode == "verifier":
         return (
-            _get(data, "failure_reason", ["failure reason","Failure Reason","failureReason"]),
-            _get(data, "memory"),
+            _get(data, "need_replan", aliases=["need_replan"]) or False,
             _get(data, "reason"),
             _get(data, "suggestion"),
-            _get(data, "need_plan"),
         )
-    if mode == "memory":
-        return bool(data["use_in_next_plan"]), data
+    if mode == 'log':
+        return data
+
     return data
 
 def _get(d: dict, key: str, aliases=None):
@@ -1206,7 +1224,7 @@ def allocate_subtasks_to_agents(env, info={}):
     res, res_content = get_llm_response(allocator_payload, model=config['model'])
     # print('llm allocator output', res_content)
     allocation, remain = process_llm_output(res_content, "allocator")
-    print('allocation: ', allocation)
+    # print('allocation: ', allocation)
     # for testing
     # allocation =  ['pick up the tomato and put it on the countertop', 'pick up the lettuce and put it on the countertop']
     # remain =  ['pick up the bread and put it on the countertop']
@@ -1233,28 +1251,54 @@ def encode_image(image_path: str):
         return base64.b64encode(image_file.read()).decode("utf-8")
 
 
-def verify_actions(env, info):
-    verify_prompt, verify_user_prompt = prepare_prompt(env, mode="verifier", info=info)
-    base64_image = [encode_image(env.get_frame(i)) for i in range(len(AGENT_NAMES))]
+# def verify_actions(env, info={}, need_process=False):
+#     verify_prompt, verify_user_prompt = prepare_prompt(env, mode="verifier", need_process=need_process)
+#     base64_image = [encode_image(env.get_frame(i)) for i in range(len(AGENT_NAMES))]
 
+#     image_urls = [
+#         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}"}}
+#         for image in base64_image
+#     ]
+#     verify_payload = prepare_payload(verify_prompt, verify_user_prompt, img_urls=image_urls)
+#     # print("verify prompt: ", verify_user_prompt)
+#     res, res_content = get_llm_response(verify_payload, model=config['model'])
+#     # print('verify llm output', res_content)
+#     need_replan, reason, suggestion = process_llm_output(res_content, mode="verifier")
+#     verify_res = {
+#         "need_replan": need_replan,
+#         "reason": reason,
+#         "suggestion": suggestion
+#     }
+#     return verify_res
+
+def verify_actions(env, info={}, need_process=False):
+    verify_prompt, verify_user_prompt = prepare_prompt(env, mode="verifier", need_process=need_process)
+    verify_payload = prepare_payload(verify_prompt, verify_user_prompt)
+    # print("verify prompt: ", verify_user_prompt)
+    res, res_content = get_llm_response(verify_payload, model=config['model'])
+    # print('verify llm output', res_content)
+    need_replan, reason, suggestion = process_llm_output(res_content, mode="verifier")
+    verify_res = {
+        "need_replan": need_replan,
+        "reason": reason,
+        "suggestion": suggestion
+    }
+    return verify_res
+
+def log_summariser(env):
+    log_prompt, log_user_prompt = prepare_prompt(env, mode="log")
+    # print("log system prompt: ", log_prompt)
+    # print("log user prompt: ", log_user_prompt)
+    base64_image = [encode_image(env.get_frame(i)) for i in range(len(AGENT_NAMES))]
     image_urls = [
         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}"}}
         for image in base64_image
     ]
-    verify_payload = prepare_payload(verify_prompt, verify_user_prompt, img_urls=image_urls)
-    # print("verify prompt: ", verify_user_prompt)
-    res, res_content = get_llm_response(verify_payload, model=config['model'])
-    # print('verify llm output', res_content)
-    failure_reason, memory, reason, suggestion, need_plan = process_llm_output(res_content, mode="verifier")
-    verify_res = {
-        "failure reason": failure_reason,
-        "memory": memory,
-        "reason": reason,
-        "suggestion": suggestion,
-        "need_plan": need_plan
-    }
-    # print("verify_res: ", verify_res)
-    return verify_res
+    log_payload = prepare_payload(log_prompt, log_user_prompt, img_urls=image_urls)
+    res, res_content = get_llm_response(log_payload, model=config['model'])
+    # print('log summariser llm output', res_content)
+    summarized_log = process_llm_output(res_content, "log")
+    return summarized_log
 
 def get_steps_by_actions(env, actions):
     print("get_steps_by_actions: ", actions)
@@ -1262,22 +1306,18 @@ def get_steps_by_actions(env, actions):
     return steps
 
 
-def verify_subtask_completion(env, info):
-    open_subtasks = env.open_subtasks
-    closed_subtasks = env.closed_subtasks
-    completed_subtasks = info['success_subtasks']
-    # print('verifying open_subtasks')
-    # print(open_subtasks)
-    for c in completed_subtasks:
-        if c != 'Idle':
-            print(c)
-            open_subtasks.remove(c)
-            closed_subtasks.append(c)
-    return open_subtasks, closed_subtasks
-
 
 def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
-    
+    """
+    Args:
+        env: 你的環境物件
+        info: dict，至少包含 "success_subtasks"
+        similarity_cutoff: 相似度比對的門檻（0~1），預設 0.62
+
+    Returns:
+        (open_subtasks, closed_subtasks)
+    """
+
     def _normalize(s: str) -> str:
         if not isinstance(s, str):
             return s
@@ -1289,7 +1329,13 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
         return s
 
     def _best_fuzzy_match(query_norm: str, candidates_norm: list[str]) -> int | None:
-        
+        """
+        回傳最佳匹配的索引（在 candidates_norm 的索引），找不到回傳 None。
+        優先序：
+          1) 完全等於
+          2) startswith / in（子字串）
+          3) difflib 相似度（>= similarity_cutoff）
+        """
         # 1) 完全等於
         for i, cand in enumerate(candidates_norm):
             if query_norm == cand:
@@ -1311,10 +1357,12 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
 
         return None
 
+    # 取列表副本避免原地修改帶來的索引問題
     open_subtasks = list(env.open_subtasks or [])
     closed_subtasks = list(env.closed_subtasks or [])
     completed_subtasks = list(info.get("success_subtasks", []))
 
+    # 維護一份正規化後的 open_subtasks（同步更新）
     open_norm = [_normalize(s) for s in open_subtasks]
 
     for c in completed_subtasks:
@@ -1322,6 +1370,7 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
             continue
         c_norm = _normalize(c)
 
+        # 在 open_norm 裡找最佳匹配
         match_idx = _best_fuzzy_match(c_norm, open_norm)
 
         if match_idx is not None:
@@ -1337,38 +1386,27 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
 
     return open_subtasks, closed_subtasks
 
-def replan_open_subtasks(env, info, completed_subtasks, verify_info):
-    replan_prompt, replan_user_prompt = prepare_prompt(env, mode="replan", info=info, verify_info=verify_info)
+def replan_open_subtasks(env, completed_subtasks, verify_info, need_process=False):
+    replan_prompt, replan_user_prompt = prepare_prompt(env, mode="replan", info=verify_info, need_process=need_process)
     # print("replan system prompt: ", replan_prompt)
     # print("replan user prompt: ", replan_user_prompt)
     replan_payload = prepare_payload(replan_prompt, replan_user_prompt)
     res, res_content = get_llm_response(replan_payload, model=config['model'])
     # print('replan llm output', res_content)
     subtasks = process_llm_output(res_content, "planner")
-    print(f"After Re-Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
+    # print(f"After Re-Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
 
     return subtasks, completed_subtasks
 
-def memory_gate(env):
-    gate_prompt, gate_user_prompt = prepare_prompt(env, mode="memory")
-    # print("memory gate system prompt: ", gate_prompt)
-    # print("memory gate user prompt: ", gate_user_prompt)
-    gate_payload = prepare_payload(gate_prompt, gate_user_prompt)
-    res, res_content = get_llm_response(gate_payload, model=config['model'])
     
-    should_use, data = process_llm_output(res_content, 'memory')
-    print('memory gate llm output', data)
-    return should_use, data
-
-     
 def bundle_task_plan(subtasks, actions, decomp_actions):
     """
     Pack corresponding subtask, actions, and decomposed actions into aligned dicts.
     [
         { # for each agent
-            "subtask": str,       # 語意任務的自然語言描述
-            "actions": List[str], # 高階動作清單（LLM 輸出）
-            "steps": List[List[str]]  # 每個 high-level action 對應的原子步驟序列
+            "subtask": str,       
+            "actions": List[str],
+            "steps": List[List[str]]
         }
         ...
     ]
@@ -1436,6 +1474,7 @@ def set_env_with_config(config_file: str):
         config = json.load(f)
     return env, config
 
+
 def run_main(test_id = 0, config_path="config/config.json", delete_frames=False):
     # --- Init.
     env, config = set_env_with_config(config_path)
@@ -1445,14 +1484,18 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False)
     else:
         obs = env.reset(test_case_id=config['test_id'])
     # --- initial subtask planning
+    print("\n--- Initial Subtask Planning ---")
     open_subtasks, completed_subtasks = initial_subtask_planning(env, config)
     info = {}
+    need_process = False
+
     # --- loop start
     cnt = 0
     start_time = time.time()
     logs = []
     filename = env.base_path / "logs_llm.txt"
     while open_subtasks and (time.time() - start_time < timeout):
+        
         print(f"\n--- Loop {cnt + 1} ---")
         logs.append(f"\n--- Loop {cnt + 1} ---")
 
@@ -1499,22 +1542,24 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False)
         logs.append(f"after verify open_subtasks: {open_subtasks}")
         logs.append(f"after verify closed_subtasks: {completed_subtasks}")
         env.update_plan(open_subtasks, completed_subtasks)
-        # 6. verify the execution and update memory
+
+        # 6. log summariser
+        summarized_log = log_summariser(env)
+        # print("summarized_log: ", summarized_log)
+        env.save_log_result(summarized_log) # append to event.json
+
+
+        # 7. verify the execution and update memory
         logs.append(f"----replanning subtasks to agents----")
-        verify_res = verify_actions(env, info)
+        verify_res = verify_actions(env, info, need_process)
         print("verify result: ", verify_res)
         logs.append(f"verify result: {verify_res}")
-        
-        should_use_memory, memory_res = memory_gate(env)
-        print("[Memory] ", should_use_memory, memory_res)
-        logs.append(f"[Memory] {should_use_memory}, {memory_res}")
-        if should_use_memory or open_subtasks:
-            env.update_memory(memory_res['common_memory'], suggestion=verify_res['reason'] + " Suggestion to do for next step: " + verify_res['suggestion'])
 
-        # 7. replan if needed
-        if open_subtasks or not isSuccess or verify_res['need_plan']:
+        # 8. replan if needed
+        if open_subtasks or not isSuccess or verify_res['need_replan']:
             
-            open_subtasks, completed_subtasks = replan_open_subtasks(env, info, completed_subtasks, verify_res)
+            open_subtasks, completed_subtasks = replan_open_subtasks(env, completed_subtasks, verify_res, need_process)
+
             # print("replan open_subtasks: ", open_subtasks)
             # print("replan closed_subtasks: ", completed_subtasks)
             logs.append(f"replan open_subtasks: {open_subtasks}")
@@ -1557,36 +1602,10 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False)
         f.write("\n")
         for obj_id, status in obj_status.items():
             f.write(f"{obj_id}: {status}\n")
+
     env.save_to_video(delete_frames=delete_frames)
     env.close()
 
-# def batch_run(tasks, base_dir="config", repeat=5, sleep_after=2.0):
-#     """
-#     tasks: e.g. TASKS_1, TASKS_2 ...
-#     base_dir: the root config folder
-#     repeat: how many times each config runs
-#     sleep_after: seconds to sleep between runs
-#     """
-#     script_dir = Path(__file__).parent  # /mas/utils
-#     base_path = (script_dir / ".." / base_dir).resolve()
-
-#     for task in tasks:
-#         task_folder = task["task_folder"]
-#         for scene in task["scenes"]:
-#             cfg_path = base_path / task_folder / scene / "config.json"
-
-#             if not cfg_path.exists():
-#                 print(f"[WARN] Config not found: {cfg_path}")
-#                 continue
-
-#             print(f"==== Using config: {cfg_path} ====")
-
-#             for r in range(1, repeat + 1):
-#                 print(f"---- Run {r}/{repeat} for {cfg_path} ----")
-#                 run_main(test_id = r, config_path=str(cfg_path))
-#                 time.sleep(sleep_after)
-
-#             print(f"==== Finished {cfg_path} ====")
 
 
 def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delete_frames=False):
@@ -1619,63 +1638,6 @@ def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delet
 
 
 if __name__ == "__main__":
-    # start = 1
-    # end = 3
-    # for i in range(start,end):
-    #     print(f"==== Running test case {i} ====")
-    #     run_main(test_id = i, config_path="config/config.json")
-    #     print(f"==== End test case {i} sleep for 50 sec ====")
-    #     if i < end - 1:
-    #         time.sleep(50)
-#     TASKS_1 = [
-#     {
-#         "task_folder": "1_put_bread_lettuce_tomato_fridge",
-#         "task": "put bread, lettuce, and tomato in the fridge",
-#         "scenes": ["FloorPlan2", "FloorPlan3","FloorPlan4", "FloorPlan5" ] #"FloorPlan1"
-#     },
-#     # {
-#     #     "task_folder": "1_put_computer_book_remotecontrol_sofa",
-#     #     "task": "put laptop, book and remote control on the sofa",
-#     #     "scenes": ["FloorPlan201", "FloorPlan202", "FloorPlan209", "FloorPlan224"] # 203
-#     # },
-#     # {
-#     #     "task_folder": "1_put_knife_bowl_mug_countertop",
-#     #     "task": "put knife, bowl, and mug on the counter top",
-#     #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-#     # },
-#     # {
-#     #     "task_folder": "1_put_plate_mug_bowl_fridge",
-#     #     "task": "put plate, mug, and bowl in the fridge",
-#     #     "scenes": [ "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2",
-#     # },
-#     # {
-#     #     "task_folder": "1_put_remotecontrol_keys_watch_box",
-#     #     "task": "put remote control, keys, and watch in the box",
-#     #     "scenes": [ "FloorPlan228"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207","FloorPlan209", "FloorPlan215", "FloorPlan226",
-#     # },
-#     # {
-#     #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
-#     #     "task": "put vase, tissue box, and remote control on the side table1",
-#     #     "scenes": ["FloorPlan203", "FloorPlan216","FloorPlan219", "FloorPlan229"] #"FloorPlan201", "FloorPlan203", "FloorPlan216","FloorPlan219"
-#     # },
-
-#     # {
-#     #     "task_folder": "1_slice_bread_lettuce_tomato_egg",
-#     #     "task": "slice bread, lettuce, tomato, and egg with knife",
-#     #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-#     # },
-#     # {
-#     #     "task_folder": "1_turn_off_faucet_light",
-#     #     "task": "turn off the sink faucet and turn off the light switch",
-#     #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-#     # },
-#     # {
-#     #     "task_folder": "1_wash_bowl_mug_pot_pan",
-#     #     "task": "clean the bowl, mug, pot, and pan",
-#     #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-#     # },
-# ]
-
     TASKS_1 = [
     # {
     #     "task_folder": "1_put_bread_lettuce_tomato_fridge",
@@ -1700,7 +1662,7 @@ if __name__ == "__main__":
     {
         "task_folder": "1_put_remotecontrol_keys_watch_box",
         "task": "put remote control, keys, and watch in the box",
-        "scenes": ["FloorPlan203", "FloorPlan207","FloorPlan209", "FloorPlan215"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
+        "scenes": ["FloorPlan203",  "FloorPlan215"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
     },
     # {
     #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
@@ -1708,56 +1670,55 @@ if __name__ == "__main__":
     #     "scenes": [ "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"] # "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"
     # },
    
-    # {
-    #     "task_folder": "1_slice_bread_lettuce_tomato_egg",
-    #     "task": "slice bread, lettuce, tomato, and egg with knife",
-    #     "scenes": [ "FloorPlan4"] #"FloorPlan1", , "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    # },
-    # {
-    #     "task_folder": "1_turn_off_faucet_light",
-    #     "task": "turn off the sink faucet and turn off the light switch",
-    #     "scenes": ["FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    # },
-    # {
-    #     "task_folder": "1_wash_bowl_mug_pot_pan",
-    #     "task": "clean the bowl, mug, pot, and pan",
-    #     "scenes": [ "FloorPlan5"] #"FloorPlan3","FloorPlan1",  "FloorPlan2", "FloorPlan4", "FloorPlan5"
-    # },
-    ]
-
+    {
+        "task_folder": "1_slice_bread_lettuce_tomato_egg",
+        "task": "slice bread, lettuce, tomato, and egg with knife",
+        "scenes": [ "FloorPlan4"] #"FloorPlan1", , "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    },
+    {
+        "task_folder": "1_turn_off_faucet_light",
+        "task": "turn off the sink faucet and turn off the light switch",
+        "scenes": ["FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    },
+    {
+        "task_folder": "1_wash_bowl_mug_pot_pan",
+        "task": "clean the bowl, mug, pot, and pan",
+        "scenes": [ "FloorPlan5"] #"FloorPlan3","FloorPlan1",  "FloorPlan2", "FloorPlan4", "FloorPlan5"
+    },
+]
 
 
     TASKS_2 = [
-        # {
-        #     "task_folder": "2_open_all_cabinets",
-        #     "task": "open all the cabinets",
-        #     "scenes": ["FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan10"] #"FloorPlan1", 
-        # },
+        {
+            "task_folder": "2_open_all_cabinets",
+            "task": "open all the cabinets",
+            "scenes": [  "FloorPlan7", "FloorPlan8", "FloorPlan10"]# "FloorPlan1", "FloorPlan6", "FloorPlan7", "FloorPlan8",
+        },
         # {
         #     "task_folder": "2_open_all_drawers",
         #     "task": "open all the drawers",
-        #     "scenes": ["FloorPlan4", "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8","FloorPlan9"] #"FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8", 
+        #     "scenes": [ "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5",
         # },
         # {
         #     "task_folder": "2_put_all_creditcards_remotecontrols_box",
         #     "task": "put all credit cards and remote controls in the box",
-        #     "scenes": ["FloorPlan201", "FloorPlan203","FloorPlan204", "FloorPlan205"]
+        #     "scenes": [ "FloorPlan203","FloorPlan204", "FloorPlan205"] #"FloorPlan201",
         # },
-        {
-            "task_folder": "2_put_all_vases_countertop",
-            "task": "put all the vases on the counter top",
-            "scenes": ["FloorPlan1", "FloorPlan5"]
-        },
+        # {
+        #     "task_folder": "2_put_all_vases_countertop",
+        #     "task": "put all the vases on the counter top",
+        #     "scenes": ["FloorPlan1", "FloorPlan5"]
+        # },
         # {
         #     "task_folder": "2_put_all_tomatoes_potatoes_fridge",
         #     "task": "put all tomatoes and potatoes in the fridge",
-        #     "scenes": [ "FloorPlan5"]#"FloorPlan1", "FloorPlan2","FloorPlan3", "FloorPlan4", 
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"
         # },
         
         # {
         #     "task_folder": "2_turn_on_all_stove_knobs",
         #     "task": "turn on all the stove knobs",
-        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9"]
+        #     "scenes": [ "FloorPlan7", "FloorPlan8"] #"FloorPlan1", "FloorPlan2","FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan7", "FloorPlan8"
         # },  
     ]
 
@@ -1770,13 +1731,13 @@ if __name__ == "__main__":
         # {
         #     "task_folder": "3_put_all_food_countertop",
         #     "task": "Put all food on the countertop",
-        #     "scenes": [ "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3",
+        #     "scenes": [ "FloorPlan5"] #  "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4",
         # },
-        {
-            "task_folder": "3_put_all_groceries_fridge",
-            "task": "Put all groceries in the fridge",
-            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-        },
+        # {
+        #     "task_folder": "3_put_all_groceries_fridge",
+        #     "task": "Put all groceries in the fridge",
+        #     "scenes": [ "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2",
+        # },
         # {
         #     "task_folder": "3_put_all_kitchenware_box",
         #     "task": "Put all kitchenware in the cardboard box",
@@ -1787,11 +1748,11 @@ if __name__ == "__main__":
         #     "task": "Put all school supplies on the sofa",
         #     "scenes": ["FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"]
         # },
-        {
-            "task_folder": "3_put_all_shakers_fridge",
-            "task": "Put all shakers in the fridge",
-            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-        },  
+        # {
+        #     "task_folder": "3_put_all_shakers_fridge",
+        #     "task": "Put all shakers in the fridge",
+        #     "scenes": [ "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3",
+        # },  
         # {
         #     "task_folder": "3_put_all_shakers_tomato", # on countertop
         #     "task": "put all shakers and tomato on the counter top",
@@ -1800,18 +1761,18 @@ if __name__ == "__main__":
         {
             "task_folder": "3_put_all_silverware_drawer",
             "task": "Put all silverware in the drawer",
-            "scenes": [ "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+            "scenes": [ "FloorPlan6"] #"FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", 
         },  
-        # {
-        #     "task_folder": "3_put_all_tableware_countertop",
-        #     "task": "Put all tableware on the countertop",
-        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-        # },  
-        # {-
-        #     "task_folder": "3_transport_groceries",
-        #     "task": "put_all_food_countertops",
-        #     "scenes": ["FloorPlan1"]
-        # },  
+        {
+            "task_folder": "3_put_all_tableware_countertop",
+            "task": "Put all tableware on the countertop",
+            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        },  
+        {
+            "task_folder": "3_transport_groceries",
+            "task": "put_all_food_countertops",
+            "scenes": ["FloorPlan1"]
+        },  
         
     ]
 
@@ -1819,7 +1780,7 @@ if __name__ == "__main__":
     {
         "task_folder": "4_clear_couch_livingroom",
         "task": "Clear the couch by placing the items in other appropriate positions ",
-        "scenes": [ "FloorPlan202" ] #"FloorPlan212" hen"FloorPlan201","FloorPlan203","FloorPlan209",
+        "scenes": ["FloorPlan202","FloorPlan203","FloorPlan209"] #"FloorPlan212" hen "FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
     },
     # {
     #     "task_folder": "4_clear_countertop_kitchen",
@@ -1836,21 +1797,23 @@ if __name__ == "__main__":
     #     "task": "Clear the table by placing the items in their appropriate positions",
     #     "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
     # },
-    # {
-    #     "task_folder": "4_make_livingroom_dark",
-    #     "task": "Make the living room dark",
-    #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"]
-    # },
+    
     # {
     #     "task_folder": "4_put_appropriate_storage",
     #     "task": "Place all utensils into their appropriate positions",
-    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
-    # },  
+    #     "scenes": [  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"] # "FloorPlan2",  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6
+    # }, 
+    # {
+    #     "task_folder": "4_make_livingroom_dark",
+    #     "task": "Make the living room dark",
+    #     "scenes": ["FloorPlan203","FloorPlan204","FloorPlan205"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204","FloorPlan205"
+    # }, 
 ]
+    
+    # batch_run(TASKS_2, base_dir="config", start=34, end=34, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_2, base_dir="config", start=35, end=35, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_3, base_dir="config", start=31, end=31, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_4, base_dir="config", start=32, end=32, sleep_after=50, delete_frames=True)
+    # run_main(test_id = 3, config_path="config/config.json", delete_frames=True)
+    # run_main(test_id = 2, config_path="config/config.json")
 
-    # batch_run(TASKS_1, base_dir="config", start=7, end=7, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_2, base_dir="config", start=3, end=3, sleep_after=50, delete_frames=True)
-
-    batch_run(TASKS_4, base_dir="config", start=9, end=9, sleep_after=50, delete_frames=True)
-
-    # run_main(test_id = 4, config_path="config/4_put_appropriate_storage/FloorPlan2/config.json")

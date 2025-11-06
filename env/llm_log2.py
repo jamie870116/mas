@@ -1681,7 +1681,7 @@ if __name__ == "__main__":
         {
             "task_folder": "2_turn_on_all_stove_knobs",
             "task": "turn on all the stove knobs",
-            "scenes": [ "FloorPlan7", "FloorPlan8", "FloorPlan9"] #"FloorPlan1", "FloorPlan2","FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6", 
+            "scenes": ["FloorPlan1", "FloorPlan2","FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6",  "FloorPlan9",  "FloorPlan7", "FloorPlan8"] #"FloorPlan1", "FloorPlan2","FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6",  "FloorPlan9"
         },  
     ]
 

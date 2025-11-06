@@ -60,8 +60,8 @@ def build_checker(env=None):
         receptacle = make_drawers(1) # 1 drawers in FloorPlan212
     else:   
         receptacle = make_drawers(1) 
-    receptacle.append("Shelf_1")  # Add fridge as a receptacle
-    required = ["KeyChain_1", "Pencil_1", "Book_1", "Watch_1", "Pen_1"]
+    receptacle.append("Shelf_1")  
+    required = ["KeyChain_1", "Pencil_1", "Pen_1"]
 
     cfg = {
         "is_multiple": True,

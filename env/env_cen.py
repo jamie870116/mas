@@ -86,11 +86,11 @@ class BaseEnv:
              "Shelf", "SideTable", "SinkBasin","ArmChair", "Box","CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin"]
         self.small_objects = [
             # kitchen
-            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl","Drawer"
+            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl","Drawer",
             # living room
-            "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox","LightSwitch","DeskLamp"
+            "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox","LightSwitch","DeskLamp",
             # bedroom
-            "CD", "CellPhone", "Pencil", "Pen", "Watch", "AlarmClock", "CreditCard","TeddyBear"
+            "CD", "CellPhone", "Pencil", "Pen", "Watch", "AlarmClock", "CreditCard","TeddyBear",
             # Bathroom
             "Cloth", "Faucet", "DishSponge","PaperTowelRoll","SoapBar", "ToiletPaper"
         ]

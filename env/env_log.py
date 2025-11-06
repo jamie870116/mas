@@ -85,11 +85,11 @@ class BaseEnv:
              "Shelf", "SideTable", "SinkBasin","ArmChair", "Box","CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin"]
         self.small_objects = [
             # kitchen
-            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl","Drawer"
+            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl", "Drawer",
             # living room
-            "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox","LightSwitch","DeskLamp"
+            "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox","LightSwitch","DeskLamp",  "Box",
             # bedroom
-            "CD", "CellPhone", "Pencil", "Pen", "Watch", "AlarmClock", "CreditCard","TeddyBear"
+            "CD", "CellPhone", "Pencil", "Pen", "Watch", "AlarmClock", "CreditCard","TeddyBear",
             # Bathroom
             "Cloth", "Faucet", "DishSponge","PaperTowelRoll","SoapBar", "ToiletPaper"
         ]
@@ -738,20 +738,21 @@ class AI2ThorEnv_cen(BaseEnv):
                 "visibilityDistance": 40,
             }
         )
-        scene_initializer = import_scene_initializer(self.task_folder, self.scene)
-        if scene_initializer:
-            if self.verbose:
-                print(f"Preinitializing scene for task={self.task}, scene={self.scene}")
-            self.event = scene_initializer().preinit(self.event, self.controller)
+        if self.task_folder:
+            scene_initializer = import_scene_initializer(self.task_folder, self.scene)
+            if scene_initializer:
+                if self.verbose:
+                    print(f"Preinitializing scene for task={self.task}, scene={self.scene}")
+                self.event = scene_initializer().preinit(self.event, self.controller)
 
 
-        checker_factory = import_task_checker(self.task_folder)
-        if checker_factory:
-            self.checker = checker_factory(env=self)
-            print(f"[Checker] Loaded from task_folder='{self.task_folder}' for scene='{self.scene}'")
-        else:
-            self.checker = None
-            print(f"[Checker] No checker found for task_folder='{self.task_folder}'")
+            checker_factory = import_task_checker(self.task_folder)
+            if checker_factory:
+                self.checker = checker_factory(env=self)
+                print(f"[Checker] Loaded from task_folder='{self.task_folder}' for scene='{self.scene}'")
+            else:
+                self.checker = None
+                print(f"[Checker] No checker found for task_folder='{self.task_folder}'")
 
         self.object_dict = {}
         self.step_num = [0] * self.num_agents
@@ -807,6 +808,8 @@ class AI2ThorEnv_cen(BaseEnv):
         
         return self.get_observations()
     
+
+
     def get_object_dict(self):
         return self.object_dict
 
@@ -971,10 +974,17 @@ class AI2ThorEnv_cen(BaseEnv):
             obj_pos = obj_meta["position"]
             obj_base_name = object_name.split("_")[0]
             dist = ((agent_pos["x"] - obj_pos["x"]) ** 2 + (agent_pos["z"] - obj_pos["z"]) ** 2) ** 0.5
-            if dist < 1.0 and obj_base_name in self.small_objects:
-                if obj_id not in self.get_object_in_view(agent_id):
-                    return [f"LookDown(30)"]
+            print(f"(no-path) agent {agent_id} distance to {obj_id} {object_name} is {dist}m")
+            # print(f"pov: {self.get_object_in_view(agent_id)}")
+            if dist <= 1.0 and obj_base_name in self.small_objects:
                 
+                if object_name not in self.get_object_in_view(agent_id):
+                    print(f"no path found to {obj_id}, but object is small and close enough, try to look down to find it")
+                    return [f"LookDown(30)"]
+                else:
+                    print(f"no path found to {obj_id},object is small and close enough and visiable already")
+                    return ["Idle"] # found and close enough, no need to navigate
+            
             self.nav_no_plan[self.agent_names[agent_id]] = True
             self._record_subtask_failure(agent_id, reason="no-path", at_action=action)
             return []
@@ -1083,15 +1093,16 @@ class AI2ThorEnv_cen(BaseEnv):
         
         # self.step_decomp(actions)
         # print("curr action queue: ", self.action_queue)
-        act_texts, act_successes = [], []
-        
-
+        act_texts = []
+        act_successes = [False] * self.num_agents
+        log_cache = {}
         for aid in range(self.num_agents):
             log_dict = {
                 'timestemp':self.step_num[aid],
                 'agent_id':aid,
                 'agent_name':self.agent_names[aid],
                 'curr_subtask': self.cur_plan[aid]['subtask'],
+                'curr_high_level_action': self.current_hl.get(aid, 'Idle'), # add current high level action
                 'type': 'Attempt',
                 'payload':{}
             }
@@ -1168,10 +1179,10 @@ class AI2ThorEnv_cen(BaseEnv):
                         log_dict['payload']['failed_reason'] = other_err
                 else:
                     success = True
-                    log_dict['type'] = 'Success'
+                    # log_dict['type'] = 'Success' # (Log3)
                 
 
-
+            
             self.step_num[aid] += 1
             if not success:
                 log_dict['type'] = 'Failed'
@@ -1198,6 +1209,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 if not log_dict['payload'].get('failed_reason'):
                     log_dict['payload']['failed_reason'] = err
             else:
+                log_dict['payload']['last_action_status'] = "Success"
                 self.agent_failure_acts[self.agent_names[aid]] = []
                 if act.startswith("PickupObject"):
                     self.inventory[aid] = self.get_agent_object_held(aid)
@@ -1207,7 +1219,7 @@ class AI2ThorEnv_cen(BaseEnv):
             self.action_history[self.agent_names[aid]].append(act)
             self.action_success_history[self.agent_names[aid]].append(success)
             act_texts.append(self.get_act_text(act, success, aid))
-            act_successes.append(success)
+            act_successes[aid] = success
 
             sub = self.current_hl.get(aid)
             if sub:
@@ -1226,7 +1238,8 @@ class AI2ThorEnv_cen(BaseEnv):
                     self.action_queue[aid].clear()
                     self.last_check_reason[self.agent_names[aid]] = None
                     self.nav_no_plan[self.agent_names[aid]] = False
-                    log_dict['type'] = 'Success'
+                    if not self.pending_high_level[aid]: # (Log3) 只有當前高階任務執行完才記錄成功
+                        log_dict['type'] = 'Success'
                 else:
                     last_reason = self.last_check_reason[self.agent_names[aid]]
                     
@@ -1270,10 +1283,15 @@ class AI2ThorEnv_cen(BaseEnv):
                 log_dict['payload']['inventory'] = self.get_agent_object_held(aid)
                 log_dict['payload']['observation'] = obs
 
+                if log_dict['curr_high_level_action']:
+                    log_cache[aid] = log_dict # cache the attempt log
+
                 if log_dict['type'] == 'Success' or log_dict['type'] == 'Failed':
                     filename = self.base_path / f"event_{aid}.jsonl"
                     with open(filename, "a", encoding="utf-8") as f:
                         f.write(json.dumps(log_dict, ensure_ascii=False) + "\n")
+                    del log_cache[aid]  # remove from cache
+                
 
                 filename = self.base_path / f"event_details.jsonl"
                 with open(filename, "a", encoding="utf-8") as f:
@@ -1290,6 +1308,15 @@ class AI2ThorEnv_cen(BaseEnv):
             # if not self.skip_save_dir:
             self.save_last_frame(agent_id=aid, view="pov",
                                      filename=f"frame_{self.step_num[aid]}.png")
+            
+        # save attempt logs if other agents failed and not yet completed the current subtask
+        if not all(act_successes):    
+            for aid in range(self.num_agents):
+                attempt_log = log_cache.get(aid, None)
+                if attempt_log:
+                    filename = self.base_path / f"event_{aid}.jsonl"
+                    with open(filename, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(attempt_log, ensure_ascii=False) + "\n")
 
         # if self.overhead and not self.skip_save_dir:
         self.save_last_frame(view="overhead",
@@ -1435,7 +1462,7 @@ class AI2ThorEnv_cen(BaseEnv):
             - steps (List[List[str]])  # atomic per action
 
         """
-        
+        succ = [False] * self.num_agents
         print("self.timeout: ", self.timeout)
         self.cur_plan = cur_plan
         if self.save_logs:
@@ -1523,12 +1550,16 @@ class AI2ThorEnv_cen(BaseEnv):
         
    
     def _get_current_plan_status(self):
-        # 回傳目前任務狀態
+        # 回傳目前任務狀態 (Log3)
         succ = []
         fail = []
         for aid in range(self.num_agents):
-            if not self.current_hl[aid] and not self.subtask_failure_reasons[self.agent_names[aid]]:
-                succ.append(self.cur_plan[aid]["subtask"])
+            if not self.pending_high_level[aid] and not self.subtask_failure_reasons[self.agent_names[aid]]: # not self.current_hl[aid] and 
+                if not self.cur_plan[aid]["actions"] and self.cur_plan[aid]["subtask"] not in ['Idle', 'idle']:
+                    # edge case: no actions in the plan but subtask is not idle
+                    fail.append(self.cur_plan[aid]["subtask"])
+                else:
+                    succ.append(self.cur_plan[aid]["subtask"])
             else:
                 fail.append(self.cur_plan[aid]["subtask"])
 
@@ -2121,7 +2152,7 @@ class AI2ThorEnv_cen(BaseEnv):
             "Objects in containers": contains_list,
         }
     
-    def get_event_log(self):
+    def get_event_log(self, last_only: bool = False):
         # 存llm留下來的重要log
         file = self.base_path / "event.jsonl"
         events = []
@@ -2130,6 +2161,9 @@ class AI2ThorEnv_cen(BaseEnv):
                 if line.strip():
                     event = json.loads(line)
                     events.append(event)
+        if last_only:
+            if events:
+                return events[-1]
         return events
     
     def get_event_log_by_aid(self, aid: int, timestamp: int = -1):
@@ -2193,12 +2227,13 @@ class AI2ThorEnv_cen(BaseEnv):
             lines.append(f"[t={ts}] {agent} → {subtask} → {result} ({reason})")
         return "\n".join(lines)
 
-    def get_log_llm_input(self, need_process = False, mode = 'default'):
+    def get_log_llm_input(self, need_process = False, mode = 'default', last_only: bool = False):
         '''
-        mode: 'default' / 'detail' / 'last'
+        mode: 'default' / 'detail' / 'last' / 'agent'
         1. default: get_event_log() use event.jsonl
         2. detail: get_event_log_detail() use event_details.jsonl
-        3. last: get_event_log_by_aid() for each agent(event_{aid}.json) and combine 
+        3. last:  the last event from get_event_log_by_aid() for each agent(event_{aid}.json) and combine 
+        4. agent: all event from get_event_log_by_aid(aid) for each agent(event_{aid}.json) and combine
         '''
         if mode == 'detail':
             logs = self.get_event_log_detail()
@@ -2208,9 +2243,15 @@ class AI2ThorEnv_cen(BaseEnv):
                 log = self.get_event_log_by_aid(aid, timestamp=self.step_num[aid]-1)
                 
                 logs.append(log)
-        else:
-            logs = self.get_event_log()
+        elif mode == 'agent':
+            logs = []
+            for aid in range(self.num_agents):
+                log = self.get_event_log_by_aid(aid)
+                logs.append(log)
 
+        else:
+            logs = self.get_event_log(last_only)
+        
         if need_process:
             logs = self.format_log(logs)
         return logs
@@ -2237,8 +2278,8 @@ class AI2ThorEnv_cen(BaseEnv):
            
 
         if recent_logs:
-            logs = self.get_log_llm_input(need_process  = need_process)
-            logs = logs[-self.num_agents:]  # get the most recent 
+            logs = self.get_log_llm_input(need_process  = need_process, last_only=True)
+            # logs = logs[-self.num_agents:]  # get the most recent 
             snap["Previous Actions"] = logs
 
         return snap

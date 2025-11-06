@@ -18,8 +18,11 @@ if str(ROOT) not in sys.path:
 from env.task_config_checker import TaskConfigChecker
 
 def build_checker(env=None):
-
-    required = ["LightSwitch_1", "DeskLamp_1", "FloorLamp_1"]
+    current_scene = env.scene if env else "FloorPlan201"
+    if current_scene in ["FloorPlan202", "FloorPlan203"]:
+        required = ["LightSwitch_1", "FloorLamp_1"]
+    else:    
+        required = ["LightSwitch_1", "DeskLamp_1", "FloorLamp_1"]
 
     cfg = {
         # "receptacle": receptacle,
