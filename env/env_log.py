@@ -81,7 +81,7 @@ class BaseEnv:
             "ToiletPaperHanger", "TowelHolder"
         ]
         self.large_receptacles = ["Cabinet", "CounterTop",  "DiningTable",
-            "Drawer", "Fridge", "GarbageCan", "Microwave", "Sofa"
+            "Drawer", "Fridge", "GarbageCan", "Microwave", "Sofa",
              "Shelf", "SideTable", "SinkBasin","ArmChair", "Box","CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin"]
         self.small_objects = [
             # kitchen
@@ -2180,7 +2180,6 @@ class AI2ThorEnv_cen(BaseEnv):
                         if event.get("timestemp") == timestamp:
                             events.append(event)
                         elif cur_ts is not None and cur_ts < timestamp:
-                            # 維護「最接近且早於等於 timestamp」的單一事件
                             if (last_event is None) or (cur_ts > last_event.get("timestemp", -1)):
                                 last_event = event  
                     else:  
@@ -2248,6 +2247,7 @@ class AI2ThorEnv_cen(BaseEnv):
             for aid in range(self.num_agents):
                 log = self.get_event_log_by_aid(aid)
                 logs.append(log)
+            
 
         else:
             logs = self.get_event_log(last_only)
@@ -2289,7 +2289,7 @@ class AI2ThorEnv_cen(BaseEnv):
         contains_list = self.get_obj_in_containers()
         obj_list = self.get_all_objects()
         logs = self.get_log_llm_input(need_process  = need_process, mode = mode)
-            
+        
         snap: Dict[str, Any] = {
             "Task": self.task,
             "Number of agents": self.num_agents,
@@ -2299,6 +2299,9 @@ class AI2ThorEnv_cen(BaseEnv):
             "Robots' completed subtasks": self.closed_subtasks,
             "Logs": logs
         }
+        if mode == "agent":
+            prev_logs = self.get_log_llm_input(last_only=True)
+            snap['Previous Logs'] = prev_logs
         return snap
     
     def save_log_result(self, summary):

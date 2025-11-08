@@ -707,7 +707,7 @@ def get_memory_prompt():
     return MEMORY_PROMPT
 
 # for LOG
-LOG_PROMPT = f"""
+OLD_LOG_PROMPT = f"""
 # Role and Objective
 You are the Memory Aggregator within a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
 Your task is to condense the full execution histories of all agents into a concise, structured summary that captures only facts relevant to future planning.
@@ -736,7 +736,7 @@ You will receive:
 - Exclude noise:
   - One-off view lists, verbose inventories, generic successes with no strategic effect
   - Redundant pose details already evident from the image unless tied to a failure/success
-- Be concise. Each output field must be 2-3 sentences, and the whole content of each field must be under 50 words.
+- Be concise. Each output field must contain only essential changes, expressed in 0-3 sentences (under 50 words total). Avoid repetition or unnecessary details.
 
 # Reasoning Steps
 - Internally analyze task, observations, inventories, failures, subtask progress, and images.
@@ -747,9 +747,9 @@ You will receive:
 Output a single JSON object with EXACTLY these keys:
 {{
   "timestamp": <int>,                                   # the latest timestamp
-  "environment_changes": "<2-3 sentences, <50 words>",  # persistent changes only
+  "environment_changes": "<0-3 sentences, <50 words>",  # persistent changes only
   "agent_action": {{                                     # one entry per agent
-    "<AgentName>": "<2-3 sentences, <50 words: action history + current state + result/fail reason>",
+    "<AgentName>": "<0-3 sentences, <50 words: action history + current state + result/fail reason>",
     "...": "..."
     }}
 }}
@@ -767,6 +767,43 @@ Output a single JSON object with EXACTLY these keys:
 Think carefully about what minimal facts help the next plan. 
 Then output ONLY the specified JSON object with the three fields and their length limits, nothing else.
 """
+
+
+LOG_PROMPT = f""" 
+# Role
+You are the Memory Aggregator for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots ({", ".join(AGENT_NAMES)}).  
+Condense all execution logs into a factual summary that supports future planning.
+
+# Input
+You will receive:
+- Task description
+- Open/closed subtasks
+- Objects in the environment
+- Per-agent images and full logs
+
+# Guidelines
+- Keep only facts relevant for next-step planning.
+- Do NOT infer completion unless a subtask’s "type" == "Success".
+- Prefer dynamic world changes, stable object relations, failures, and per-agent subtask progress.
+- Omit redundant inventories, view lists, or generic successes.
+- Never assume all misplaced items are cleared unless explicitly verified by the object list.
+
+# Output
+Return ONLY one JSON object:
+{{
+  "timestamp": <int>,                                   
+  "environment_changes": "<≤3 sentences, ≤50 words>", 
+  "agent_action": {{                                     # one entry per agent
+    "<AgentName>": "<≤3 sentences, ≤50 words describing actions + current state>",
+    "...": "..."
+    }}
+}}
+
+# Writing Rules
+- Natural, compact English. No lists or speculation.
+- ≤3 sentences, ≤50 words per field.
+- Exclude uncertainty; omit unknowns."""
+
 def get_log_prompt():
     return LOG_PROMPT
 
@@ -929,10 +966,11 @@ def get_verifier_prompt(mode: str = "summary", need_process: bool = False) -> st
         - Observations, failure descriptions, and subtask progress
 
         You need to verfify the previous failure and suggest the **next single action** that each robot should take in the current timestep.
+        You must **not assume or infer missing facts**. Only evaluate based on explicitly provided data.
 
         # Instructions
         - Use observations, failure descriptions, memory, and progress to infer causes.
-        - Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. 
+        - Do not suggest subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. 
         - By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
         {COMMON_GUIDELINES}
 
@@ -942,7 +980,7 @@ def get_verifier_prompt(mode: str = "summary", need_process: bool = False) -> st
 
         # Reasoning Steps
         - Internally reason over images/observations/states/failures to isolate the cause and fix.
-        - you are supposed to reason over the image inputs, the robots' observations, previous actions, previous failures, previous memory, subtasks and the available actions the robots can perform, and think step by step and then output the following things:
+        - you are supposed to reason over the image inputs, the robots' observations, previous actions, previous failures, previous memory, subtasks and the available actions the robots can perform, and think step by step and then output the following things.
         """
 
     if mode == "summary":

@@ -189,7 +189,7 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         if not subtasks:
             print("No subtasks provided")
             return None, None
-        input = env.get_obs_llm_input()
+        input = env.get_obs_llm_input(recent_logs=True)
         input["Subtasks"] = subtasks
         del input["Robots' open subtasks"]
         del input["Robots' completed subtasks"]
@@ -369,9 +369,9 @@ def encode_image(image_path: str):
 def verify_actions(env, info={}, need_process=False):
     verify_prompt, verify_user_prompt = prepare_prompt(env, mode="verifier", need_process=need_process)
     verify_payload = prepare_payload(verify_prompt, verify_user_prompt)
-    # print("verify prompt: ", verify_user_prompt)
+    print("verify prompt: ", verify_user_prompt)
     res, res_content = get_llm_response(verify_payload, model=config['model'])
-    # print('verify llm output', res_content)
+    print('verify llm output', res_content)
     need_replan, failure_reason, reason, suggestion = process_llm_output(res_content, mode="verifier")
     verify_res = {
         "need_replan": need_replan,
@@ -643,6 +643,7 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False)
         summarized_log = log_summariser(env)
         # print("summarized_log: ", summarized_log)
         env.save_log_result(summarized_log) # append to event.json
+        logs.append(f"saved log: {summarized_log}")
 
 
         # 7. verify the execution and update memory
@@ -743,27 +744,27 @@ if __name__ == "__main__":
     # {
     #     "task_folder": "1_put_computer_book_remotecontrol_sofa",
     #     "task": "put laptop, book and remote control on the sofa",
-    #     "scenes": ["FloorPlan203", "FloorPlan209"] #,"FloorPlan201", "FloorPlan202""FloorPlan203", "FloorPlan209", "FloorPlan224"
+    #     "scenes": ["FloorPlan201"] #,"FloorPlan201", "FloorPlan202""FloorPlan203", "FloorPlan209", "FloorPlan224"
     # },
-    # {
-    #     "task_folder": "1_put_knife_bowl_mug_countertop",
-    #     "task": "put knife, bowl, and mug on the counter top",
-    #     "scenes": [ "FloorPlan5"] #"FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    # },
+    {
+        "task_folder": "1_put_knife_bowl_mug_countertop",
+        "task": "put knife, bowl, and mug on the counter top",
+        "scenes": [ "FloorPlan5"] #"FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    },
     # {
     #     "task_folder": "1_put_plate_mug_bowl_fridge",
     #     "task": "put plate, mug, and bowl in the fridge",
-    #     "scenes": [ "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2",,"FloorPlan3", "FloorPlan4", "FloorPlan5"
+    #     "scenes": [ "FloorPlan4"] #"FloorPlan1", "FloorPlan2",,"FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
     # {
     #     "task_folder": "1_put_remotecontrol_keys_watch_box",
     #     "task": "put remote control, keys, and watch in the box",
-    #     "scenes": ["FloorPlan203",  "FloorPlan215"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
+    #     "scenes": ["FloorPlan201"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
     # },
     # {
     #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
     #     "task": "put vase, tissue box, and remote control on the side table1",
-    #     "scenes": [ "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"] # "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"
+    #     "scenes": [ "FloorPlan201"] # "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"
     # },
    
     # {
@@ -779,7 +780,7 @@ if __name__ == "__main__":
     # {
     #     "task_folder": "1_wash_bowl_mug_pot_pan",
     #     "task": "clean the bowl, mug, pot, and pan",
-    #     "scenes": [ "FloorPlan5"] #"FloorPlan3","FloorPlan1",  "FloorPlan2", "FloorPlan4", "FloorPlan5"
+    #     "scenes": [ "FloorPlan3"] #"FloorPlan3","FloorPlan1",  "FloorPlan2", "FloorPlan4", "FloorPlan5"
     # },
 ]
 
@@ -876,7 +877,7 @@ if __name__ == "__main__":
     {
         "task_folder": "4_clear_couch_livingroom",
         "task": "Clear the couch by placing the items in other appropriate positions ",
-        "scenes": ["FloorPlan202","FloorPlan203","FloorPlan209"] #"FloorPlan212" hen "FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
+        "scenes": ["FloorPlan201"] #"FloorPlan212" hen "FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
     },
     # {
     #     "task_folder": "4_clear_countertop_kitchen",
@@ -902,14 +903,14 @@ if __name__ == "__main__":
     # {
     #     "task_folder": "4_make_livingroom_dark",
     #     "task": "Make the living room dark",
-    #     "scenes": ["FloorPlan203","FloorPlan204","FloorPlan205"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204","FloorPlan205"
+    #     "scenes": ["FloorPlan201"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204","FloorPlan205"
     # }, 
 ]
     
-    batch_run(TASKS_1, base_dir="config", start=30, end=30, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_1, base_dir="config", start=40, end=40, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=35, end=35, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_3, base_dir="config", start=31, end=31, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_4, base_dir="config", start=32, end=32, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_4, base_dir="config", start=42, end=42, sleep_after=50, delete_frames=True)
     # run_main(test_id = 3, config_path="config/config.json", delete_frames=True)
     # run_main(test_id = 2, config_path="config/config.json")
 
