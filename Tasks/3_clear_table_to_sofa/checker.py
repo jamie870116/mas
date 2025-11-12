@@ -47,8 +47,17 @@ def build_checker(env=None):
    
     receptacle = "Sofa_1"
     
+    current_scene = env.scene if env else "FloorPlan201"
+    if current_scene == "FloorPlan201":
+        required = ["Book", "Laptop",  "Newspaper"]
+    elif current_scene == "FloorPlan203":
+        required = ["CellPhone", "Laptop", "Book", "Newspaper"]
+    elif current_scene == "FloorPlan204":
+        required = ["CellPhone", "Laptop",]
+    elif current_scene == "FloorPlan208" or current_scene == "FloorPlan223":
+        required = ["Laptop"]
+    # CellPhone in 203
 
-    required = ["RemoteControl", "Statue", "Laptop", "Bowl", "Box"]
 
     cfg = {
         "receptacle": receptacle,

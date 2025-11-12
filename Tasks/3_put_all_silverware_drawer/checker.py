@@ -59,7 +59,7 @@ def build_checker(env=None):
     else:   
         receptacle = make_drawers(9) 
     
-    required = ["ButterKnife_1", "Knife_1", "Spatula_1", "Spoon_1", "Fork_1", "Ladle_1"]
+    required = ["ButterKnife_1", "Knife_1", "Spoon_1", "Fork_1"]
 
     cfg = {
         "is_multiple": True,

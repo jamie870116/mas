@@ -771,7 +771,7 @@ Then output ONLY the specified JSON object with the three fields and their lengt
 
 LOG_PROMPT = f""" 
 # Role
-You are the Memory Aggregator for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots ({", ".join(AGENT_NAMES)}).  
+You are the Memory Aggregator for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots ({", ".join(AGENT_NAMES)}).
 Condense all execution logs into a factual summary that supports future planning.
 
 # Input
@@ -779,30 +779,37 @@ You will receive:
 - Task description
 - Open/closed subtasks
 - Objects in the environment
-- Per-agent images and full logs
+- Per-agent point of view and full logs
 
 # Guidelines
 - Keep only facts relevant for next-step planning.
-- Do NOT infer completion unless a subtask’s "type" == "Success".
+- Do NOT infer completion unless a subtask's "type" == "Success".
 - Prefer dynamic world changes, stable object relations, failures, and per-agent subtask progress.
-- Omit redundant inventories, view lists, or generic successes.
 - Never assume all misplaced items are cleared unless explicitly verified by the object list.
+- Avoid restating raw inventories, long view lists, or generic “success” messages unless they change planning.
 
 # Output
 Return ONLY one JSON object:
 {{
-  "timestamp": <int>,                                   
-  "environment_changes": "<≤3 sentences, ≤50 words>", 
+  "timestamp": <int>,                                   # the latest timestamp
+  "environment_changes": "<0-3 sentences, <50 words>",  # persistent changes only
   "agent_action": {{                                     # one entry per agent
-    "<AgentName>": "<≤3 sentences, ≤50 words describing actions + current state>",
+    "<AgentName>": "<0-3 sentences, <50 words: action history + current state + result/fail reason>",
     "...": "..."
     }}
 }}
 
 # Writing Rules
-- Natural, compact English. No lists or speculation.
-- ≤3 sentences, ≤50 words per field.
-- Exclude uncertainty; omit unknowns."""
+- "history" should focus on world changes, object relations, failures, and meaningful agent progress.
+- No speculation or uncertainty; only describe facts present in the given information.
+- Keep the content short and consice no more than 100 words.
+"""
+
+# {{
+# "timestamp": <int>,
+# "history": "<compact factual narrative mixing key environment changes and agent progress, suitable for future planning>"
+# }}
+
 
 def get_log_prompt():
     return LOG_PROMPT

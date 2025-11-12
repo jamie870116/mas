@@ -21,15 +21,26 @@ class SceneInitializer:
         tomato_position = {'x': -0.20256537199020386, 'y':0, 'z': 3.085575580596924}
 
         # Teleport the apple and tomato to the given positions on the floor
-        event = controller.step(
-            action="PlaceObjectAtPoint",
-            objectId= 'Apple|-02.48|+01.18|+00.48',
-            position=apple_position,
+        # event = controller.step(
+        #     action="PlaceObjectAtPoint",
+        #     objectId= 'Apple|-02.48|+01.18|+00.48',
+        #     position=apple_position,
+        # )
+        # event = controller.step(
+        #     action="PlaceObjectAtPoint",
+        #     objectId= 'Tomato|-00.75|+01.08|+02.40',
+        #     position=tomato_position,
+        # )
+        event=controller.step(
+        action='PlaceObjectAtPoint',
+        objectId='Apple|-02.48|+01.18|+00.48',
+        position={'x': -2.800915241241455, 'y': 0.5, 'z': 1.9574198722839355}
         )
-        event = controller.step(
-            action="PlaceObjectAtPoint",
-            objectId= 'Tomato|-00.75|+01.08|+02.40',
-            position=tomato_position,
+        
+        event=controller.step(
+        action='PlaceObjectAtPoint',
+        objectId='Tomato|-00.75|+01.08|+02.40',
+        position={'x': -0.7468910217285156, 'y': 0.5, 'z': 1.000497579574585}
         )
 
         return event

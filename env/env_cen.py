@@ -81,12 +81,12 @@ class BaseEnv:
             "HandTowelHolder", "Shelf", "SideTable", "Sink", "SinkBasin", "Toilet",
             "ToiletPaperHanger", "TowelHolder"
         ]
-        self.large_receptacles = ["Cabinet", "CounterTop",  "DiningTable",
+        self.large_receptacles = ["Cabinet", "CounterTop",  "DiningTable","Floor"
             "Drawer", "Fridge", "GarbageCan", "Microwave", "Sofa",
              "Shelf", "SideTable", "SinkBasin","ArmChair", "Box","CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin"]
         self.small_objects = [
             # kitchen
-            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl","Drawer",
+            "Tomato", "Apple","Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl","Drawer",
             # living room
             "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox","LightSwitch","DeskLamp",
             # bedroom

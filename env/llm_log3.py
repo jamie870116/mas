@@ -369,9 +369,9 @@ def encode_image(image_path: str):
 def verify_actions(env, info={}, need_process=False):
     verify_prompt, verify_user_prompt = prepare_prompt(env, mode="verifier", need_process=need_process)
     verify_payload = prepare_payload(verify_prompt, verify_user_prompt)
-    print("verify prompt: ", verify_user_prompt)
+    # print("verify prompt: ", verify_user_prompt)
     res, res_content = get_llm_response(verify_payload, model=config['model'])
-    print('verify llm output', res_content)
+    # print('verify llm output', res_content)
     need_replan, failure_reason, reason, suggestion = process_llm_output(res_content, mode="verifier")
     verify_res = {
         "need_replan": need_replan,
@@ -571,10 +571,10 @@ def set_env_with_config(config_file: str):
     return env, config
 
 
-def run_main(test_id = 0, config_path="config/config.json", delete_frames=False):
+def run_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
     # --- Init.
     env, config = set_env_with_config(config_path)
-    timeout = 250
+    timeout = timeout
     if test_id > 0:
         obs = env.reset(test_case_id=test_id)
     else:
@@ -590,8 +590,11 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False)
     start_time = time.time()
     logs = []
     filename = env.base_path / "logs_llm.txt"
-    while open_subtasks and (time.time() - start_time < timeout):
-        
+    while open_subtasks:
+        if time.time() - start_time > timeout:
+            print("Timeout reached, ending loop.")
+            logs.append(f"""Timeout ({timeout} second) reached, ending loop.""")
+            break
         print(f"\n--- Loop {cnt + 1} ---")
         logs.append(f"\n--- Loop {cnt + 1} ---")
 
@@ -646,7 +649,7 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False)
         logs.append(f"saved log: {summarized_log}")
 
 
-        # 7. verify the execution and update memory
+        # 7. verify the execution 
         logs.append(f"----replanning subtasks to agents----")
         verify_res = verify_actions(env, info, need_process)
         print("verify result: ", verify_res)
@@ -705,7 +708,7 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False)
 
 
 
-def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delete_frames=False):
+def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delete_frames=False, timeout=250):
     """
     tasks: e.g. TASKS_1, TASKS_2 ...
     base_dir: the root config folder
@@ -728,7 +731,7 @@ def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delet
 
             for r in range(start, end + 1):
                 print(f"---- Run {r}/{end} for {cfg_path} ----")
-                run_main(test_id = r, config_path=str(cfg_path), delete_frames=delete_frames)
+                run_main(test_id = r, config_path=str(cfg_path), delete_frames=delete_frames, timeout=timeout)
                 time.sleep(sleep_after)
 
             print(f"==== Finished {cfg_path} ====")
@@ -761,11 +764,11 @@ if __name__ == "__main__":
     #     "task": "put remote control, keys, and watch in the box",
     #     "scenes": ["FloorPlan201"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
     # },
-    # {
-    #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
-    #     "task": "put vase, tissue box, and remote control on the side table1",
-    #     "scenes": [ "FloorPlan201"] # "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"
-    # },
+    {
+        "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
+        "task": "put vase, tissue box, and remote control on the side table1",
+        "scenes": [ "FloorPlan201"] # "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"
+    },
    
     # {
     #     "task_folder": "1_slice_bread_lettuce_tomato_egg",
@@ -786,11 +789,11 @@ if __name__ == "__main__":
 
 
     TASKS_2 = [
-        {
-            "task_folder": "2_open_all_cabinets",
-            "task": "open all the cabinets",
-            "scenes": [  "FloorPlan7", "FloorPlan8", "FloorPlan10"]# "FloorPlan1", "FloorPlan6", "FloorPlan7", "FloorPlan8",
-        },
+        # {
+        #     "task_folder": "2_open_all_cabinets",
+        #     "task": "open all the cabinets",
+        #     "scenes": [  "FloorPlan7", "FloorPlan8", "FloorPlan10"]# "FloorPlan1", "FloorPlan6", "FloorPlan7", "FloorPlan8",
+        # },
         # {
         #     "task_folder": "2_open_all_drawers",
         #     "task": "open all the drawers",
@@ -799,7 +802,7 @@ if __name__ == "__main__":
         # {
         #     "task_folder": "2_put_all_creditcards_remotecontrols_box",
         #     "task": "put all credit cards and remote controls in the box",
-        #     "scenes": [ "FloorPlan203","FloorPlan204", "FloorPlan205"] #"FloorPlan201",
+        #     "scenes": ["FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"
         # },
         # {
         #     "task_folder": "2_put_all_vases_countertop",
@@ -820,15 +823,15 @@ if __name__ == "__main__":
     ]
 
     TASKS_3 = [
-        {
-            "task_folder": "3_clear_table_to_sofa",
-            "task": "Put all readable objects on the sofa",
-            "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"]
-        },
+        # {
+        #     "task_folder": "3_clear_table_to_sofa",
+        #     "task": "Put all readable objects on the sofa",
+        #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"]
+        # },
         # {
         #     "task_folder": "3_put_all_food_countertop",
         #     "task": "Put all food on the countertop",
-        #     "scenes": [ "FloorPlan5"] #  "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4",
+        #     "scenes": [ "FloorPlan1"] #  "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4","FloorPlan5"
         # },
         # {
         #     "task_folder": "3_put_all_groceries_fridge",
@@ -858,47 +861,47 @@ if __name__ == "__main__":
         {
             "task_folder": "3_put_all_silverware_drawer",
             "task": "Put all silverware in the drawer",
-            "scenes": [ "FloorPlan6"] #"FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", 
+            "scenes": [ "FloorPlan3", "FloorPlan4", "FloorPlan5",  "FloorPlan6"] #"FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", 
         },  
-        {
-            "task_folder": "3_put_all_tableware_countertop",
-            "task": "Put all tableware on the countertop",
-            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-        },  
-        {
-            "task_folder": "3_transport_groceries",
-            "task": "put_all_food_countertops",
-            "scenes": ["FloorPlan1"]
-        },  
+        # {
+        #     "task_folder": "3_put_all_tableware_countertop",
+        #     "task": "Put all tableware on the countertop",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        # },  
+        # {
+        #     "task_folder": "3_transport_groceries",
+        #     "task": "put_all_food_countertops",
+        #     "scenes": ["FloorPlan1"]
+        # },  
         
     ]
 
     TASKS_4 = [
-    {
-        "task_folder": "4_clear_couch_livingroom",
-        "task": "Clear the couch by placing the items in other appropriate positions ",
-        "scenes": ["FloorPlan201"] #"FloorPlan212" hen "FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
-    },
+    # {
+    #     "task_folder": "4_clear_couch_livingroom",
+    #     "task": "Clear the couch by placing the items in other appropriate positions ",
+    #     "scenes": ["FloorPlan209"] #"FloorPlan212" hen "FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
+    # },
     # {
     #     "task_folder": "4_clear_countertop_kitchen",
     #     "task": "Clear the countertop by placing items in their appropriate positions",
-    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"]
+    #     "scenes": ["FloorPlan1"] # "FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"
     # },
     # {
     #     "task_folder": "4_clear_floor_kitchen",
     #     "task": "Clear the floor by placing items at their appropriate positions",
-    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+    #     "scenes": ["FloorPlan1", "FloorPlan2","FloorPlan3"]# "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
     # {
     #     "task_folder": "4_clear_table_kitchen",
     #     "task": "Clear the table by placing the items in their appropriate positions",
-    #     "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
+    #     "scenes": ["FloorPlan4"] #"FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"
     # },
     
     # {
     #     "task_folder": "4_put_appropriate_storage",
     #     "task": "Place all utensils into their appropriate positions",
-    #     "scenes": [  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"] # "FloorPlan2",  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6
+    #     "scenes": [  "FloorPlan2"] # "FloorPlan2",  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6
     # }, 
     # {
     #     "task_folder": "4_make_livingroom_dark",
@@ -907,10 +910,10 @@ if __name__ == "__main__":
     # }, 
 ]
     
-    # batch_run(TASKS_1, base_dir="config", start=40, end=40, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_2, base_dir="config", start=35, end=35, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_3, base_dir="config", start=31, end=31, sleep_after=50, delete_frames=True)
-    batch_run(TASKS_4, base_dir="config", start=42, end=42, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_1, base_dir="config", start=50, end=50, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_2, base_dir="config", start=51, end=51, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_3, base_dir="config", start=52, end=52, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_4, base_dir="config", start=55, end=55, sleep_after=50, delete_frames=True)
     # run_main(test_id = 3, config_path="config/config.json", delete_frames=True)
     # run_main(test_id = 2, config_path="config/config.json")
 

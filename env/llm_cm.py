@@ -969,21 +969,21 @@ if __name__ == "__main__":
     ]
 
     TASKS_4 = [
-    {
-        "task_folder": "4_clear_couch_livingroom",
-        "task": "Clear the couch by placing the items in other appropriate positions ",
-        "scenes": [ "FloorPlan202" ] #"FloorPlan212" hen"FloorPlan201","FloorPlan203","FloorPlan209",
-    },
+    # {
+    #     "task_folder": "4_clear_couch_livingroom",
+    #     "task": "Clear the couch by placing the items in other appropriate positions ",
+    #     "scenes": [ "FloorPlan202" ] #"FloorPlan212" hen"FloorPlan201","FloorPlan203","FloorPlan209",
+    # },
     # {
     #     "task_folder": "4_clear_countertop_kitchen",
     #     "task": "Clear the countertop by placing items in their appropriate positions",
     #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"]
     # },
-    # {
-    #     "task_folder": "4_clear_floor_kitchen",
-    #     "task": "Clear the floor by placing items at their appropriate positions",
-    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-    # },
+    {
+        "task_folder": "4_clear_floor_kitchen",
+        "task": "Clear the floor by placing items at their appropriate positions",
+        "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    },
     # {
     #     "task_folder": "4_clear_table_kitchen",
     #     "task": "Clear the table by placing the items in their appropriate positions",
@@ -1001,9 +1001,9 @@ if __name__ == "__main__":
     # },  
 ]
 
-    batch_run(TASKS_1, base_dir="config", start=0, end=0, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_1, base_dir="config", start=0, end=0, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=3, end=3, sleep_after=50, delete_frames=True)
 
-    # batch_run(TASKS_4, base_dir="config", start=9, end=9, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_4, base_dir="config", start=3, end=3, sleep_after=50, delete_frames=True)
 
     # run_main(test_id = 4, config_path="config/4_put_appropriate_storage/FloorPlan2/config.json")

@@ -18,7 +18,7 @@ class SceneInitializer:
         # set the apple position on the floor
         apple_position = {'x': 2.76284122467041, 'y': 0, 'z': 0.4431222677230835}
         # set the tomato position on the floor
-        tomato_position = {'x': 2.6983327865600586, 'y': 0, 'z': 1.8128788471221924}
+        tomato_position = {'x': 2.6983327865600586, 'y': 0.3, 'z': 1.8128788471221924}
 
         # Teleport the apple and tomato to the given positions on the floor
         event = controller.step(

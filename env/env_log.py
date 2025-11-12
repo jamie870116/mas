@@ -82,10 +82,10 @@ class BaseEnv:
         ]
         self.large_receptacles = ["Cabinet", "CounterTop",  "DiningTable",
             "Drawer", "Fridge", "GarbageCan", "Microwave", "Sofa",
-             "Shelf", "SideTable", "SinkBasin","ArmChair", "Box","CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin"]
+             "Shelf", "SideTable", "SinkBasin","ArmChair", "Box","CoffeeTable", "Desk", "Dresser","Bathtub", "BathtubBasin", "Floor"]
         self.small_objects = [
             # kitchen
-            "Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl", "Drawer",
+            "Apple", "Tomato","Potato", "Egg", "StoveKnob","Mug","Cup","SaltShaker", "Knife", "ButterKnife", "Fork", "Spoon", "GarbageCan", "Bowl", "Drawer",
             # living room
             "RemoteControl", "Newspaper", "KeyChain","Vase","TissueBox","LightSwitch","DeskLamp",  "Box",
             # bedroom
@@ -792,16 +792,37 @@ class AI2ThorEnv_cen(BaseEnv):
         if not self.skip_save_dir:
             self.create_save_dirs(test_case_id, self.scene)
         
-        for agent_id in range(self.num_agents):
-            self.event = self.controller.step(
-                dict(
-                    action="Teleport",
-                    position=dict(x=1.5 + agent_id * 0.5, y=0.9, z=-1.5),
-                    rotation=dict(x=0, y=270, z=0),
-                    agentId=agent_id
+        if self.scene == "FloorPlan6":
+            for agent_id in range(self.num_agents):
+                if agent_id == 1:
+                    self.event = self.controller.step(
+                        dict(
+                            action="Teleport",
+                            position=dict(x=3.0 + agent_id * 0.5, y=0.9, z=-1.5),
+                            rotation=dict(x=0, y=270, z=0),
+                            agentId=agent_id
+                        )
+                    )
+                else:
+                    self.event = self.controller.step(
+                        dict(
+                            action="Teleport",
+                            position=dict(x=1.5 + agent_id * 0.5, y=0.9, z=-1.5),
+                            rotation=dict(x=0, y=270, z=0),
+                            agentId=agent_id
+                        )
+                    )
+        else:
+            for agent_id in range(self.num_agents):
+                self.event = self.controller.step(
+                    dict(
+                        action="Teleport",
+                        position=dict(x=1.5 + agent_id * 0.5, y=0.9, z=-1.5),
+                        rotation=dict(x=0, y=270, z=0),
+                        agentId=agent_id
+                    )
                 )
-            )
-
+        
         self.update_object_dict()
         if not self.skip_save_dir:
             self.save_frame()
@@ -974,7 +995,7 @@ class AI2ThorEnv_cen(BaseEnv):
             obj_pos = obj_meta["position"]
             obj_base_name = object_name.split("_")[0]
             dist = ((agent_pos["x"] - obj_pos["x"]) ** 2 + (agent_pos["z"] - obj_pos["z"]) ** 2) ** 0.5
-            print(f"(no-path) agent {agent_id} distance to {obj_id} {object_name} is {dist}m")
+            print(f"(no-path) agent {agent_id} distance to {obj_id} {obj_base_name} is {dist}m")
             # print(f"pov: {self.get_object_in_view(agent_id)}")
             if dist <= 1.0 and obj_base_name in self.small_objects:
                 
