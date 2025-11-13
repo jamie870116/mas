@@ -791,12 +791,8 @@ You will receive:
 # Output
 Return ONLY one JSON object:
 {{
-  "timestamp": <int>,                                   # the latest timestamp
-  "environment_changes": "<0-3 sentences, <50 words>",  # persistent changes only
-  "agent_action": {{                                     # one entry per agent
-    "<AgentName>": "<0-3 sentences, <50 words: action history + current state + result/fail reason>",
-    "...": "..."
-    }}
+"timestamp": <int>,
+"history": "<compact factual narrative mixing key environment changes and agent progress, suitable for future planning>"
 }}
 
 # Writing Rules
@@ -804,11 +800,15 @@ Return ONLY one JSON object:
 - No speculation or uncertainty; only describe facts present in the given information.
 - Keep the content short and consice no more than 100 words.
 """
-
 # {{
-# "timestamp": <int>,
-# "history": "<compact factual narrative mixing key environment changes and agent progress, suitable for future planning>"
+#   "timestamp": <int>,                                   # the latest timestamp
+#   "environment_changes": "<0-3 sentences, <50 words>",  # persistent changes only
+#   "agent_action": {{                                     # one entry per agent
+#     "<AgentName>": "<0-3 sentences, <50 words: action history + current state + result/fail reason>",
+#     "...": "..."
+#     }}
 # }}
+
 
 
 def get_log_prompt():
@@ -949,18 +949,8 @@ def get_action_prompt(mode="summary"):
     return base_prompt + input_section + output_section
 
 
-
-
 def get_verifier_prompt(mode: str = "summary", need_process: bool = False) -> str:
-    """
-    mode:
-        - "summary": full diagnostic version (default)
-        - "log": simplified log-based version
-    need_process:
-        - for mode="log" only:
-            True  -> use VERIFIER_INPUT_FORMAT
-            False -> use VERIFIER_ORG_LOG_INPUT_FORMAT
-    """
+
 
     base_prompt = f"""
         # Role and Objective
@@ -993,38 +983,12 @@ def get_verifier_prompt(mode: str = "summary", need_process: bool = False) -> st
     if mode == "summary":
         input_format = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + MEMORY_HISTORY_INPUT_FORMAT
 
-        output_section = f"""
-        * Failure reason: If any robot's previous action failed, use the previous history and your understanding of causality to think and rationalize about why it failed. Output the reason for failure and how to fix this in the next timestep. If the previous action was successful, output "None".
-        * Memory: Whatever important information about the scene you think you should remember for the future as a memory. Remember that this memory will be used in future steps to carry out the task. So, you should not include information that is not relevant to the task. You can also include information that is already present in its memory if you think it might be useful in the future.
-        * Reason: The reasoning for what each robot is supposed to do next
-        * suggestion: The actions the robots are supposed to take just in the next step such that they make progress towards completing the task. Make sure that this suggested actions make these robots more efficient in completing the task as compared only one agent solving the task.
-        * need_plan: True or False. If you think the current plan is not efficient or not valid, output True. Otherwise, output False.
-
-        #OUTPUT FORMAT
-        You must output a JSON dictionary with:
-        - "failure reason": string or "None"
-        - "memory": string
-        - "reason": string
-        - "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...")
-        - "need_plan": <true|false>
-
-        # Errors Handling and Examples
-        {VERIFY_EXAMPLE}
-
-        # Context
-        {input_format}
-        {AI2THOR_ACTIONS}
-
-        # Final instructions
-        First, think carefully step by step about the **most likely failure cause and immediate fix**, closely adhering to the **Important Notes and Common Guidelines**. Then, **output only the specified dictionary**.
-        """
-        return base_prompt + output_section
-
     elif mode == "log":
         input_format = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + LOG_PROCESSED_INPUT_FORMAT
-        input_format_org = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + LOG_ORIGINAL_INPUT_FORMAT
+        if not need_process:
+          input_format = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + LOG_ORIGINAL_INPUT_FORMAT
 
-        output_section = f"""
+    output_section = f"""
         * Failure reason: Describe why the last action failed, if any. If all were successful, output "None".
         * Reason: The reasoning for what each robot is supposed to do next.
         * Suggestion: The actions the robots should take in the next step to make progress toward completing the task.
@@ -1041,16 +1005,13 @@ def get_verifier_prompt(mode: str = "summary", need_process: bool = False) -> st
         {VERIFY_EXAMPLE}
 
         # Context
-        {input_format if need_process else input_format_org}
+        {input_format}
         {AI2THOR_ACTIONS}
 
         # Final instructions
         First, think carefully step by step about the **most likely failure cause and immediate fix**, closely adhering to the **Important Notes and Common Guidelines**. Then, **output only the specified dictionary**.
         """
-        return base_prompt + output_section
-
-    else:
-        raise ValueError(f"Unknown verifier mode: {mode}")
+    return base_prompt + output_section
 
 def get_replanner_prompt(mode: str = "summary", need_process: bool = False) -> str:
     base = f"""
