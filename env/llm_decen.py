@@ -1,24 +1,15 @@
 '''
-Baseline : Centralized LLM + replanning + shared memory(log based) llm decide whether to append the log or not
+Exp: Decentralized LLM + replanning + seperated memory(log based)
+模擬非同步多機器人系統，每個機器人有自己的 LLM agent
+會有delay messaging的情況, 利用機率分配來模擬delay (poisson distribution etc.), upcoming message queue(delayed_ts, to_agent_id, message)
+Decentralized LLM for multi-agent task planning and execution
 
-
-structure same as llm_c.py but with more information about the environment and positions, failures, etc.:
-1. initial planning (remain the same as previous method: given task, let planner and editor to generate a list of subtasks (this will be the open subtasks)
-2. start a loop, until timeout or all the open subtasks is empty:
-2.1 update open subtasks and completed subtask
-2.2 allocate subtask to robot agents in the environment with llm
-2.3 break down each assigned subtasks with llm into a list of smaller available actions
-2.4 execute one subtask per agents
-2.5 verify if the subtask is completed and identify the failure reason and collect the history and suggest the next step
-2.6 replan: similar to initial planning : given task and closed subtask
-
-log example in event.jsonl:
-{"timestemp": 0, "agent_id": 0, "agent_name": "Alice", "curr_subtask": "NavigateTo(Lettuce_1)", "type": "Failed", "payload": {"last_action": "Idle", "failed_reason": "object(Lettuce_1)-not-exist (Object Lettuce_1 not found in object_dict)", "postion": "(-4.00, 1.50)", "rotation": "north", "inventory": "nothing", "observation": "I see: ['ArmChair_1', 'ArmChair_2', 'Bowl_1', 'Box_1', 'CoffeeTable_1', 'Curtains_1', 'Floor_1', 'Pillow_1', 'Shelf_2', 'Sofa_1', 'TVStand_1', 'Television_1', 'TissueBox_1', 'Window_2']"}}
-{"timestemp": 17, "agent_id": 1, "agent_name": "Bob", "curr_subtask": "ToggleObjectOff(LightSwitch_1)", "type": "Success", "payload": {"last_action": "ToggleObjectOff(LightSwitch_1)", "postion": "(-3.50, 0.75)", "rotation": "south", "inventory": "nothing", "observation": "I see: ['HousePlant_1', 'LightSwitch_1', 'Painting_1', 'RemoteControl_1', 'SideTable_2', 'SideTable_3']"}}
-{"timestemp": 17, "agent_id": 0, "agent_name": "Alice", "curr_subtask": "NavigateTo(FloorLamp_1)", "type": "Attempt", "payload": {"last_action": "MoveAhead", "postion": "(-1.25, 2.50)", "rotation": "east", "inventory": "nothing", "observation": "I see: ['Curtains_1', 'DeskLamp_1', 'KeyChain_1', 'SideTable_1', 'Vase_1', 'Window_1']"}}
-
-TBD: 單獨的 log 分析與回饋模組 
-checker for task type 4 要改
+1. planning subtasks for each agent(run initial_subtask_planning per agent) -> run once at the begining
+LOOP(until all subtasks are done or timeout):
+2. decompose subtask to smaller actions (decompose_subtask_to_actions per agent)
+3. execution (stepwise_action_loop per agent) while maintaing seperate logs with messege queue for delayed messaging
+    3.5. Log summariser (log_summariser per agent): decide what to log for each agent. (trigger when subtask is success/failure or delay messaging arrived)
+4. verify and replan if needed (verify_actions, replan_open_subtasks independently per agent)
 '''
 
 import json
@@ -30,6 +21,7 @@ from pathlib import Path
 import time
 import base64
 import difflib
+import numpy as np
 
 from openai import OpenAI
 from env_log import AI2ThorEnv_cen as AI2ThorEnv
@@ -328,7 +320,7 @@ def allocate_subtasks_to_agents(env, info={}):
     return allocation, remain
 
 def decompose_subtask_to_actions(env, subtasks, info={}):
-    """將 subtask 拆解成 atomic actions（LLM）"""
+    """將 subtask 拆解成 atomic actions LLM"""
     action_prompt, action_user_prompt = prepare_prompt(env, mode="action", subtasks=subtasks, info=info)
     action_payload = prepare_payload(action_prompt, action_user_prompt)
     # print("action prompt:", action_prompt)
@@ -347,25 +339,6 @@ def encode_image(image_path: str):
         return base64.b64encode(image_file.read()).decode("utf-8")
 
 
-# def verify_actions(env, info={}, need_process=False):
-#     verify_prompt, verify_user_prompt = prepare_prompt(env, mode="verifier", need_process=need_process)
-#     base64_image = [encode_image(env.get_frame(i)) for i in range(len(AGENT_NAMES))]
-
-#     image_urls = [
-#         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image}"}}
-#         for image in base64_image
-#     ]
-#     verify_payload = prepare_payload(verify_prompt, verify_user_prompt, img_urls=image_urls)
-#     # print("verify prompt: ", verify_user_prompt)
-#     res, res_content = get_llm_response(verify_payload, model=config['model'])
-#     # print('verify llm output', res_content)
-#     need_replan, reason, suggestion = process_llm_output(res_content, mode="verifier")
-#     verify_res = {
-#         "need_replan": need_replan,
-#         "reason": reason,
-#         "suggestion": suggestion
-#     }
-#     return verify_res
 
 def verify_actions(env, info={}, need_process=False):
     verify_prompt, verify_user_prompt = prepare_prompt(env, mode="verifier", need_process=need_process)
@@ -571,20 +544,20 @@ def set_env_with_config(config_file: str):
         config = json.load(f)
     return env, config
 
-def run_main_temp(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
-    # just for testing the response (with temperature and top_p set to 0)
-    env, config = set_env_with_config(config_path)
-    timeout = timeout
-    if test_id > 0:
-        obs = env.reset(test_case_id=test_id)
-    else:
-        obs = env.reset(test_case_id=config['test_id'])
-    # --- initial subtask planning
-    print("\n--- Initial Subtask Planning ---")
-    open_subtasks, _, res = initial_subtask_planning(env, config)
+
+'''
+Decentralized LLM for multi-agent task planning and execution
+
+1. (LLM)planning subtasks for each agent(run initial_subtask_planning per agent) -> run once at the begining
     
-    
-    return open_subtasks, [], res
+LOOP(until all subtasks are done or timeout):
+2. (LLM)decompose subtask to smaller actions (decompose_subtask_to_actions per agent)
+3. combine each agent's subtasks into -> subtasks: {agent_id: (subtask, [actions(NavigateToObejct, PickupObject, ...)]), ...
+4. execution (stepwise_action_loop per agent) while maintaing seperate logs with messege queue for delayed messaging
+    4.5. (LLM)Log summariser (log_summariser per agent): decide what to log for each agent. (trigger when subtask is success/failure or delay messaging arrived)
+5. (LLM)verify and replan if needed (verify_actions, replan_open_subtasks independently per agent)
+'''
+
 
 def run_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
     # --- Init.
@@ -722,7 +695,28 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False,
     env.save_to_video(delete_frames=delete_frames)
     env.close()
 
+'''
+psuedo code for decentralized replanning loop
+# from stepwise_decen_loop()
+obs, per_agent_status, replan_agents = env.stepwise_decen_loop(timeout)
 
+if replan_agents not empty:
+    for each agent A in replan_agents:
+        # call LLM to replan for this agent only
+        new_subtasks, new_high_levels, new_atomic_steps = llm_replan_for_agent(A, per_agent_status[A])
+
+        # rebuild structures for this agent
+        env.update_subtasks_by_agent(
+            agent_id          = A,
+            new_current_sub   = new_subtasks.current,
+            new_pending_high  = new_high_levels,
+            new_action_queue  = new_atomic_steps
+        )
+
+    # after all replans are updated, call loop again to continue execution
+    obs2, per_agent_status2, replan_agents2 = env.stepwise_decen_loop(timeout)
+
+'''
 
 def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delete_frames=False, timeout=250):
     """
@@ -802,7 +796,6 @@ if __name__ == "__main__":
     #     "scenes": [ "FloorPlan3"] #"FloorPlan3","FloorPlan1",  "FloorPlan2", "FloorPlan4", "FloorPlan5"
     # },
 ]
-
 
     TASKS_2 = [
         # {
@@ -932,4 +925,17 @@ if __name__ == "__main__":
     # batch_run(TASKS_4, base_dir="config", start=51, end=51, sleep_after=50, delete_frames=True)
     # run_main(test_id = 3, config_path="config/config.json", delete_frames=True)
     # run_main(test_id = 2, config_path="config/config.json")
-   
+    # 模擬 20 次事件的 delay
+    def get_delays(mode='poisson'):
+        if mode == 'poisson':
+            return np.random.poisson(lam=3)
+        elif mode == 'geometric':
+            return np.random.geometric(p=0.3)
+        else:
+            return 0
+    samples = get_delays(mode='poisson')
+    
+    print(samples)
+    delay = get_delays(mode='geometric')
+    print(delay)
+    

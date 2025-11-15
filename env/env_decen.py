@@ -19,6 +19,7 @@ import math
 import importlib.util
 
 from env_base import BaseEnv
+import prompt_template
 
 def import_scene_initializer(task: str, floor_plan: str):
     file_path = os.path.join("Tasks", task, f"{floor_plan}.py")
@@ -47,7 +48,13 @@ def closest_angles(values, query):
     values.append(360)
     return min(values, key=lambda v: abs(v-query)) % 360
 
-
+def get_delays(mode='poisson'):
+        if mode == 'poisson':
+            return np.random.poisson(lam=3)
+        elif mode == 'geometric':
+            return np.random.geometric(p=0.3)
+        else:
+            return 0
 
 
 class AI2ThorEnv_cen(BaseEnv):
@@ -90,11 +97,7 @@ class AI2ThorEnv_cen(BaseEnv):
         self.open_subtasks = "None" if self.use_plan else None
         self.closed_subtasks = "None" if self.use_plan else None
         self.inventory = ["nothing"] * self.num_agents
-        self.pending_high_level = defaultdict(deque) # {agent_id: [queue]} # eg. NavigateTo(Obj), PickUp(Obj)..
-        self.pending_subtasks = defaultdict(deque) # {agent_id: [queue]} # description of subtasks
-        self.action_queue = defaultdict(deque) # {agent_id: [queue] }for breaking down navigation steps or so
-        self.current_hl = {} 
-        self.cur_plan = {}
+        
         self.action_step_num = 0
         self.subtask_success_history = {name: [] for name in self.agent_names}  # save the previous successful subtasks for each agent
         self.subtask_failure_reasons = {name: [] for name in self.agent_names} # save the previous failure subtasks and reason for each agent
@@ -104,9 +107,15 @@ class AI2ThorEnv_cen(BaseEnv):
         
         self.action_history = {name: [] for name in self.agent_names}
         self.action_success_history = {name: [] for name in self.agent_names}
-        # self.agent_failure_acts = {name: [] for name in self.agent_names}
-        # handle when openning objects such as fridge, the reachable positions is wrong
-        self.mannual_block_pos = {} # {obj_name: [pos.]}
+
+        self.upcoming_messages = []  # (deliver_time(timestamp):int, to_agent_id:int, message:str)
+        self.pending_high_level = defaultdict(deque) # {agent_id: [queue]} # eg. NavigateTo(Obj), PickUp(Obj)..
+        self.pending_subtasks = defaultdict(deque) # {agent_id: [queue]} # description of subtasks
+        self.action_queue = defaultdict(deque) # {agent_id: [queue] }for breaking down navigation steps or so
+        self.current_hl = {} 
+        self.current_subtask = {}
+        self.cur_plan = {}
+        self.message = {} # latest message for each agent {id: {}}
 
         self.all_obs_dict = {name: [] for name in self.agent_names}
         self.obs_summary_llm_cache_path = "summary_llm_cache.pkl"
@@ -163,13 +172,17 @@ class AI2ThorEnv_cen(BaseEnv):
         self.all_obs_dict = {name: [] for name in self.agent_names}
         self.nav_no_plan = {name: False for name in self.agent_names}
         self.last_check_reason = {name: None for name in self.agent_names}
-        
+        self.upcoming_messages = []
+        self.message = {} # latest message for each agent {id: {}}
+
+
         self.open_subtasks = "None" if self.use_plan else None
         self.closed_subtasks = "None" if self.use_plan else None
         self.pending_high_level = defaultdict(deque) # {agent_id: [queue]} # eg. NavigateTo(Obj), PickUp(Obj)..
         self.pending_subtasks = defaultdict(deque) # {agent_id: [queue]} # description of subtasks
         self.action_queue = defaultdict(deque) # {agent_id: [queue] }for breaking down navigation steps or so
-        self.current_hl = {} 
+        self.current_hl = {}  # store actions list for each agent (NavigateTo(Obj), PickUp(Obj)..
+        self.current_subtask = {} # store current subtask for each agent (description of subtasks)
         self.cur_plan = {}
         self.action_step_num = 0
 
@@ -224,7 +237,7 @@ class AI2ThorEnv_cen(BaseEnv):
         
         return self.get_observations()
     
-
+    
 
     def get_object_dict(self):
         return self.object_dict
@@ -270,7 +283,6 @@ class AI2ThorEnv_cen(BaseEnv):
         return list(detections.instance_masks.keys()) if detections else []
     
 
-
     def get_mapping_object_pos_in_view(self, agent_id: int) -> Dict[str, Dict[str, float]]:
         """
         以 'Name_Idx' 為鍵，回傳可見物件的 {'x','z'}。
@@ -314,7 +326,6 @@ class AI2ThorEnv_cen(BaseEnv):
             positions[key] = {"x": round(x, 2), "z": round(z, 2)}
 
         return positions
-
 
 
     def generate_obs_text(self, agent_id: int, prefix: str = "I see: ", mode="list") -> Tuple[str, List[str]]:
@@ -430,7 +441,6 @@ class AI2ThorEnv_cen(BaseEnv):
         # print(f"nav_actions: {micro_actions}")
         return micro_actions
 
-    # ---For one time planning- replan nav step for every step
     def step_decomp(self, actions: List[str], agent_id: int = None, isNeed2Add2Queue: bool = True):
         """break down the step into unit as define in Ai2Thor (MoveAhead, RotateRight etc.)"""
         res = []
@@ -503,7 +513,7 @@ class AI2ThorEnv_cen(BaseEnv):
                     res.append(action)
         return res
     
-    
+    # for centralized execution
     def exe_step(self, actions:List[str]):
         """execute one step, each agent per step (can be IDLE)"""
         
@@ -740,136 +750,7 @@ class AI2ThorEnv_cen(BaseEnv):
 
         return self.get_observations(), act_successes
     
-    
-    def action_loop(self, high_level_tasks: List[str]):
-        """execute the actions from high level for testing
-        high_level_tasks: e.g.
-          [
-            [subtasks for agent_0],
-            [subtasks for agent_2]
-          ]
-        """
-        # init.
-        for aid, tasks in enumerate(high_level_tasks):
-            self.pending_high_level[aid] = deque(tasks)
-            self.current_hl[aid] = None
-            self.action_queue[aid].clear()
-        
-        if self.save_logs:
-            self.logs.append(f"Initializing action loop with high level tasks:")
-            self.logs.append(f"pending high level tasks: {self.pending_high_level}")
-            self.logs.append(f"nxt task: {self.current_hl}")
-            self.logs.append(f"current action queue: {self.action_queue}")
-            self.logs.append("-------------------------")
-        # print("Initializing action loop with high level tasks:")
-        # print(f"pending high level tasks: {self.pending_high_level}")
-        # print(f"nxt task: {self.current_hl}")
-        # print(f"current action queue: {self.action_queue}")
-        # print("-------------------------")
-
-        history = []
-        start_time = time.time()
-        while True:
-            for aid in range(self.num_agents):
-                if not self.current_hl[aid] and self.pending_high_level[aid]:
-                    nxt = self.pending_high_level[aid].popleft()
-                    self.current_hl[aid] = nxt
-                # add event manually
-                # if self.step_num[aid] == 6:
-                #     success, message = self.simulate_environment_event("break", "Mug_1")
-
-
-            # break if not pending tasks
-            if all(not self.pending_high_level[aid] for aid in range(self.num_agents)) \
-               and all(self.current_hl[aid] is None for aid in range(self.num_agents)) \
-               and all(not self.action_queue[aid] for aid in range(self.num_agents)):
-                break
-            
-            # break if timeout
-            elapsed = time.time() - start_time
-            if self.timeout and elapsed > self.timeout:
-                break
-            if self.save_logs:
-                self.logs.append("-------------------------")
-                self.logs.append(f"pending high level tasks: {self.pending_high_level}")
-                self.logs.append(f"nxt task: {self.current_hl}")
-                self.logs.append(f"current action queue: {self.action_queue}")
-
-            # print(f"pending high level tasks: {self.pending_high_level}")
-            # print(f"nxt task: {self.current_hl}")
-            # print(f"current action queue: {self.action_queue}")
-            
-
-            obs, succ = self.exe_step([])
-            history.append((obs, succ))
-            # debug
-            if self.save_logs:
-                self.logs.append(f"----------Step {self.step_num[0]}------------")
-                self.logs.append(f"Step {self.step_num[0]}: {obs}")
-                self.logs.append(f"Action success: {succ}")
-            # print(f"----------Before {self.step_num[0]}------------")
-            # print(f"pending high level tasks: {self.pending_high_level}")
-            # print(f"nxt task: {self.current_hl}")
-            # print(f"current action queue: {self.action_queue}")
-            # print(f"----------After {self.step_num[0]}------------")
-
-        if self.save_logs:
-            self.logs.append("----------End-----------")
-            filename = self.base_path / "logs.txt"
-            with open(filename, "w", encoding="utf-8") as f:
-                for log in self.logs:
-                    f.write(str(log) + "\n")
-
-        return history
-    # ----
-
-    def get_decomp_steps(self, pending_subtasks: Dict[int, List[str]]):
-        """Set the action queue for each agent."""
-        for aid, tasks in enumerate(pending_subtasks):
-            self.pending_high_level[aid] = deque(tasks)
-            # self.current_hl[aid] = None
-            # self.action_queue[aid].clear()
-            action = self.step_decomp(tasks, aid, isNeed2Add2Queue=False)
-        return action
-
-    def actions_decomp(self, actions: List[str]):
-        '''
-        Input:
-        actions:
-        [
-            ['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], 
-            ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']
-        ]
-        
-        Output:
-        [
-        [[nav_step],[PickupObject]...],
-        []
-        ]
-
-        '''
-        res = []
-        # 分解特定agent的动作
-        for agent_id, agent_actions in enumerate(actions):
-            res_agent = []
-            for action in agent_actions:
-                if action.startswith("NavigateTo"):
-                    obj = action.split("(")[1].rstrip(")")
-                    nav = f"NavigateTo({obj})"
-                    nav_steps = self.get_navigation_step(nav, agent_id)
-                    res_agent.append(nav_steps)
-                    # nav_steps = self.get_navigation_step(action, agent_id)
-                    # self.action_queue[agent_id].extend(nav_steps)
-                elif action in self.idle_actions:
-                    # self.action_queue[agent_id].append("Idle")
-                    res_agent.append(["Idle"])
-                else:
-                    
-                    # self.action_queue[agent_id].append(action)
-                    res_agent.append([action])
-            res.append(res_agent)
-        return res
-    
+   
     def stepwise_action_loop(self, cur_plan):
         """
         cur_plan: list of dicts, each with:
@@ -963,7 +844,324 @@ class AI2ThorEnv_cen(BaseEnv):
         self.nav_no_plan = {name: False for name in self.agent_names}   # 導航規劃為空的旗標
         self.last_check_reason = {name: None for name in self.agent_names}  # is_subtask_done 內部最近一次的判斷理由
         return all(succ), info
+    
+    # for decentralized execution (simulate)
+    def stepwise_decen_loop(self):
+        '''
+        function stepwise_decen_loop(timeout):
+        start_time = now()
+        last_obs = None
+
+        while True:
+            if now() - start_time > timeout:
+                return last_obs, {}, []        # timeout, no replanning info
+
+            obs, info = exe_step_decen()      # one global step
+
+            last_obs = obs
+            replan_agents = info.replan_agents
+
+            if replan_agents not empty:
+                # pause execution and return to LLM side
+                return obs, info.per_agent_status, replan_agents
+
+            if all_agents_finished(info.per_agent_status):
+                # no more subtasks / actions for any agent
+                return obs, info.per_agent_status, []
         
+        '''
+        succ = [True] * self.num_agents
+        start_time = time.time()
+        while True:
+            # assign new high level tasks if current is None and no need to replan
+            for aid in range(self.num_agents):
+                if not self.current_hl[aid] and self.pending_high_level[aid]:
+                    nxt = self.pending_high_level[aid].popleft()
+                    self.current_hl[aid] = nxt
+                
+            # break if not pending tasks
+            if all(not self.pending_high_level[aid] for aid in range(self.num_agents)) \
+            and all(self.current_hl[aid] is None for aid in range(self.num_agents)) \
+            and all(not self.action_queue[aid] for aid in range(self.num_agents)):
+                break
+            
+            # break if timeout
+            elapsed = time.time() - start_time
+            if self.timeout and elapsed > self.timeout:
+                if self.save_logs:
+                    self.logs.append("**********Timeout!**********")
+                break
+
+            if self.save_logs:
+                self.logs.append("-------------------------")
+                self.logs.append(f"pending high level tasks: {self.pending_high_level}")
+                self.logs.append(f"nxt task: {self.current_hl}")
+                self.logs.append(f"current action queue: {self.action_queue}")
+            
+            # execute actions
+            succ = self.exe_step_decen()
+
+            if self.save_logs:
+                self.logs.append(f"----------Step {self.step_num[0]}------------")
+                # action status
+
+            # break if any agent need replan
+            if not all(succ):
+                break
+        if self.save_logs:
+            self.logs.append("----------End-----------")
+            filename = self.base_path / "logs.txt"
+            with open(filename, "a", encoding="utf-8") as f:
+                for log in self.logs:
+                    f.write(str(log) + "\n")
+        info = self._get_current_plan_status()
+        # reset after each attempt
+        self.subtask_success_history = {name: [] for name in self.agent_names}  # save the previous successful subtasks for each agent
+        self.subtask_failure_reasons = {name: [] for name in self.agent_names} # save the previous failure subtasks and reason for each agent
+        self.agent_failure_acts	= {name: [] for name in self.agent_names} # save 最近失敗過的 atomic action，通常用於偵測是否卡住
+        self.nav_no_plan = {name: False for name in self.agent_names}   # 導航規劃為空的旗標
+        self.last_check_reason = {name: None for name in self.agent_names}  # is_subtask_done 內部最近一次的判斷理由
+        return all(succ), info
+                
+    def get_log_llm_response(self, agent_id: int):
+        """
+        Get LLM response for logging
+        when using decentralized planning:
+        trigger if any agent received delayed message or need to log its status
+
+        sudo code:
+        if received delayed message:
+            # log the message content and timestamp, and decide if replan is needed
+            get_delayed_message() and previous logs as input of LLM
+            get_llm_response() -> log, is_replan_needed
+        else if need to log status:
+            # log current observation, inventory, position, action history
+            get_current_log() and previous logs as input of LLM
+            get_llm_response() -> log, is_replan_needed
+        save_logs() # save the log to file
+        return log string, is_replan_needed
+
+        def  get_llm_response():
+            # prepare input for LLM
+            # call LLM
+            # process LLM output
+            return log string, is_replan_needed
+        """
+        pass
+            
+    def exe_step_decen(self):
+        pass
+        '''
+        function exe_step_decen():
+            per_agent_status = {}         # per-agent summary for this step
+            replan_agents = set()
+
+            # check delayed messages first (per timestamp)
+            ready_msgs = message_queue.pop_ready_messages(current_time)
+
+            for each agent A:
+
+                # Initialize status entry
+                per_agent_status[A] = {
+                    curr_subtask:    current_subtask[A],     # description string
+                    curr_high_level: current_hl[A],          # e.g., "NavigateTo"
+                    step_success:    True,                   # default no-op
+                    subtask_done:    False,
+                    subtask_failed:  False,
+                    failure_reason:  None
+                }
+
+                # 0. if this agent has no work at all, skip execution
+                if current_subtask[A] is None
+                and pending_high_level[A] is empty
+                and action_queue[A]     is empty:
+                    continue
+
+                # 1. handle delayed messages for this agent (if any)
+                msgs_for_A = ready_msgs.get(A, [])
+                if msgs_for_A not empty:
+                    log_str, is_replan = log_with_llm(
+                        agent_id = A,
+                        mode     = "delayed_message",
+                        messages = msgs_for_A
+                    )
+                    save_logs(log_str)
+
+                    if is_replan:
+                        replan_agents.add(A)
+                        # skip executing action this step, wait for replanning
+                        continue
+
+                # 2. ensure this agent has atomic actions for its current high-level
+                if current_hl[A] not None AND action_queue[A] is empty:
+                    # use high-level action list to build atomic queue
+                    # here we only decompose for agent A
+                    step_decomp_for_agent(A)       # fills action_queue[A]
+
+                # 3. pre-handle AlignOrientation if needed
+                if action_queue[A] not empty AND
+                action_queue[A].front starts with "AlignOrientation":
+                    act_align = action_queue[A].pop_front()
+                    success_align = execute_atomic_action(A, act_align)
+                    # (optional) update logs, history, frames
+
+                # 4. get this-step main atomic action (or Idle)
+                if action_queue[A] not empty:
+                    act = action_queue[A].pop_front()
+                else:
+                    act = "Idle"
+
+                # 5. execute the action (Rotate / others / Idle)
+                success, error_msg = execute_atomic_action(A, act)
+
+                # 6. update env internal state for A (inventory, history, etc.)
+                update_action_state(A, act, success, error_msg)
+
+                per_agent_status[A].step_success = success
+
+                # 7. subtask completion / failure check
+                sub = current_subtask[A]
+                if sub not None:
+                    if success AND is_subtask_done(sub, A):
+                        # mark subtask done locally
+                        mark_subtask_success(A, sub)
+                        per_agent_status[A].subtask_done = True
+
+                        # logging via LLM (status log)
+                        log_str, is_replan = log_with_llm(
+                            agent_id = A,
+                            mode     = "status",
+                            status   = per_agent_status[A]
+                        )
+                        save_logs(log_str)
+
+                        if is_replan:
+                            replan_agents.add(A)
+
+                    else:
+                        # check terminal failure (no-path, not-exist, stuck...)
+                        terminal, reason = check_terminal_failure(A, sub)
+                        if terminal:
+                            mark_subtask_failure(A, sub, reason)
+                            per_agent_status[A].subtask_failed = True
+                            per_agent_status[A].failure_reason = reason
+
+                            log_str, is_replan = log_with_llm(
+                                agent_id = A,
+                                mode     = "status",
+                                status   = per_agent_status[A]
+                            )
+                            save_logs(log_str)
+
+                            if is_replan:
+                                replan_agents.add(A)
+
+                # 8. (optional) post-processing: extra AlignOrientation, frames, details log
+                postprocess_logging_and_frames(A, act, success)
+
+            # 9. save shared overhead frame for this step (optional)
+            save_overhead_frame()
+
+            obs = get_observations()
+
+            info = {
+                per_agent_status: per_agent_status,
+                replan_agents:    list(replan_agents)
+            }
+            return obs, info
+
+        '''
+
+
+    def update_subtasks(self, subtasks):
+        '''
+        Call when initalize or replan for all agents
+        Input: (from LLM)
+        subtasks: {agent_id: (subtask, [actions(NavigateToObejct, PickupObject, ...)]), ...}
+        '''
+        for aid in range(self.num_agents):
+            cur = subtasks.get(aid, None)
+            subtask = cur[0] if cur else None
+            actions = cur[1] if cur else []
+            self.pending_high_level[aid] = deque(actions)
+            self.current_hl[aid] = None
+            self.current_subtask[aid] = subtask
+            self.action_queue[aid].clear()
+        
+        if self.save_logs:
+            self.logs.append(f"Initializing action loop with high level tasks:")
+            self.logs.append(f"pending high level tasks: {self.pending_high_level}")
+            self.logs.append(f"nxt task: {self.current_hl}")
+            self.logs.append(f"current action queue: {self.action_queue}")
+            self.logs.append("-------------------------")
+
+    def upadate_subtasks_by_agent(self, agent_id: int, subtask: str, actions: List[str]):
+        '''
+        Call when replan for specific agent
+        Input: (from LLM)
+        agent_id: int
+        subtask: str
+        actions: [actions(NavigateToObejct, PickupObject, ...)]
+        '''
+        self.pending_high_level[agent_id] = deque(actions)
+        self.current_hl[agent_id] = None
+        self.current_subtask[agent_id] = subtask
+        self.action_queue[agent_id].clear()
+
+        if self.save_logs:
+            self.logs.append(f"Updating action loop with high level tasks:")
+            self.logs.append(f"pending high level tasks: {self.pending_high_level}")
+            self.logs.append(f"nxt task: {self.current_hl}")
+            self.logs.append(f"current action queue: {self.action_queue}")
+            self.logs.append("-------------------------")
+
+    def get_decomp_steps(self, pending_subtasks: Dict[int, List[str]]):
+        """Set the action queue for each agent."""
+        for aid, tasks in enumerate(pending_subtasks):
+            self.pending_high_level[aid] = deque(tasks)
+            # self.current_hl[aid] = None
+            # self.action_queue[aid].clear()
+            action = self.step_decomp(tasks, aid, isNeed2Add2Queue=False)
+        return action
+
+    def actions_decomp(self, actions: List[str]):
+        '''
+        Input:
+        actions:
+        [
+            ['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], 
+            ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']
+        ]
+        
+        Output:
+        [
+        [[nav_step],[PickupObject]...],
+        []
+        ]
+
+        '''
+        res = []
+        # 分解特定agent的动作
+        for agent_id, agent_actions in enumerate(actions):
+            res_agent = []
+            for action in agent_actions:
+                if action.startswith("NavigateTo"):
+                    obj = action.split("(")[1].rstrip(")")
+                    nav = f"NavigateTo({obj})"
+                    nav_steps = self.get_navigation_step(nav, agent_id)
+                    res_agent.append(nav_steps)
+                    # nav_steps = self.get_navigation_step(action, agent_id)
+                    # self.action_queue[agent_id].extend(nav_steps)
+                elif action in self.idle_actions:
+                    # self.action_queue[agent_id].append("Idle")
+                    res_agent.append(["Idle"])
+                else:
+                    
+                    # self.action_queue[agent_id].append(action)
+                    res_agent.append([action])
+            res.append(res_agent)
+        return res
+    
    
     def _get_current_plan_status(self):
         # 回傳目前任務狀態 (Log3)

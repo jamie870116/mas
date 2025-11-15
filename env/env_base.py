@@ -90,6 +90,10 @@ class BaseEnv:
             with open(event_log_path, "w") as f:
                 f.write("")  # Clear previous log
     
+    def get_log_path_by_agent(self, agent_id):
+        """Get the log path for a specific agent."""
+        return self.base_path / f"event_{agent_id}.jsonl"
+
     def extract_frame_indices(self, filename):
         """
         Extracts the primary and optional secondary frame index from filename like 'frame_0_2.png' or 'frame_1.png'.
@@ -529,9 +533,6 @@ class BaseEnv:
                     except Exception as e:
                         print(f"Warning: could not delete {frame_file}: {e}")
                 print(f"Deleted {len(frame_files)} frame images from {subfolder}")
-
-
-
 
     def get_object_status_byID(self, obj_id: str) -> Dict[str, Any]:
         """Return the status of a specific object given its readable name."""
