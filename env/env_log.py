@@ -1869,7 +1869,11 @@ class AI2ThorEnv_cen(BaseEnv):
             if obj_name in self.large_receptacles:
                 recep_status = self.get_object_status(obj)
                 contains = recep_status.get("contains") or []
-                res[obj] = contains
+                new_contains = []
+                for id in contains:
+                    readable = self.get_single_readable_object(id)
+                    new_contains.append(readable)
+                res[obj] = new_contains
         return res
     
     def get_pitch_reset_command(self, cur_deg):
@@ -2294,7 +2298,7 @@ class AI2ThorEnv_cen(BaseEnv):
 
         for aid, name in enumerate(self.agent_names):
             # snap[f"{name}'s observation"]      = self.input_dict.get(f"{name}'s observation", "[]")
-            snap[f"{name}'s observation"] = self.get_mapping_object_pos_in_view(aid)
+            snap[f"{name}'s observation"] = list(self.get_mapping_object_pos_in_view(aid).keys())
             snap[f"{name}'s state"]            = self.input_dict.get(f"{name}'s state", "")
            
 

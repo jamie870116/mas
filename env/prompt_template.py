@@ -3,209 +3,6 @@ AGENT_NAMES_ALL = ["Alice", "Bob", "Charlie", "David", "Emma"]
 NUM_AGENTS = 2
 AGENT_NAMES = AGENT_NAMES_ALL[:NUM_AGENTS]
 
-ai2thor_objs = {
-    "Kitchen": {
-        "AluminumFoil": ["Pickupable"],
-        "Apple": ["Pickupable", "Sliceable"],
-        "AppleSliced": ["Pickupable"],
-        "Bottle": ["Pickupable", "Fillable", "Breakable"],
-        "Bowl": ["Pickupable", "Receptacle", "Fillable", "Breakable", "Dirtyable"],
-        "Bread": ["Pickupable", "Sliceable"],
-        "BreadSliced": ["Pickupable", "Cookable"],
-        "ButterKnife": ["Pickupable"],
-        "Cabinet": ["Openable", "Receptacle"],
-        "CoffeeMachine": ["Toggleable", "Receptacle", "Moveable"],
-        "CounterTop": ["Receptacle"],
-        "Cup": ["Pickupable", "Receptacle", "Fillable", "Breakable", "Dirtyable"],
-        "DiningTable": ["Receptacle", "Moveable"],
-        "DishSponge": ["Pickupable"],
-        "Drawer": ["Openable", "Receptacle"],
-        "Egg": ["Pickupable", "Sliceable", "Breakable"],
-        "EggCracked": ["Pickupable", "Cookable"],
-        "Faucet": ["Toggleable"],
-        "Fork": ["Pickupable"],
-        "Fridge": ["Openable", "Receptacle"],
-        "GarbageCan": ["Receptacle", "Moveable"],
-        "HousePlant": ["Fillable", "Moveable"],
-        "Kettle": ["Openable", "Pickupable", "Fillable"],
-        "Knife": ["Pickupable"],
-        "Ladle": ["Pickupable"],
-        "Lettuce": ["Pickupable", "Sliceable"],
-        "LettuceSliced": ["Pickupable"],
-        "LightSwitch": ["Toggleable"],
-        "Microwave": ["Openable", "Toggleable", "Receptacle", "Moveable"],
-        "Mug": ["Pickupable", "Receptacle", "Fillable", "Breakable", "Dirtyable"],
-        "Pan": ["Pickupable", "Receptacle", "Dirtyable"],
-        "PaperTowelRoll": ["Pickupable", "UsedUp"],
-        "PepperShaker": ["Pickupable"],
-        "Plate": ["Pickupable", "Receptacle", "Breakable", "Dirtyable"],
-        "Pot": ["Pickupable", "Receptacle", "Fillable", "Dirtyable"],
-        "Potato": ["Pickupable", "Sliceable", "Cookable"],
-        "PotatoSliced": ["Pickupable", "Cookable"],
-        "SaltShaker": ["Pickupable"],
-        "Shelf": ["Receptacle"],
-        "ShelvingUnit": ["Moveable"],
-        "SideTable": ["Receptacle", "Moveable"],
-        "Sink": ["Receptacle"],
-        "SinkBasin": ["Receptacle"],
-        "Spatula": ["Pickupable"],
-        "Spoon": ["Pickupable"],
-        "SprayBottle": ["Pickupable"],
-        "Statue": ["Pickupable", "Breakable"],
-        "Stool": ["Moveable"],
-        "StoveBurner": ["Toggleable", "Receptacle"],
-        "StoveKnob": ["Toggleable"],
-        "Toaster": ["Toggleable", "Receptacle", "Moveable"],
-        "Tomato": ["Pickupable", "Sliceable"],
-        "TomatoSliced": ["Pickupable"],
-        "WineBottle": ["Pickupable", "Fillable", "Breakable"]
-    },
-
-    "LivingRoom": {
-        "ArmChair": ["Receptacle", "Moveable"],
-        "Blinds": ["Openable"],
-        "Book": ["Openable", "Pickupable"],
-        "Boots": ["Pickupable"],
-        "Box": ["Openable", "Pickupable", "Receptacle"],
-        "CoffeeTable": ["Receptacle", "Moveable"],
-        "CounterTop": ["Receptacle"],
-        "CreditCard": ["Pickupable"],
-        "Cup": ["Pickupable", "Receptacle", "Fillable", "Breakable", "Dirtyable"],
-        "Desk": ["Receptacle", "Moveable"],
-        "DeskLamp": ["Toggleable", "Moveable"],
-        "DiningTable": ["Receptacle", "Moveable"],
-        "Drawer": ["Openable", "Receptacle"],
-        "Dresser": ["Receptacle", "Moveable"],
-        "Faucet": ["Toggleable"],       # only if present (rare)
-        "FloorLamp": ["Toggleable", "Moveable"],
-        "GarbageCan": ["Receptacle", "Moveable"],
-        "HousePlant": ["Fillable", "Moveable"],
-        "KeyChain": ["Pickupable"],
-        "Laptop": ["Openable", "Pickupable", "Toggleable", "Breakable"],
-        "LightSwitch": ["Toggleable"],
-        "Microwave": ["Openable", "Toggleable", "Receptacle", "Moveable"],  # rare
-        "Mug": ["Pickupable", "Receptacle", "Fillable", "Breakable", "Dirtyable"],
-        "Newspaper": ["Pickupable"],
-        "Ottoman": ["Receptacle", "Moveable"],
-        "Pen": ["Pickupable"],
-        "Pencil": ["Pickupable"],
-        "PepperShaker": ["Pickupable"],
-        "Pillow": ["Pickupable"],
-        "Plate": ["Pickupable", "Receptacle", "Breakable", "Dirtyable"],
-        "RemoteControl": ["Pickupable"],
-        "RoomDecor": ["Moveable"],
-        "Safe": ["Openable", "Receptacle", "Moveable"],
-        "SaltShaker": ["Pickupable"],
-        "Shelf": ["Receptacle"],
-        "ShelvingUnit": ["Moveable"],
-        "SideTable": ["Receptacle", "Moveable"],
-        "Sofa": ["Receptacle", "Moveable"],
-        "SprayBottle": ["Pickupable"],
-        "Statue": ["Pickupable", "Breakable"],
-        "Stool": ["Moveable"],
-        "Television": ["Toggleable", "Breakable", "Moveable"],
-        "TissueBox": ["Pickupable", "UsedUp"],
-        "TVStand": ["Receptacle", "Moveable"],
-        "Watch": ["Pickupable"],
-        "WateringCan": ["Pickupable", "Fillable"],
-        "Window": ["Breakable"],
-        "WineBottle": ["Pickupable", "Fillable", "Breakable"]
-    },
-
-    "Bedroom": {
-        "AlarmClock": ["Pickupable"],
-        "ArmChair": ["Receptacle", "Moveable"],
-        "BaseballBat": ["Pickupable"],
-        "BasketBall": ["Pickupable"],
-        "Bed": ["Receptacle", "Dirtyable"],
-        "Blinds": ["Openable"],
-        "Book": ["Openable", "Pickupable"],
-        "Boots": ["Pickupable"],
-        "Box": ["Openable", "Pickupable", "Receptacle"],
-        "CD": ["Pickupable"],
-        "CellPhone": ["Pickupable", "Toggleable", "Breakable"],
-        "Chair": ["Moveable"],
-        "Cloth": ["Pickupable", "Dirtyable"],
-        "CreditCard": ["Pickupable"],
-        "Cup": ["Pickupable", "Receptacle", "Fillable", "Breakable", "Dirtyable"],
-        "Desk": ["Receptacle", "Moveable"],
-        "DeskLamp": ["Toggleable", "Moveable"],
-        "Desktop": ["Moveable"],
-        "Dresser": ["Receptacle", "Moveable"],
-        "Drawer": ["Openable", "Receptacle"],
-        "Dumbbell": ["Pickupable"],
-        "GarbageBag": ["Moveable"],
-        "GarbageCan": ["Receptacle", "Moveable"],
-        "HandTowel": ["Pickupable"],           # present only in some bathrooms, included here for completeness
-        "HousePlant": ["Fillable", "Moveable"],
-        "KeyChain": ["Pickupable"],
-        "Laptop": ["Openable", "Pickupable", "Toggleable", "Breakable"],
-        "LaundryHamper": ["Receptacle", "Moveable"],
-        "LightSwitch": ["Toggleable"],
-        "Mug": ["Pickupable", "Receptacle", "Fillable", "Breakable", "Dirtyable"],
-        "Pen": ["Pickupable"],
-        "Pencil": ["Pickupable"],
-        "Pillow": ["Pickupable"],
-        "Plate": ["Pickupable", "Receptacle", "Breakable", "Dirtyable"],
-        "Poster": [],                          # no actionable properties; omitted by design
-        "Safe": ["Openable", "Receptacle", "Moveable"],
-        "Shelf": ["Receptacle"],
-        "ShelvingUnit": ["Moveable"],
-        "SideTable": ["Receptacle", "Moveable"],
-        "SprayBottle": ["Pickupable"],
-        "Statue": ["Pickupable", "Breakable"],
-        "Stool": ["Moveable"],
-        "TableTopDecor": ["Pickupable"],
-        "TeddyBear": ["Pickupable"],
-        "Television": ["Toggleable", "Breakable", "Moveable"],
-        "TennisRacket": ["Pickupable"],
-        "TissueBox": ["Pickupable", "UsedUp"],
-        "TVStand": ["Receptacle", "Moveable"],
-        "VacuumCleaner": ["Moveable"],
-        "Watch": ["Pickupable"],
-        "Window": ["Breakable"]
-    },
-
-    "Bathroom": {
-        "Bathtub": ["Receptacle"],
-        "BathtubBasin": ["Receptacle"],
-        "Blinds": ["Openable"],
-        "Cabinet": ["Openable", "Receptacle"],
-        "Candle": ["Pickupable", "Toggleable"],
-        "Cloth": ["Pickupable", "Dirtyable"],
-        "CounterTop": ["Receptacle"],
-        "Drawer": ["Openable", "Receptacle"],
-        "Faucet": ["Toggleable"],
-        "GarbageCan": ["Receptacle", "Moveable"],
-        "HandTowel": ["Pickupable"],
-        "HandTowelHolder": ["Receptacle"],
-        "LightSwitch": ["Toggleable"],
-        "Mirror": ["Breakable", "Dirtyable"],
-        "Plunger": ["Pickupable"],
-        "ScrubBrush": ["Pickupable"],
-        "Shelf": ["Receptacle"],
-        "ShowerCurtain": ["Openable"],
-        "ShowerDoor": ["Openable", "Breakable"],
-        "ShowerGlass": ["Breakable"],
-        "ShowerHead": ["Toggleable"],
-        "SideTable": ["Receptacle", "Moveable"],
-        "Sink": ["Receptacle"],
-        "SinkBasin": ["Receptacle"],
-        "SoapBar": ["Pickupable"],
-        "SoapBottle": ["Pickupable", "UsedUp"],
-        "SprayBottle": ["Pickupable"],
-        "Statue": ["Pickupable", "Breakable"],
-        "TissueBox": ["Pickupable", "UsedUp"],
-        "Toilet": ["Openable", "Receptacle"],
-        "ToiletPaper": ["Pickupable", "UsedUp"],
-        "ToiletPaperHanger": ["Receptacle"],
-        "Towel": ["Pickupable"],
-        "TowelHolder": ["Receptacle"],
-        "Window": ["Breakable"]
-    }
-}
-
-
 EXAMPLE_PLAN = f"""
 High-level task: "Put the vase, tissue box, and remote control on the table", with 2 agents:
 
@@ -255,7 +52,6 @@ Example input:
 VERIFY_EXAMPLE = f"""
 # Error and Faulures handling
 - Navigation: "no-path", "object-not-in-view", "distance-too-far": Use micro-movements (MoveAhead, RotateRight, etc.) to get in view/reach, using current/target positions and available observations. For example, you can have subtasks like "look down and navigate to potato" if previous failure reason of "pick up potato" was "object-not-in-view". Or you can have subtask like "use micro-movements to navigate to potato" if previous subtask "navigate to potato" was failured.
-example: 
 ** If the input reports "no-path" to <Obj> while <Obj> exists and the images/observations indicate a physical occluder (e.g., an open fridge door between the agent and the target or blocked by other agent), issue a short detour macro before retrying. For example: RotateRight twice, then MoveAhead once, then retry NavigateTo(<Obj>).This decision must use multiple signals—images/2D detections, object states (e.g., isOpen for doors), recent actions, and visible objects—not just the Reachable positions list. Or navigate to somewhere far away to clean the path.
 ** When the input shows "no-path" and a likely cause is another agent blocking the aisle or target approach (same narrow corridor, same target, or the other agent is on the planned route), assign a yield/wait behavior to avoid deadlock: have the blocked agent Idle for 1 or 2 steps or take a small lateral/back step (MoveRight/MoveLeft/MoveBack) to clear space, or temporarily reassign the blocking agent to a different subtask/movement. After the yielding action, retry NavigateTo(<Obj>).
 ** when given input shows "object-not-in-view" for subtask "navigate to tomato", and based on other input information, that the distance between the agent and the tomato is already close enough, then you can have subtask "Lookdown" or "Lookup" to find the tomato or "RotateRight" or "RotateLetf".
@@ -264,45 +60,44 @@ example:
 ** for any other unknown reason or repeating failures, you can suggest assigning subtasks to other agents.
 
 - Object-related: "object-not-found", "object-not-reachable", "object-not-in-inventory", "object(<OBJ>)-not-picked-up", "object cannot be interacted":
-example:
 ** when given input shows "object-not-found" and based on given object list of environment, that there's no target object, you can skipped the related subtask.
 ** when given input shows "object-not-in-inventory", means that the current agent didn't not pick up any object to perform the next step, you should have the subtask "pick up xxx, and do xxx". xxx depends on what is the subtask.
 ** when given input shows "object cannot be interacted", means that the target object maybe  broken/disabled/locked, you should skip the related subtask, or try replan/choose an alternative..
 ** when given error shows "NullReferenceException: Target object not found within the specified visibility.", means that the target object may be inside the container and is not visiable to the agent, you should try open the container to find the target object.
 
 - Ensure necessary object prerequisites.
+"""
 
 # Example:
-input:
-{{
-  "Task": "Place the mug and the knife into the cabinet",
-  "Number of agents": 3,
-  "Robots' open subtasks": ["put the knife in the cabinet", "close the cabinet"],
-  "Robots' completed subtasks": ["pick up the knife", "pick up the mug", "open the cabinet", "put the mug in the cabinet"],
-  "Objects in environment": ["Knife_1", "Mug_2", "Cabinet_1"],
-  "Alice's observation": ["Knife_1", "Cabinet_1"],
-  "Alice's state": "position: (1, 0.5), facing: north, inventory: [],
-  "Alice's subtask_failure_reasons": [],
-  "Alice's previous failures": [],
-  "Bob's observation": ["Mug_2", "Cabinet_1"],
-  "Bob's state": "position: (1, 0.25), facing: north, inventory: ["Mug_2"]",
-  "Bob's subtask_failure_reasons": ["Attempted NavigateTo<Cabinet_1> but failed"],
-  "Bob's previous failures": ["Alice and Charlie were blocking access to the cabinet"],
-  "Charlie's observation": ["Cabinet_1"],
-  "Charlie's state": "position: (1, 1), facing: north, inventory: []",
-  "Charlie's subtask_failure_reasons": [],
-  "Charlie's previous failures": []
-}}
-image input: (not available in this text-based interface), which shows point of view of Alice, Bob and Charlie.
-output:
-{{
-  "failure reason": "Bob failed to navigate to the cabinet because Alice and Charlie were blocking access to it while Alice was putting in the knife.",
-  "memory": "Alice has put the knife in the cabinet, and Bob has put the mug in the cabinet. The cabinet is now open.",
-  "reason": "Alice should close the cabinet and move away. Charlie should move to another open space to reduce congestion. Bob should wait until the cabinet is accessible.",
-  "suggestion": "next, Alice should move to other place, Bob should stay idle, Charlie should move to other place"
-}}
+# input:
+# {{
+#   "Task": "Place the mug and the knife into the cabinet",
+#   "Number of agents": 3,
+#   "Robots' open subtasks": ["put the knife in the cabinet", "close the cabinet"],
+#   "Robots' completed subtasks": ["pick up the knife", "pick up the mug", "open the cabinet", "put the mug in the cabinet"],
+#   "Objects in environment": ["Knife_1", "Mug_2", "Cabinet_1"],
+#   "Alice's observation": ["Knife_1", "Cabinet_1"],
+#   "Alice's state": "position: (1, 0.5), facing: north, inventory: [],
+#   "Alice's subtask_failure_reasons": [],
+#   "Alice's previous failures": [],
+#   "Bob's observation": ["Mug_2", "Cabinet_1"],
+#   "Bob's state": "position: (1, 0.25), facing: north, inventory: ["Mug_2"]",
+#   "Bob's subtask_failure_reasons": ["Attempted NavigateTo<Cabinet_1> but failed"],
+#   "Bob's previous failures": ["Alice and Charlie were blocking access to the cabinet"],
+#   "Charlie's observation": ["Cabinet_1"],
+#   "Charlie's state": "position: (1, 1), facing: north, inventory: []",
+#   "Charlie's subtask_failure_reasons": [],
+#   "Charlie's previous failures": []
+# }}
+# image input: (not available in this text-based interface), which shows point of view of Alice, Bob and Charlie.
+# output:
+# {{
+#   "failure reason": "Bob failed to navigate to the cabinet because Alice and Charlie were blocking access to it while Alice was putting in the knife.",
+#   "memory": "Alice has put the knife in the cabinet, and Bob has put the mug in the cabinet. The cabinet is now open.",
+#   "reason": "Alice should close the cabinet and move away. Charlie should move to another open space to reduce congestion. Bob should wait until the cabinet is accessible.",
+#   "suggestion": "next, Alice should move to other place, Bob should stay idle, Charlie should move to other place"
+# }}
 
-"""
 
 ACTION_EXAMPLES = f"""
 
@@ -952,8 +747,7 @@ def get_action_prompt(mode="summary"):
 def get_verifier_prompt(mode: str = "summary", need_process: bool = False) -> str:
 
 
-    base_prompt = f"""
-        # Role and Objective
+    base_prompt = f"""# Role and Objective
         You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
         You will get a description of the task robots are supposed to do. You will get an image of the environment from {", ".join([f"{name}'s perspective" for name in AGENT_NAMES[:-1]]) + f", and {AGENT_NAMES[-1]}'s perspective"} as the observation input.
         To help you with detecting objects in the image, you will also get a list objects each agent is able to see in the environment. Here the objects are named as "<object_name>_<object_id>".
@@ -989,24 +783,17 @@ def get_verifier_prompt(mode: str = "summary", need_process: bool = False) -> st
           input_format = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + ROBOTS_SUBTASKS_INPUT_FORMAT + AGENT_INPUT_FORMAT + LOG_ORIGINAL_INPUT_FORMAT
 
     output_section = f"""
-        * Failure reason: Describe why the last action failed, if any. If all were successful, output "None".
-        * Reason: The reasoning for what each robot is supposed to do next.
-        * Suggestion: The actions the robots should take in the next step to make progress toward completing the task.
-        * need_replan: True or False. If you think the current plan is not valid or efficient, output True.
-
         # OUTPUT FORMAT
         You must output a JSON dictionary with:
-        - "need_replan": boolean (true/false)
-        - "failure reason": string or "None"
-        - "reason": string
-        - "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...")
+        - "need_replan": boolean (true/false), If you think the current plan is not valid or efficient, output True.
+        - "failure reason": string or "None", Describe why the last action failed, if any. If all were successful, output "None".
+        - "reason": string, The reasoning for what each robot is supposed to do next.
+        - "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...") The actions the robots should take in the next step to make progress toward completing the task.
 
-        # Errors Handling and Examples
         {VERIFY_EXAMPLE}
 
         # Context
         {input_format}
-        {AI2THOR_ACTIONS}
 
         # Final instructions
         First, think carefully step by step about the **most likely failure cause and immediate fix**, closely adhering to the **Important Notes and Common Guidelines**. Then, **output only the specified dictionary**.
@@ -1083,17 +870,17 @@ def get_replanner_prompt(mode: str = "summary", need_process: bool = False) -> s
 
 if __name__ == "__main__":
     print("Testing prompt generation... Summary version:")
-    # print(get_planner_prompt())
+    # print(get_planner_prompt()) # 1500+ token
     # print("--------------------------------")
-    # print(get_allocator_prompt())
+    # print(get_allocator_prompt()) # 1400+ token
     # print("--------------------------------")
-    # print(get_action_prompt())
+    # print(get_action_prompt()) # 2200+ token
     # print("--------------------------------")
-    # print(get_verifier_prompt())
+    # print(get_verifier_prompt()) # 2500+ token
     # print("--------------------------------")
-    # print(get_replanner_prompt())
+    # print(get_replanner_prompt()) # 1800+ token
     # print("--------------------------------")
-    # print(get_memory_prompt())
+    # print(get_memory_prompt()) # 1800+ token
     # print("--------------------------------")
     
     print("Testing prompt generation... Log version:")
@@ -1107,5 +894,5 @@ if __name__ == "__main__":
     # print("--------------------------------")
     # print(get_replanner_prompt(mode='log', need_process=False))
     # print("--------------------------------")
-    # print(get_log_prompt())
+    # print(get_log_prompt()) # 250+ token
     # print("--------------------------------")

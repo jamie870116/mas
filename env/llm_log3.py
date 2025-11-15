@@ -177,6 +177,7 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         system_prompt = get_planner_prompt()
         input = env.get_center_llm_input()
         user_prompt = convert_dict_to_string(input)
+        # print("planner input:", user_prompt)
     elif mode == "editor":
         # for editing the generated plan
         system_prompt = get_editor_prompt()
@@ -308,7 +309,7 @@ def initial_subtask_planning(env, config):
     # for testing
     # subtasks = ['open the fridge', 'pick up the apple and put it in the fridge', 'pick up the lettuce and put it in the fridge', 'pick up the tomato and put it in the fridge', 'close the fridge']
     # subtasks = ['pick up knife', 'slice apple', 'put down knife',  'slice bread', 'pick up one bread slice', 'insert bread slice into toaster', 'activate toaster']
-    return subtasks, []
+    return subtasks, [], res_content
 
 def allocate_subtasks_to_agents(env, info={}):
     """分配 open_subtasks 給各 agent"""
@@ -570,6 +571,20 @@ def set_env_with_config(config_file: str):
         config = json.load(f)
     return env, config
 
+def run_main_temp(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
+    # --- Init.
+    env, config = set_env_with_config(config_path)
+    timeout = timeout
+    if test_id > 0:
+        obs = env.reset(test_case_id=test_id)
+    else:
+        obs = env.reset(test_case_id=config['test_id'])
+    # --- initial subtask planning
+    print("\n--- Initial Subtask Planning ---")
+    open_subtasks, _, res = initial_subtask_planning(env, config)
+    
+    
+    return open_subtasks, [], res
 
 def run_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
     # --- Init.
@@ -585,6 +600,7 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False,
     info = {}
     need_process = False
 
+    # return 
     # --- loop start
     cnt = 0
     start_time = time.time()
@@ -913,7 +929,13 @@ if __name__ == "__main__":
     # batch_run(TASKS_1, base_dir="config", start=50, end=50, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=51, end=51, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_3, base_dir="config", start=52, end=52, sleep_after=50, delete_frames=True)
-    batch_run(TASKS_4, base_dir="config", start=50, end=50, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_4, base_dir="config", start=51, end=51, sleep_after=50, delete_frames=True)
     # run_main(test_id = 3, config_path="config/config.json", delete_frames=True)
     # run_main(test_id = 2, config_path="config/config.json")
-
+    # ans = set()
+    # for i in range(1,5):
+    #     print('test ', i)
+    #     _, _, res = run_main_temp(test_id = i, config_path="config/config.json", delete_frames=True, timeout=250)
+    #     ans.add(res)
+    # print('final ans: ', len(ans))
+    

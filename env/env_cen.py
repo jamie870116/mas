@@ -1852,6 +1852,16 @@ class AI2ThorEnv_cen(BaseEnv):
             
         return suc
     
+    # def get_obj_in_containers(self):
+    #     res = {}
+    #     obj_list = self.get_all_objects()
+    #     for obj in obj_list:
+    #         obj_name, obj_id = obj.split("_")
+    #         if obj_name in self.large_receptacles:
+    #             recep_status = self.get_object_status(obj)
+    #             contains = recep_status.get("contains") or []
+    #             res[obj] = contains
+    #     return res
     def get_obj_in_containers(self):
         res = {}
         obj_list = self.get_all_objects()
@@ -1860,7 +1870,11 @@ class AI2ThorEnv_cen(BaseEnv):
             if obj_name in self.large_receptacles:
                 recep_status = self.get_object_status(obj)
                 contains = recep_status.get("contains") or []
-                res[obj] = contains
+                new_contains = []
+                for id in contains:
+                    readable = self.get_single_readable_object(id)
+                    new_contains.append(readable)
+                res[obj] = new_contains
         return res
     
     def get_pitch_reset_command(self, cur_deg):
@@ -2591,7 +2605,6 @@ class AI2ThorEnv_cen(BaseEnv):
         Number of agents: number of agents in the environment,
         Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
         Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
-        Reachable positions: list of reachable positions in the environment,
         Objects in environment: list of all objects in the environment,
         {agent_name[i]}'s observation: list of objects and its postion the {agent_name[i]} is observing,
         {agent_name[i]}'s state: description of {agent_name[i]}'s state(position, facing direction and inventory),
@@ -2608,7 +2621,7 @@ class AI2ThorEnv_cen(BaseEnv):
             "Task": self.task,
             # "Step": int(self.step_num[0]),                         
             "Number of agents": self.num_agents,
-            "Reachable positions": reachable_2d,
+            # "Reachable positions": reachable_2d,
             "Objects in environment": obj_list,  # list of all objects in the scene
             "Objects in containers": contains_list,
             # "inventory": list(self.inventory),                     # ['nothing', 'Mug_1', ...]
@@ -2619,7 +2632,7 @@ class AI2ThorEnv_cen(BaseEnv):
 
         for aid, name in enumerate(self.agent_names):
             # snap[f"{name}'s observation"]      = self.input_dict.get(f"{name}'s observation", "[]")
-            snap[f"{name}'s observation"] = self.get_mapping_object_pos_in_view(aid)
+            snap[f"{name}'s observation"] = list(self.get_mapping_object_pos_in_view(aid).keys())
             snap[f"{name}'s state"]            = self.input_dict.get(f"{name}'s state", "")
             if prev_info:
                 snap[f"{name}'s previous failures"] = self.input_dict.get(f"{name}'s previous failures", "None")
