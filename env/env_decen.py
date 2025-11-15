@@ -1,3 +1,4 @@
+# 改成各自存log file -> llm_log2.py
 import json
 import os
 from pathlib import Path
@@ -10,15 +11,14 @@ from heapq import heappush, heappop
 import time
 from collections import deque, defaultdict
 from thortils.navigation import get_shortest_path_to_object
-# from thortils.utils import closest, closest_angles
 from thortils.constants import H_ANGLES, V_ANGLES
+import re
 
 import traceback
 import math
 import importlib.util
-import re
-from env_base import BaseEnv
 
+from env_base import BaseEnv
 
 def import_scene_initializer(task: str, floor_plan: str):
     file_path = os.path.join("Tasks", task, f"{floor_plan}.py")
@@ -31,8 +31,6 @@ def import_scene_initializer(task: str, floor_plan: str):
     return getattr(module, "SceneInitializer", None)
 
 def import_task_checker(task_folder: str,):
-    
-
     generic_path = os.path.join("Tasks", task_folder, "checker.py")
     if os.path.exists(generic_path):
         spec = importlib.util.spec_from_file_location("checker_module", generic_path)
@@ -48,6 +46,8 @@ def closest_angles(values, query):
     closest to `query` in unit circle angles"""
     values.append(360)
     return min(values, key=lambda v: abs(v-query)) % 360
+
+
 
 
 class AI2ThorEnv_cen(BaseEnv):
@@ -83,6 +83,8 @@ class AI2ThorEnv_cen(BaseEnv):
         self.suggestion = [""]
         
         self.input_dict = {}
+        
+        
         self.step_num = [0] * self.num_agents
 
         self.open_subtasks = "None" if self.use_plan else None
@@ -131,22 +133,21 @@ class AI2ThorEnv_cen(BaseEnv):
                 "visibilityDistance": 40,
             }
         )
-        scene_initializer = import_scene_initializer(self.task_folder, self.scene)
-        if scene_initializer:
-            if self.verbose:
-                print(f"Preinitializing scene for task={self.task}, scene={self.scene}")
-            self.event = scene_initializer().preinit(self.event, self.controller)
+        if self.task_folder:
+            scene_initializer = import_scene_initializer(self.task_folder, self.scene)
+            if scene_initializer:
+                if self.verbose:
+                    print(f"Preinitializing scene for task={self.task}, scene={self.scene}")
+                self.event = scene_initializer().preinit(self.event, self.controller)
 
 
-        # Task Checker（新）
-        checker_factory = import_task_checker(self.task_folder)
-        if checker_factory:
-            # 讓 checker 能存取 env 的工具（get_object_status / get_readable_object_list）
-            self.checker = checker_factory(env=self)
-            print(f"[Checker] Loaded from task_folder='{self.task_folder}' for scene='{self.scene}'")
-        else:
-            self.checker = None
-            print(f"[Checker] No checker found for task_folder='{self.task_folder}'")
+            checker_factory = import_task_checker(self.task_folder)
+            if checker_factory:
+                self.checker = checker_factory(env=self)
+                print(f"[Checker] Loaded from task_folder='{self.task_folder}' for scene='{self.scene}'")
+            else:
+                self.checker = None
+                print(f"[Checker] No checker found for task_folder='{self.task_folder}'")
 
         self.object_dict = {}
         self.step_num = [0] * self.num_agents
@@ -186,22 +187,45 @@ class AI2ThorEnv_cen(BaseEnv):
         if not self.skip_save_dir:
             self.create_save_dirs(test_case_id, self.scene)
         
-        for agent_id in range(self.num_agents):
-            self.event = self.controller.step(
-                dict(
-                    action="Teleport",
-                    position=dict(x=1.5 + agent_id * 0.5, y=0.9, z=-1.5),
-                    rotation=dict(x=0, y=270, z=0),
-                    agentId=agent_id
+        if self.scene == "FloorPlan6":
+            for agent_id in range(self.num_agents):
+                if agent_id == 1:
+                    self.event = self.controller.step(
+                        dict(
+                            action="Teleport",
+                            position=dict(x=3.0 + agent_id * 0.5, y=0.9, z=-1.5),
+                            rotation=dict(x=0, y=270, z=0),
+                            agentId=agent_id
+                        )
+                    )
+                else:
+                    self.event = self.controller.step(
+                        dict(
+                            action="Teleport",
+                            position=dict(x=1.5 + agent_id * 0.5, y=0.9, z=-1.5),
+                            rotation=dict(x=0, y=270, z=0),
+                            agentId=agent_id
+                        )
+                    )
+        else:
+            for agent_id in range(self.num_agents):
+                self.event = self.controller.step(
+                    dict(
+                        action="Teleport",
+                        position=dict(x=1.5 + agent_id * 0.5, y=0.9, z=-1.5),
+                        rotation=dict(x=0, y=270, z=0),
+                        agentId=agent_id
+                    )
                 )
-            )
-
+        
         self.update_object_dict()
         if not self.skip_save_dir:
             self.save_frame()
         
         return self.get_observations()
     
+
+
     def get_object_dict(self):
         return self.object_dict
 
@@ -295,12 +319,7 @@ class AI2ThorEnv_cen(BaseEnv):
 
     def generate_obs_text(self, agent_id: int, prefix: str = "I see: ", mode="list") -> Tuple[str, List[str]]:
         """Generate observation text and list."""
-        """
-        mode: "list" | "mapping"
-        - "list": 回傳 ['Tomato_1', 'Fridge_1', ...]
-        - "mapping": 回傳 { 'Tomato_1': {'x': .., 'z': ..}, ... }
-                    並產出一段以鍵名為主的摘要文字
-        """
+
         if mode == "mapping":
             mapping = self.get_mapping_object_pos_in_view(agent_id)  # {Name_Idx: {'x','z'}}
             names = sorted(mapping.keys())
@@ -309,7 +328,6 @@ class AI2ThorEnv_cen(BaseEnv):
                 obs_text = prefix + str(self.summarise_obs(names))
             return obs_text, mapping
 
-        # 預設行為：list
         objects_in_view = self.get_object_in_view(agent_id)
         obs_list = self.get_readable_object_list(objects_in_view)
         if self.use_obs_summariser:
@@ -322,16 +340,6 @@ class AI2ThorEnv_cen(BaseEnv):
         """Placeholder for observation summarization. (LLM) """
         return obs_list
     
-    """
-    available actions
-    self.return_actions = ["Return"]
-    self.move_actions = ["MoveAhead", "MoveBack", "MoveRight", "MoveLeft"]
-    self.rotate_actions = ["RotateRight", "RotateLeft"]
-    self.look_actions = ["LookUp", "LookDown"]
-    self.idle_actions = ["Done", "Idle"]
-    self.object_interaction_actions = ["PickupObject", "PutObject", "OpenObject", "CloseObject", "ToggleObjectOn", "ToggleObjectOff", "BreakObject", "CookObject", "SliceObject", "DirtyObject", "CleanObject", "FillObjectWithLiquid", "EmptyLiquidFromObject", "UseUpObject"]
-    self.object_interaction_without_navigation  = ["DropHandObject", "ThrowObject"]
-    """
        
     def get_navigation_step(self, action: str, agent_id: int) -> List[str]:
         object_name = action.split("(")[1].rstrip(")")
@@ -382,19 +390,21 @@ class AI2ThorEnv_cen(BaseEnv):
             obj_pos = obj_meta["position"]
             obj_base_name = object_name.split("_")[0]
             dist = ((agent_pos["x"] - obj_pos["x"]) ** 2 + (agent_pos["z"] - obj_pos["z"]) ** 2) ** 0.5
-            print(f"[Navigation] Agent {self.agent_names[agent_id]} cannot find path to {object_name}. Distance: {dist:.2f} meters.")
-            if dist < 1.0 and obj_base_name in self.small_objects:
-                if obj_id not in self.get_object_in_view(agent_id):
+            print(f"(no-path) agent {agent_id} distance to {obj_id} {obj_base_name} is {dist}m")
+            # print(f"pov: {self.get_object_in_view(agent_id)}")
+            if dist <= 1.0 and obj_base_name in self.small_objects:
+                
+                if object_name not in self.get_object_in_view(agent_id):
+                    print(f"no path found to {obj_id}, but object is small and close enough, try to look down to find it")
                     return [f"LookDown(30)"]
-                
-            if dist < 1.0 and obj_base_name.startswith("Drawer"):
-                print(f"{obj_id} detected within 1 meter but no path found.")
-                # if obj_id not in self.get_object_in_view(agent_id):
-                return [f"LookDown(30)"]
-                
+                else:
+                    print(f"no path found to {obj_id},object is small and close enough and visiable already")
+                    return ["Idle"] # found and close enough, no need to navigate
+            
             self.nav_no_plan[self.agent_names[agent_id]] = True
             self._record_subtask_failure(agent_id, reason="no-path", at_action=action)
             return []
+
         micro_actions: List[str] = []
         xx, yy, zz = cur_rot
         align_initial_action = f"AlignOrientation({xx},{yy},{False})"
@@ -410,6 +420,12 @@ class AI2ThorEnv_cen(BaseEnv):
             align_final_action = f"AlignOrientation({goal_pitch},{goal_yaw},{False})"
             micro_actions.append(align_final_action)
             # print('align_initial_action: ',align_initial_action)
+        
+        # micro_actions: List[str] = []
+        # for act_name, params in plan:
+        #     action_str = self.convert_thortils_action((act_name, params))
+        #     micro_actions.append(action_str)
+
         
         # print(f"nav_actions: {micro_actions}")
         return micro_actions
@@ -493,24 +509,30 @@ class AI2ThorEnv_cen(BaseEnv):
         
         # self.step_decomp(actions)
         # print("curr action queue: ", self.action_queue)
-        act_texts, act_successes = [], []
-        any_terminal_fail = False 
-        # print("Executing actions:", actions)
+        act_texts = []
+        act_successes = [False] * self.num_agents
+        log_cache = {}
         for aid in range(self.num_agents):
+            log_dict = {
+                'timestemp':self.step_num[aid],
+                'agent_id':aid,
+                'agent_name':self.agent_names[aid],
+                'curr_subtask': self.cur_plan[aid]['subtask'],
+                'curr_high_level_action': self.current_hl.get(aid, 'Idle'), # add current high level action
+                'type': 'Attempt',
+                'payload':{}
+            }
+
 
             if self.current_hl[aid] and not self.action_queue[aid]:
                 actions = ["Idle"] * self.num_agents
                 actions[aid] = self.current_hl[aid]
                 _ = self.step_decomp(actions, agent_id=aid)
+
             if self.save_logs:
                 # self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
                 self.logs.append(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
                 self.logs.append(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
-            # print(f"Executing action for agent {aid} ({self.agent_names[aid]}")
-            # print(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
-            # print(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
-            # print("******")
-            # print(f"before exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
 
             # handle AlignOrientation separately
             if self.action_queue[aid] and self.action_queue[aid][0].startswith("AlignOrientation"):
@@ -522,14 +544,10 @@ class AI2ThorEnv_cen(BaseEnv):
                 success = self.event.events[aid].metadata["lastActionSuccess"]
             
 
-
-
             act = self.action_queue[aid].popleft() if self.action_queue[aid] else "Idle"
-            # print(f"After exe_step: agent {aid} ({self.agent_names[aid]}) action queue: {self.action_queue[aid]}")
-            # print("******")
-            # print(act)
+            log_dict['payload']['last_action'] = act
 
-
+            action_dict = {}
             if act != "Idle":
                 if act.startswith('Rotate'):
                     action_dict = {"agentId": aid, "action": act, "degrees":30}
@@ -557,20 +575,43 @@ class AI2ThorEnv_cen(BaseEnv):
                     self.event = self.controller.step(action_dict)
                     success = self.event.events[aid].metadata["lastActionSuccess"]
             else:
-                success = True
+                # object not exist or no plan
+                # print('act', act)
+                # print('fail reason', self.subtask_failure_reasons[self.agent_names[aid]])
+                # if act == "Idle" and not self.subtask_failure_reasons[self.agent_names[aid]]:
+                #     success = True
+                #     log_dict['type'] = 'Success'
+                #     break
+                # print('other reason', self.subtask_failure_reasons[self.agent_names[aid]])
+                if self.subtask_failure_reasons[self.agent_names[aid]]:
+                    other_err = self.subtask_failure_reasons[self.agent_names[aid]]['reason'] 
+                else:
+                    other_err = ''
 
+                if other_err:
+                    success = False
+                    log_dict['type'] = 'Failed'
+                    if other_err:
+                        log_dict['payload']['failed_reason'] = other_err
+                else:
+                    success = True
+                    # log_dict['type'] = 'Success' # (Log3)
+                
 
+            
             self.step_num[aid] += 1
             if not success:
+                log_dict['type'] = 'Failed'
                 if self.save_logs:
-                    self.logs.append(f"Failed to Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
+                    if action_dict:
+                        self.logs.append(f"Failed to Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
                     self.logs.append(f'errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else "no-event"}')
                 
                 # print(f"Failed to Executing action for agent {aid} ({self.agent_names[aid]}): {action_dict}")
                 # print(f'errorMessage: {self.event.events[aid].metadata["errorMessage"]}')
                 err = self.event.events[aid].metadata.get("errorMessage") or "unknown-error"
                 if "already" in err:
-                    success = True
+                    success = False
                     self.agent_failure_acts[self.agent_names[aid]] = []
                     if act.startswith("PickupObject"):
                         self.inventory[aid] = self.get_agent_object_held(aid)
@@ -579,7 +620,12 @@ class AI2ThorEnv_cen(BaseEnv):
                 else:
                     self._record_subtask_failure(aid, reason=f"failed-at: {act} ({err})", at_action=act)
                     self.agent_failure_acts[self.agent_names[aid]].append(act)
+                # "Can't place an object if Agent isn't holding anything"
+                # object(Lettuce_1)-not-exist (Object Lettuce_1 not found in object_dict)
+                if not log_dict['payload'].get('failed_reason'):
+                    log_dict['payload']['failed_reason'] = err
             else:
+                log_dict['payload']['last_action_status'] = "Success"
                 self.agent_failure_acts[self.agent_names[aid]] = []
                 if act.startswith("PickupObject"):
                     self.inventory[aid] = self.get_agent_object_held(aid)
@@ -589,7 +635,7 @@ class AI2ThorEnv_cen(BaseEnv):
             self.action_history[self.agent_names[aid]].append(act)
             self.action_success_history[self.agent_names[aid]].append(success)
             act_texts.append(self.get_act_text(act, success, aid))
-            act_successes.append(success)
+            act_successes[aid] = success
 
             sub = self.current_hl.get(aid)
             if sub:
@@ -608,6 +654,8 @@ class AI2ThorEnv_cen(BaseEnv):
                     self.action_queue[aid].clear()
                     self.last_check_reason[self.agent_names[aid]] = None
                     self.nav_no_plan[self.agent_names[aid]] = False
+                    if not self.pending_high_level[aid]: # (Log3) 只有當前高階任務執行完才記錄成功
+                        log_dict['type'] = 'Success'
                 else:
                     last_reason = self.last_check_reason[self.agent_names[aid]]
                     
@@ -630,16 +678,10 @@ class AI2ThorEnv_cen(BaseEnv):
                         self.nav_no_plan[self.agent_names[aid]] = False
 
                     else:
-                        print(f'subtask: {sub} failed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
+                        print(f'subtask: {sub} failed, errorMessage: {log_dict["payload"].get("failed_reason", "")}')
                     if self.save_logs:
-                        self.logs.append(f'subtask: {sub} for agent {aid} ({self.agent_names[aid]}) failed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
+                        self.logs.append(f'subtask: {sub} for agent {aid} ({self.agent_names[aid]}) failed, errorMessage: {log_dict["payload"].get("failed_reason", "")}')
                         self.logs.append(f'last reason: {last_reason}')
-                    # print(f'subtask: {sub} failed, errorMessage: {last_reason}')
-                # elif not success:
-                #     self.action_queue[aid].clear()
-                #     # replan TBD
-                #     self.step_decomp([ sub if i==aid else "Idle"
-                #                        for i in range(self.num_agents) ])
 
             # handle AlignOrientation separately
             if self.action_queue[aid] and self.action_queue[aid][0].startswith("AlignOrientation"):
@@ -649,13 +691,48 @@ class AI2ThorEnv_cen(BaseEnv):
                     self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
                 self.event = self.controller.step(action_dict)
                 success = self.event.events[aid].metadata["lastActionSuccess"]
+
+            if log_dict and log_dict['curr_subtask'] != None:
+                obs, _ = self.generate_obs_text(aid, mode="mapping")
+                log_dict['payload']['postion'] = self.get_agent_position(aid)
+                log_dict['payload']['rotation'] = self.get_agent_rotation(aid)
+                log_dict['payload']['inventory'] = self.get_agent_object_held(aid)
+                log_dict['payload']['observation'] = obs
+
+                if log_dict['curr_high_level_action']:
+                    log_cache[aid] = log_dict # cache the attempt log
+
+                if log_dict['type'] == 'Success' or log_dict['type'] == 'Failed':
+                    filename = self.base_path / f"event_{aid}.jsonl"
+                    with open(filename, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(log_dict, ensure_ascii=False) + "\n")
+                    del log_cache[aid]  # remove from cache
+                
+
+                filename = self.base_path / f"event_details.jsonl"
+                with open(filename, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_dict, ensure_ascii=False) + "\n")
+
+            
             if (sub and not sub.startswith("NavigateTo")):  
                 self.action_queue[aid].clear()
             self.logs.append(f"Current success subtask: {self.subtask_success_history}")
 
+            # self.action_queue[aid].clear()
+            # self.logs.append(f"Current success subtask: {self.subtask_success_history}")
+
             # if not self.skip_save_dir:
             self.save_last_frame(agent_id=aid, view="pov",
                                      filename=f"frame_{self.step_num[aid]}.png")
+            
+        # save attempt logs if other agents failed and not yet completed the current subtask
+        if not all(act_successes):    
+            for aid in range(self.num_agents):
+                attempt_log = log_cache.get(aid, None)
+                if attempt_log:
+                    filename = self.base_path / f"event_{aid}.jsonl"
+                    with open(filename, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(attempt_log, ensure_ascii=False) + "\n")
 
         # if self.overhead and not self.skip_save_dir:
         self.save_last_frame(view="overhead",
@@ -663,10 +740,9 @@ class AI2ThorEnv_cen(BaseEnv):
 
         return self.get_observations(), act_successes
     
-   
-
+    
     def action_loop(self, high_level_tasks: List[str]):
-        """execute the actions from high level
+        """execute the actions from high level for testing
         high_level_tasks: e.g.
           [
             [subtasks for agent_0],
@@ -758,7 +834,6 @@ class AI2ThorEnv_cen(BaseEnv):
 
     def actions_decomp(self, actions: List[str]):
         '''
-        從llm_c.py接收一系列動作，將其各自分解成可執行的原子動作
         Input:
         actions:
         [
@@ -803,6 +878,7 @@ class AI2ThorEnv_cen(BaseEnv):
             - steps (List[List[str]])  # atomic per action
 
         """
+        succ = [False] * self.num_agents
         print("self.timeout: ", self.timeout)
         self.cur_plan = cur_plan
         if self.save_logs:
@@ -829,6 +905,7 @@ class AI2ThorEnv_cen(BaseEnv):
         # history = []
         start_time = time.time()
         while True:
+
             for aid in range(self.num_agents):
                 if not self.current_hl[aid] and self.pending_high_level[aid]:
                     nxt = self.pending_high_level[aid].popleft()
@@ -889,12 +966,16 @@ class AI2ThorEnv_cen(BaseEnv):
         
    
     def _get_current_plan_status(self):
-        # 回傳目前任務狀態
+        # 回傳目前任務狀態 (Log3)
         succ = []
         fail = []
         for aid in range(self.num_agents):
-            if not self.current_hl[aid] and not self.subtask_failure_reasons[self.agent_names[aid]]:
-                succ.append(self.cur_plan[aid]["subtask"])
+            if not self.pending_high_level[aid] and not self.subtask_failure_reasons[self.agent_names[aid]]: # not self.current_hl[aid] and 
+                if not self.cur_plan[aid]["actions"] and self.cur_plan[aid]["subtask"] not in ['Idle', 'idle']:
+                    # edge case: no actions in the plan but subtask is not idle
+                    fail.append(self.cur_plan[aid]["subtask"])
+                else:
+                    succ.append(self.cur_plan[aid]["subtask"])
             else:
                 fail.append(self.cur_plan[aid]["subtask"])
 
@@ -918,16 +999,12 @@ class AI2ThorEnv_cen(BaseEnv):
             self.logs = []  # clear logs after saving
 
     def _record_subtask_failure(self, agent_id: int, reason: str, at_action: str | None = None):
-        """
-        將當前 agent 所屬的「自然語言 subtask」記一筆失敗理由。
-        - reason: "no-path" / "failed-at: MoveAhead" / "object-not-in-view" / "distance-too-far (1.73m)" / try/except 錯誤訊息 ...
-        - at_action: 可填入目前的高階或低階動作字串，便於 LLM 重建脈絡
-        """
+
         print(f'Recording subtask failure for agent {agent_id} ({self.agent_names[agent_id]}): {reason}')
         agent_name = self.agent_names[agent_id]
         nl_subtask = None
         if self.cur_plan and agent_id < len(self.cur_plan):
-            nl_subtask = self.cur_plan[agent_id].get("subtask")  # 自然語言版本
+            nl_subtask = self.cur_plan[agent_id].get("subtask") 
 
         if nl_subtask is None:
             nl_subtask = self.current_hl.get(agent_id) or "Unknown-Subtask"
@@ -970,25 +1047,19 @@ class AI2ThorEnv_cen(BaseEnv):
         suc = False
         if subtask in self.idle_actions or subtask in self.move_actions or subtask in self.rotate_actions or subtask in self.look_actions or subtask in self.object_interaction_without_navigation: 
             suc = True
-            # print('cam degree ', self.event.events[agent_id].metadata["agent"]["cameraHorizon"])
-            # self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
             return suc
         
 
-        # subtask  "PickupObject(Tomato_1)"
         name, obj = subtask[:-1].split("(", 1)
         # print(f'checking action: {name} with obj: {obj}')
         if name in self.look_actions:
             suc = True
-            # print('cam degree ', self.event.events[agent_id].metadata["agent"]["cameraHorizon"])
-            # self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
-            # return suc
+   
         
         elif name == "PickupObject":
             suc = self.inventory[agent_id] == obj
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-picked-up"
-            # return self.inventory[agent_id] == obj
 
         elif name == "PutObject":
             if self.inventory[agent_id] != "nothing":
@@ -996,7 +1067,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 if not suc:
                     self.last_check_reason[self.agent_names[agent_id]] = f"object({self.inventory[agent_id]})-not-put-down"
                 return suc
-            else: # TBD: need more test
+            else: 
                 recep_status = self.get_object_status(obj)
                 contains = recep_status.get("contains") or []
                 prev_sub = ""
@@ -1032,23 +1103,19 @@ class AI2ThorEnv_cen(BaseEnv):
             suc = self.get_object_status(obj).get("is_open", False)
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-opened"
-            # return self.get_object_status(obj).get("is_open", False)
         elif name == "CloseObject":
             suc = not self.get_object_status(obj).get("is_open", False)
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-closed"
-            # return not self.get_object_status(obj).get("is_open", False)
 
         elif name == "ToggleObjectOn":
             suc = self.get_object_status(obj).get("is_on", False)
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-toggled-on"
-            # return self.get_object_status(obj).get("is_on", False)
         elif name == "ToggleObjectOff":
             suc = not self.get_object_status(obj).get("is_on", False)
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-toggled-off"
-            # return not self.get_object_status(obj).get("is_on", False)
 
         elif name == "BreakObject":
             suc = self.get_object_status(obj).get("isBroken", False)
@@ -1057,7 +1124,6 @@ class AI2ThorEnv_cen(BaseEnv):
                 # print(self.object_dict)
             else:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-broken"
-            # return self.get_object_status(obj).get("isBroken", False)
         elif name == "SliceObject":
             suc = self.get_object_status(obj).get("isSliced", False)
             if suc:
@@ -1066,13 +1132,11 @@ class AI2ThorEnv_cen(BaseEnv):
             else:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-sliced"
             # print(self.get_all_objects())
-            # return self.get_object_status(obj).get("isSliced", False)
 
         elif name == "FillObjectWithLiquid":
             suc = self.get_object_status(obj).get("isFilledWithLiquid", False)
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-filled-with-liquid"
-            # return self.get_object_status(obj).get("isFilledWithLiquid", False)
         elif name == "EmptyLiquidFromObject":
             suc = not self.get_object_status(obj).get("isFilledWithLiquid", True)
             if not suc:
@@ -1082,7 +1146,6 @@ class AI2ThorEnv_cen(BaseEnv):
             if not suc:
                 self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-used-up"
             # print(self.get_object_status(obj))
-            # return not self.get_object_status(obj).get("isFilledWithLiquid", True)
         elif name == "DirtyObject":
             suc = self.get_object_status(obj).get("isDirty", False)
             if not suc:
@@ -1098,8 +1161,7 @@ class AI2ThorEnv_cen(BaseEnv):
             try:
                 obj_id = self.convert_readable_object_to_id(obj)
             except ValueError:
-                # 記錄失敗並回報 False
-                self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-exist"
+                # self.last_check_reason[self.agent_names[agent_id]] = f"object({obj})-not-exist"
                 # self._record_subtask_failure(agent_id, reason=f"object({obj})-not-exist", at_action=subtask)
                 return False
 
@@ -1123,7 +1185,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
-            # elif dist > 1.2:
+            # elif dist > 1.4:
             #     # error_type += f": distance-too-far ({dist:.2f}m)"
             #     if not self.action_queue[agent_id]:
             #         self.last_check_reason[self.agent_names[agent_id]] = f"no path to object {obj_id} with distance ({dist:.2f}m), may be block by other agent, should wait for one step"
@@ -1135,14 +1197,24 @@ class AI2ThorEnv_cen(BaseEnv):
             #         self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
             #         return suc
             elif dist <= 1.0:
-                if obj_id not in self.get_object_in_view(agent_id) and obj_name not in self.small_objects and not self.action_queue[agent_id]:
+                if obj_id not in self.get_object_in_view(agent_id) and obj_name not in self.small_objects:
                     # not in view
                     self.last_check_reason[self.agent_names[agent_id]] = "object-not-in-view"
                     suc = False
                     return suc
-
                 else:
-                  
+                    # agnet_rot = self.event.events[agent_id].metadata["agent"]["rotation"]["y"]
+                    # agent_cam = self.event.events[agent_id].metadata["agent"]["cameraHorizon"]
+                    # if not self.action_queue[agent_id] and obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id):
+                        
+                    #     suc = True
+                    #     self.current_hl[agent_id] = None
+                    #     self.action_queue[agent_id].clear()
+                        
+                    #     # self.pending_high_level[agent_id].appendleft(subtask)
+                    #     self.pending_high_level[agent_id].appendleft('MoveBack')
+                        # print('pending: ',self.pending_high_level[agent_id])
+                    # el
                     if obj_id in self.get_object_in_view(agent_id):
                         detections = self.event.events[agent_id].instance_detections2D
                         obj_bbox = detections[obj_id]
@@ -1156,7 +1228,17 @@ class AI2ThorEnv_cen(BaseEnv):
                             # p_degree = closest_angles(V_ANGLES, abs(pitch_diff))
                             # print(f'need to change pitch to {p_degree}')
                             self.pending_high_level[agent_id].appendleft(act_pitch+"(" + str(p_degree) + ")")
-                      
+                        # suc = self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot, agent_cam)
+                        # print(f'*** is obect {obj} in center view: {suc}')
+                    # elif obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id) and not self.action_queue[agent_id]:
+                    #     suc = True
+                    #     self.current_hl[agent_id] = None
+                    #     self.action_queue[agent_id].clear()
+                        
+                    #     # self.pending_high_level[agent_id].appendleft(subtask)
+                    #     self.pending_high_level[agent_id].appendleft('LookDown(30)')
+                    #     print('pending: ',self.pending_high_level[agent_id])
+                    
                     else:
                         if self.save_logs:
                             self.logs.append(f'in is_sub_task_done(): naivifate-to-object({obj})-failed')
@@ -1174,7 +1256,6 @@ class AI2ThorEnv_cen(BaseEnv):
             
         return suc
     
-   
     def get_obj_in_containers(self):
         res = {}
         obj_list = self.get_all_objects()
@@ -1211,7 +1292,6 @@ class AI2ThorEnv_cen(BaseEnv):
         command, _ = self.get_pitch_reset_command(cur_pitch)
         if self.save_logs:
             self.logs.append(f'Reset command: {command}')
-        # print('Reset command:', command)
         if command:
             self.pending_high_level[agent_id].appendleft(command)
 
@@ -1246,11 +1326,10 @@ class AI2ThorEnv_cen(BaseEnv):
         # offset: + if object is on right side, - if on left
         offset = bbox_center_x - frame_center_x
 
-        # 假設最大視角為 90 度，估算角度差異（簡化線性推估）
         max_angle = 90
         angle_diff = (offset / (frame_width / 2)) * (max_angle / 2)
 
-        if abs(angle_diff) < 30:  # 小於5度視為已對準
+        if abs(angle_diff) < 30: 
             return 0, ""
 
         action = "RotateRight" if angle_diff > 0 else "RotateLeft"
@@ -1265,200 +1344,9 @@ class AI2ThorEnv_cen(BaseEnv):
             print(f"[TaskCheck] ok={ok}\n{report}")
         return ok, report
 
-    # def is_object_in_center_view(self, agent_pos, object_pos, agent_yaw_deg, agent_cam, threshold_deg=30) -> bool:
-    #     """
-    #     Return True if the object is within threshold degrees in both yaw and pitch from the agent's forward direction.
-    #     agent_cam: camera pitch (0 = forward, >0 = looking down, <0 = looking up)
-    #     """
-    #     print(f'check if obj {object_pos} is in center view of {agent_pos} with yaw {agent_yaw_deg}, agent cam {agent_cam}')
-    #     # 1. Compute direction vector from agent to object
-    #     dx = object_pos['x'] - agent_pos['x']
-    #     dy = object_pos['y'] - agent_pos['y']
-    #     dz = object_pos['z'] - agent_pos['z']
-    #     dir_vec = np.array([dx, dy, dz])
-    #     dir_norm = np.linalg.norm(dir_vec)
-    #     if dir_norm == 0:
-    #         return True  # agent and object at same location
-    #     dir_unit = dir_vec / dir_norm
 
-    #     # 2. Convert to spherical angles: yaw and pitch to object
-    #     yaw_obj_rad = math.atan2(dx, dz)  # yaw: horizontal
-    #     pitch_obj_rad = math.asin(dy / dir_norm)  # pitch: vertical
-
-    #     yaw_obj_deg = math.degrees(yaw_obj_rad)  # [-180, 180]
-    #     pitch_obj_deg = -math.degrees(pitch_obj_rad)  # AI2-THOR: down is positive
-
-    #     # 3. Normalize agent yaw to [-180, 180] and compute diffs
-    #     yaw_diff = ((yaw_obj_deg - agent_yaw_deg + 180) % 360) - 180
-    #     pitch_diff = pitch_obj_deg - agent_cam  # compare with camera horizon
-    #     print(f'yaw diff: {yaw_diff}, pitch diff: {pitch_diff}')
-    #     # 4. Check if both yaw and pitch are within threshold
-    #     return abs(yaw_diff) < threshold_deg and abs(pitch_diff) < threshold_deg
 
     
-
-    # unit of action: Pickup (include NavigateTo Object and pickup Object) 
-    def step(self, actions: List[str]) -> Tuple[str, List[bool]]:
-        """Execute actions for all agents and return observations and success flags."""
-        act_successes, act_texts = [], []
-        for agent_id, action in enumerate(actions):
-            error_type = None
-            if action.startswith("NavigateTo"):
-                act_success, error_type = self.navigation_step(action, agent_id)
-            elif action in ["Done", "Idle"]:
-                act_success = True
-            elif action.startswith(tuple(self.object_interaction_actions)):
-                object_id = action.split("(")[1].rstrip(")")
-                obj_id = self.convert_readable_object_to_id(object_id)
-                nav_action = f"NavigateTo({object_id})"
-                nav_success, nav_error = self.navigation_step(nav_action, agent_id)
-                if self.save_logs:
-                    self.logs.append(f"Navigation action for {action}: {nav_action}, success: {nav_success}, error: {nav_error}")
-                print('nav_success: ', nav_success, nav_error)
-                if not nav_success:
-                    act_success = False
-                    error_type = nav_error
-                else:
-                    action_dict = self.parse_action(action, agent_id)
-                    self.event = self.controller.step(action_dict)
-                    act_success = self.event.events[agent_id].metadata["lastActionSuccess"]
-                    if not act_success:
-                        error_type = "interaction-failed"
-                        if obj_id not in self.get_object_in_view(agent_id):
-                            error_type += ": object-not-in-view"
-                        else:
-                            agent_pos = self.get_agent_position_dict(agent_id)
-                            obj_metadata = next(obj for obj in self.event.metadata["objects"] if obj["objectId"] == obj_id)
-                            obj_pos = obj_metadata["position"]
-                            dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
-                            if dist > 1.5:
-                                error_type += f": distance-too-far ({dist:.2f}m)"
-            else:
-                action_dict = self.parse_action(action, agent_id)
-                self.event = self.controller.step(action_dict)
-                act_success = self.event.events[agent_id].metadata["lastActionSuccess"]
-            
-            self.step_num[agent_id] += 1
-            if act_success:
-                self.agent_failure_acts[self.agent_names[agent_id]] = []
-                if action.startswith("PickupObject"):
-                    self.inventory[agent_id] = self.get_agent_object_held(agent_id)
-                elif action.startswith("PutObject") or action.startswith("DropHandObject"):
-                    self.inventory[agent_id] = "nothing"
-            else:
-                self.agent_failure_acts[self.agent_names[agent_id]].append(action)
-            
-            self.action_history[self.agent_names[agent_id]].append(action)
-            self.action_success_history[self.agent_names[agent_id]].append(act_success)
-            act_texts.append(self.get_act_text(action, act_success, agent_id, error_type))
-            act_successes.append(act_success)
-        
-        if not self.skip_save_dir:
-            for agent_id in range(self.num_agents):
-                self.save_last_frame(agent_id=agent_id, view="pov", filename=f"frame_{self.step_num[agent_id]}.png")
-            if self.overhead:
-                self.save_last_frame(view="overhead", filename=f"frame_{self.step_num[0]}.png")
-
-        self.update_current_state(act_texts)
-        return self.get_observations(), act_successes
-   
-    def navigation_step(self, action: str, agent_id: int) -> Tuple[bool, str]:
-        if self.save_logs:
-            self.logs.append(f"Agent {agent_id} performing NavigateTo: {action}")
-        print(f"Agent {agent_id} performing NavigateTo: {action}")
-        object_name = action.split("(")[1].rstrip(")")
-        try:
-            from thortils.constants import H_ANGLES, V_ANGLES
-            # from thortils.utils import closest_angles
-
-            obj_id = self.convert_readable_object_to_id(object_name)
-            other_agents = [
-                self.event.events[i].metadata["agent"]["position"]
-                for i in range(self.num_agents) if i != agent_id
-            ]
-            cur_pos = self.get_agent_position_dict(agent_id)
-            cur_rot = self.event.events[agent_id].metadata["agent"]["rotation"]
-            cur_pos_tuple = (cur_pos["x"], cur_pos["y"], cur_pos["z"])
-            cur_rot_tuple = (
-                closest_angles(V_ANGLES, cur_rot["x"]),
-                closest_angles(H_ANGLES, cur_rot["y"]),
-                cur_rot["z"]
-            )
-
-            # 預先校正 pitch
-            pitch = self.event.events[agent_id].metadata["agent"]["cameraHorizon"]
-            pitch = closest_angles(V_ANGLES, pitch)
-            if pitch != 0:
-                self.event = self.controller.step({
-                    "action": "LookUp" if pitch > 0 else "LookDown",
-                    "agentId": agent_id,
-                    "degrees": abs(pitch)
-                })
-                self.save_frame()
-
-            # 規劃並執行路徑
-            poses, plan = get_shortest_path_to_object(
-                self.controller, obj_id,
-                cur_pos_tuple, cur_rot_tuple, return_plan=True, cur_step=self.step_num[agent_id],
-            )
-            if self.save_logs:
-                self.logs.append(f"Planned path to {obj_id}: {plan}")
-            print('action plan', plan)
-            if plan is None:
-                return False, "no-path"
-
-            for name, param in plan:
-                if name in ["LookUp", "LookDown"]:
-                    action_dict = {"action": name, "agentId": agent_id, "degrees": abs(param[2])}
-                elif name in ["RotateLeft", "RotateRight"]:
-                    action_dict = {"action": name, "agentId": agent_id, "degrees": abs(param[1])}
-                else:
-                    action_dict = {"action": name, "agentId": agent_id}
-                self.event = self.controller.step(action_dict)
-                self.step_num[agent_id] += 1
-                self.save_frame()
-                if not self.event.events[agent_id].metadata["lastActionSuccess"]:
-                    return False, f"failed-at: {name}"
-
-            # 最後根據 poses 補校正 yaw/pitch
-            final_rot = poses[-1][1]
-            cur_rot = self.event.events[agent_id].metadata["agent"]["rotation"]
-            yaw_diff = ((final_rot["y"] - cur_rot["y"] + 180) % 360) - 180
-            pitch_diff = final_rot["x"] - cur_rot["x"]
-
-            while abs(yaw_diff) > 1:
-                step = min(45, abs(yaw_diff))
-                self.event = self.controller.step({
-                    "action": "RotateRight" if yaw_diff > 0 else "RotateLeft",
-                    "agentId": agent_id,
-                    "degrees": step
-                })
-                yaw_diff -= step if yaw_diff > 0 else -step
-                self.step_num[agent_id] += 1
-                self.save_frame()
-
-            while abs(pitch_diff) > 1:
-                step = min(30, abs(pitch_diff))
-                self.event = self.controller.step({
-                    "action": "LookUp" if pitch_diff > 0 else "LookDown",
-                    "agentId": agent_id,
-                    "degrees": step
-                })
-                pitch_diff -= step if pitch_diff > 0 else -step
-                self.step_num[agent_id] += 1
-                self.save_frame()
-
-            return True, None
-
-        except Exception as e:
-            if self.save_logs:
-                self.logs.append("[EXCEPTION] navigation_step error:")
-                self.logs.append(traceback.format_exc())
-            print("[EXCEPTION] navigation_step error:")
-            print(traceback.format_exc())
-            return False, f"exception: {str(e)}"
-
-   
     def convert_thortils_action(self, action: Tuple[str, Tuple]) -> str:
         """
         Convert thortils-style action to env action string, e.g. ('MoveAhead', ()) → "MoveAhead"
@@ -1491,42 +1379,6 @@ class AI2ThorEnv_cen(BaseEnv):
         else:
             raise ValueError(f"Unknown thortils action: {action}")
     
-    # --- From LLaMAR
-    def update_subtask(self, subtask: str, agent_id: int = 0):
-        """Update subtask for shared or per-agent usage."""
-        if self.use_shared_subtask:
-            self.subtasks[0] = subtask
-        elif self.use_separate_subtask:
-            self.subtasks[agent_id] = subtask
-    
-    
-    
-    def update_current_state(self, act_texts: List[str]):
-        """Update the input dictionary with the current state."""
-        self.new_all_obs = []
-        for agent_id, agent_name in enumerate(self.agent_names):
-            obs, obs_list = self.generate_obs_text(agent_id, mode="mapping")
-            self.input_dict[f"{agent_name}'s observation"] = obs
-            self.input_dict[f"{agent_name}'s state"] = self.get_agent_state(agent_id)
-            self.input_dict[f"{agent_name}'s previous action"] = act_texts[agent_id]
-            if self.use_action_failure:
-                self.input_dict[f"{agent_name}'s previous failures"] = self.get_act_failure_text(
-                    self.agent_failure_acts[agent_name], agent_id
-                )
-            if self.use_shared_subtask:
-                self.input_dict["Robots' subtasks"] = self.subtasks[0]
-            elif self.use_separate_subtask:
-                self.input_dict[f"{agent_name}'s subtask"] = self.subtasks[agent_id]
-            if self.use_shared_memory:
-                self.input_dict["Robots' combined memory"] = self.memory[0]
-            elif self.use_separate_memory:
-                self.input_dict[f"{agent_name}'s memory"] = self.memory[agent_id]
-            if self.use_plan:
-                self.input_dict["Robots' open subtasks"] = self.open_subtasks
-                self.input_dict["Robots' completed subtasks"] = self.closed_subtasks
-            self.new_all_obs.append(obs_list)
-        self.all_obs_dict = {self.agent_names[i]: self.new_all_obs[i] for i in range(self.num_agents)}
-    # -----
 
     def update_plan(self, open_subtasks: List[str], closed_subtasks: List[str]):
         self.open_subtasks = open_subtasks
@@ -1627,8 +1479,7 @@ class AI2ThorEnv_cen(BaseEnv):
     
     def get_single_readable_object(self, object_id: str) -> str:
         """
-        將單一 objectId 轉為可讀名稱 (如 Tomato_1) ，
-        同時更新 self.object_dict 內部索引。
+         objectId to readable (如 Tomato_1)
         """
         obj_name, obj_coord = self.parse_object(object_id)
 
@@ -1652,7 +1503,6 @@ class AI2ThorEnv_cen(BaseEnv):
         """
         mapping: Dict[str, str] = {}
 
-        # 逐一處理 event.metadata["objects"] 內的 objectId
         for obj in self.event.metadata["objects"]:
             obj_id = obj["objectId"]
             readable = self.get_single_readable_object(obj_id)
@@ -1710,149 +1560,8 @@ class AI2ThorEnv_cen(BaseEnv):
                 for aid in range(self.num_agents):
                     self.step_num[aid] += 1
 
-    # LLM Input Methods from LLaMAR
-    def get_planner_llm_input(self):
-        """
-        Returns the input to the subtask LLM
-        ### INPUT FORMAT ###
-        {{Task: description of the task the robots are supposed to do,
-        {agent_name[0]}'s observation: list of objects the {agent_name[0]} is observing,
-        {agent_name[1]}'s observation: list of objects the {agent_name[1]} is observing,
-        Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
-        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
-        }}
-
-        """
-        # extract the agent_name's observations based on how many agents there are
-        planner_llm__input_feats = ["Task"]
-        for i in range(self.num_agents):
-            agent_name = self.agent_names[i]
-            planner_llm__input_feats.append(agent_name + "'s observation")
-        planner_llm__input_feats.extend(
-            ["Robots' open subtasks", "Robots' completed subtasks"]
-        )
-        return dict((k, self.input_dict[k]) for k in planner_llm__input_feats)
-
-    def get_verifier_llm_input(self):
-        """
-        Returns the input to the verifier LLM
-        ### INPUT FORMAT ###
-        {{Task: description of the task the robots are supposed to do,
-        {agent_name[i]}'s observation: list of objects the {agent_name[0]} is observing,
-        {agent_name[i]}'s previous action: previous action of the {agent_name[0]},
-        Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
-        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
-        Robots' combined memory: description of robots' combined memory}}
-
-        """
-        # extract the agent_name's observations based on how many agents there are
-        verifier_llm_input_feats = ["Task"]
-        for i in range(self.num_agents):
-            agent_name = self.agent_names[i]
-            verifier_llm_input_feats.extend(
-                [
-                    agent_name + "'s observation",
-                    agent_name + "'s state",
-                    agent_name + "'s previous action",
-                ]
-            )
-        verifier_llm_input_feats.extend(
-            [
-                "Robots' open subtasks",
-                "Robots' completed subtasks",
-                "Robots' combined memory",
-            ]
-        )
-        return dict((k, self.input_dict[k]) for k in verifier_llm_input_feats)
-
-    def get_action_llm_input(self, failure_module=False):
-        """
-        Returns the input to the subtask LLM
-        ### INPUT FORMAT ###
-        {{Task: description of the task the robots are supposed to do,
-        {agent_name[i]}'s observation: list of objects the {agent_name[0]} is observing,
-        {agent_name[i]}'s state: description of {agent_name[0]}'s state,
-        {agent_name[i]}'s previous action: description of what {agent_name[0]} did in the previous time step and whether it was successful,
-        {agent_name[i]}'s previous failures: if {agent_name[0]}'s few previous actions failed, description of what failed,
-        Robots' open subtasks: list of subtasks  supposed to carry out to finish the task. If no plan has been already created, this will be None.
-        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
-        Robots' subtask: description of the subtasks the robots were trying to complete in the previous step,
-        Robots' combined memory: description of robot's combined memory}}
-        """
-        # extract the agent_name's observations based on how many agents there are
-        # current additional info from failure ["failure reason"]
-        llm_input_feats = ["Task"]
-        for i in range(self.num_agents):
-            agent_name = self.agent_names[i]
-            llm_input_feats.extend(
-                [
-                    agent_name + "'s observation",
-                    agent_name + "'s state",
-                    agent_name + "'s previous action",
-                    agent_name + "'s previous failures",
-                ]
-            )
-        llm_input_feats.extend(
-            [
-                "Robots' open subtasks",
-                "Robots' completed subtasks",
-                # "Robots' subtasks",
-                "Robots' combined memory",
-            ]
-        )
-
-        if failure_module:
-            # post action / failure module inputs
-            # v0 - give failure reason (override environment-given), add logic for next action
-            llm_input_feats.extend(
-                    [
-                        "failure reason",
-                        # "logic for next action",
-                    ]
-            )
-        return dict((k, self.input_dict[k]) for k in llm_input_feats)
-
-    def get_failure_llm_input(self):
-        """
-        Returns the input to the subtask LLM
-        Same input as action module currently, but at time t+1.
-
-        ### INPUT FORMAT ###
-
-        {{Task: description of the task the robots are supposed to do,
-        {agent_name[i]}'s observation: list of objects the {agent_name[0]} is observing,
-        {agent_name[i]}'s state: description of {agent_name[0]}'s state,
-        {agent_name[i]}'s previous action: description of what {agent_name[0]} did in the previous time step and whether it was successful,
-        {agent_name[i]}'s previous failures: if {agent_name[0]}'s few previous actions failed, description of what failed,
-        Robots' open subtasks: list of subtasks  supposed to carry out to finish the task. If no plan has been already created, this will be None.
-        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
-        Robots' subtask: description of the subtasks the robots were trying to complete in the previous step,
-        Robots' combined memory: description of robot's combined memory}}
-        """
-        # extract the agent_name's observations based on how many agents there are
-        llm_input_feats = ["Task"]
-        for i in range(self.num_agents):
-            agent_name = self.agent_names[i]
-            llm_input_feats.extend(
-                [
-                    agent_name + "'s observation",
-                    agent_name + "'s state",
-                    agent_name + "'s previous action",
-                    agent_name + "'s previous failures",
-                ]
-            )
-        llm_input_feats.extend(
-            [
-                "Robots' open subtasks",
-                "Robots' completed subtasks",
-                # "Robots' subtasks",
-                "Robots' combined memory",
-            ]
-        )
-
-        return dict((k, self.input_dict[k]) for k in llm_input_feats)
-    
-    # ----own
+    # ---- get LLM INPUT  ----
+    # for initial planning
     def get_center_llm_input(self):
         obj_list = self.get_all_objects()
         contains_list = self.get_obj_in_containers()
@@ -1863,156 +1572,162 @@ class AI2ThorEnv_cen(BaseEnv):
             "Objects in containers": contains_list,
         }
     
-    def get_replan_llm_input(self):
-        obj_list = self.get_all_objects()
-        contains_list = self.get_obj_in_containers()
-        return {
-            "Task": self.task,
-            "Number of agents": self.num_agents,
-            "Robots' open subtasks": self.open_subtasks,
-            "Robots' completed subtasks": self.closed_subtasks,
-            "inventory": self.inventory,
-            "Objects in environment": obj_list,
-            "Objects in containers": contains_list,
-        }
+    def get_event_log(self, last_only: bool = False):
+        # 存llm留下來的重要log
+        file = self.base_path / "event.jsonl"
+        events = []
+        with open(file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    event = json.loads(line)
+                    events.append(event)
+        if last_only:
+            if events:
+                return events[-1]
+        return events
     
-    def get_center_allocator_llm_input(self):
-        """
-        Returns the input to the subtask LLM
-        ### INPUT FORMAT ###
-        {{Task: description of the task the robots are supposed to do,
-        Number of agents: number of agents in the environment,
-        Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
-        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
-        inventory: list of objects in the robots' inventory,
-        }}
+    def get_event_log_by_aid(self, aid: int, timestamp: int = -1):
+        # last event log for each agent for each step
+        file = self.base_path / f"event_{aid}.jsonl"
+        events = []
+        last_event = None
+        with open(file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    event = json.loads(line)
+                    cur_ts = event.get("timestemp")
+                    if timestamp >= 0:
+                        if event.get("timestemp") == timestamp:
+                            events.append(event)
+                        elif cur_ts is not None and cur_ts < timestamp:
+                            if (last_event is None) or (cur_ts > last_event.get("timestemp", -1)):
+                                last_event = event  
+                    else:  
+                        events.append(event)
+        if timestamp >= 0 and last_event:
+            events.append(last_event)
+        return events
+    
+    def get_event_log_detail(self, timestamp: int = -1):
+        # including attempt/success/fail info in each step
+        file = self.base_path / "event_details.jsonl"
+        events = []
+        with open(file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    event = json.loads(line)
+                    if timestamp >= 0:
+                        if event.get("timestemp") == timestamp:
+                            events.append(event)  
+                    else:  
+                        events.append(event)
+        return events
 
-        """
-        return {
-            "Task": self.task,
-            "Number of agents": self.num_agents,
-            "Robots' open subtasks": self.open_subtasks,
-            "Robots' completed subtasks": self.closed_subtasks,
-            "inventory": self.inventory,
-        }
- 
+    def format_log(self, logs):
+        '''
+        From:
+        {"timestemp": 0, "agent_id": 0, "agent_name": "Alice", "curr_subtask": "NavigateTo(Lettuce_1)", "type": "Failed", "payload": {"last_action": "Idle", "failed_reason": "object(Lettuce_1)-not-exist (Object Lettuce_1 not found in object_dict)", "postion": "(-4.00, 1.50)", "rotation": "north", "inventory": "nothing", "observation": "I see: [...]"}}
+        {"timestemp": 17, "agent_id": 1, "agent_name": "Bob", "curr_subtask": "ToggleObjectOff(LightSwitch_1)", "type": "Success", "payload": {"last_action": "ToggleObjectOff(LightSwitch_1)", "postion": "(-3.50, 0.75)", "rotation": "south", "inventory": "nothing", "observation": "I see: [...]"}}
+        {"timestemp": 17, "agent_id": 0, "agent_name": "Alice", "curr_subtask": "NavigateTo(FloorLamp_1)", "type": "Attempt", "payload": {"last_action": "MoveAhead", "postion": "(-1.25, 2.50)", "rotation": "east", "inventory": "nothing", "observation": "I see: [...]"}}
+        To:
+        [t=0] Alice → NavigateTo(Lettuce_1) → Failed (object(Lettuce_1)-not-exist ...)
+        [t=17] Bob → ToggleObjectOff(LightSwitch_1) → Success ()
+        [t=17] Alice → NavigateTo(FloorLamp_1) → Attempt ()
+        '''
+        lines = []
+        logs = sorted(logs, key=lambda x: x["timestamp"])
+        for log in logs:
+            ts = log["timestamp"]
+            agent = log["agent_name"]
+            subtask = log.get("curr_subtask", "")
+            result = log["type"]
+            payload = log["payload"]
+            reason = payload.get("failed_reason", "")
+            lines.append(f"[t={ts}] {agent} → {subtask} → {result} ({reason})")
+        return "\n".join(lines)
 
-    def get_obs_llm_input(self, prev_info={}) -> Dict[str, Any]:
-        """
-        info:
-        {
-            "step": self.action_step_num,
-            "actions_success": self.subtask_success_history,
-            "success_subtasks": succ,
-            "failure_subtasks": fail,
-            "subtask_failure_reasons": self.subtask_failure_reasons,
-            "inventory": self.inventory.copy(),
-            "failed_acts": self.agent_failure_acts,
-        }
+    def get_log_llm_input(self, need_process = False, mode = 'default', last_only: bool = False):
+        '''
+        mode: 'default' / 'detail' / 'last' / 'agent'
+        1. default: get_event_log() use event.jsonl
+        2. detail: get_event_log_detail() use event_details.jsonl
+        3. last:  the last event from get_event_log_by_aid() for each agent(event_{aid}.json) and combine 
+        4. agent: all event from get_event_log_by_aid(aid) for each agent(event_{aid}.json) and combine
+        '''
+        if mode == 'detail':
+            logs = self.get_event_log_detail()
+        elif mode == 'last':
+            logs = []
+            for aid in range(self.num_agents):
+                log = self.get_event_log_by_aid(aid, timestamp=self.step_num[aid]-1)
+                
+                logs.append(log)
+        elif mode == 'agent':
+            logs = []
+            for aid in range(self.num_agents):
+                log = self.get_event_log_by_aid(aid)
+                logs.append(log)
+            
 
-        Returns the input to the subtask LLM
+        else:
+            logs = self.get_event_log(last_only)
+        
+        if need_process:
+            logs = self.format_log(logs)
+        return logs
 
-        ### Output FORMAT ###
-        {{
-        Task: description of the task the robots are supposed to do,
-        Number of agents: number of agents in the environment,
-        Robots' open subtasks: list of subtasks the robots are supposed to carry out to finish the task. If no plan has been already created, this will be None.
-        Robots' completed subtasks: list of subtasks the robots have already completed. If no subtasks have been completed, this will be None.
-        Objects in environment: list of all objects in the environment,
-        {agent_name[i]}'s observation: list of objects and its postion the {agent_name[i]} is observing,
-        {agent_name[i]}'s state: description of {agent_name[i]}'s state(position, facing direction and inventory),
-        if info:
-        {agent_name[i]}'s subtask_failure_reasons: description of what {agent_name[i]} did in the previous time step and whether it was successful and if it failed, why it failed,
-        {agent_name[i]}'s previous failures: if {agent_name[i]}'s few previous actions failed, description of what failed,
-        }}  
-        """
-        reachable_2d = self.get_cur_reachable_positions_2d(is_filter=True, mannual_block_pos=self.mannual_block_pos)
-        reachable_2d = [(round(x, 2), round(z, 2)) for (x, z) in reachable_2d]
+    def get_obs_llm_input(self, recent_logs=False, need_process=False):
+        
         contains_list = self.get_obj_in_containers()
         obj_list = self.get_all_objects()
+        
+            
         snap: Dict[str, Any] = {
             "Task": self.task,
-            # "Step": int(self.step_num[0]),                         
             "Number of agents": self.num_agents,
-            # "Reachable positions": reachable_2d,
             "Objects in environment": obj_list,  # list of all objects in the scene
             "Objects in containers": contains_list,
-            # "inventory": list(self.inventory),                     # ['nothing', 'Mug_1', ...]
             "Robots' open subtasks": self.open_subtasks,
             "Robots' completed subtasks": self.closed_subtasks,
-            "Robots' memory": self.memory[0],
         }
 
         for aid, name in enumerate(self.agent_names):
             # snap[f"{name}'s observation"]      = self.input_dict.get(f"{name}'s observation", "[]")
             snap[f"{name}'s observation"] = list(self.get_mapping_object_pos_in_view(aid).keys())
             snap[f"{name}'s state"]            = self.input_dict.get(f"{name}'s state", "")
-            if prev_info:
-                snap[f"{name}'s previous failures"] = self.input_dict.get(f"{name}'s previous failures", "None")
-                subtask_failure_reasons = prev_info['subtask_failure_reasons'].get(name, "None")
-                if subtask_failure_reasons:
-                    reason_description = self.input_dict.get(f"{name}'s previous failures", "None") + f", because of {subtask_failure_reasons['reason']}"
-                    snap[f"{name}'s subtask_failure_reasons"] = reason_description
-                
-        snap['suggestion'] = self.suggestion[0] if self.suggestion else "None"
-            
+           
 
-        # if self.use_shared_subtask:
-        #     snap["Robots' subtasks"] = self.subtasks[0]
-        # elif self.use_separate_subtask:
-        #     for aid, name in enumerate(self.agent_names):
-        #         snap[f"{name}'s subtask"] = self.subtasks[aid]
-
-        # if self.use_shared_memory:
-        #     snap["Robots' combined memory"] = self.memory[0]
-        # elif self.use_separate_memory:
-        #     for aid, name in enumerate(self.agent_names):
-        #         snap[f"{name}'s memory"] = self.memory[aid]
+        if recent_logs:
+            logs = self.get_log_llm_input(need_process  = need_process, last_only=True)
+            # logs = logs[-self.num_agents:]  # get the most recent 
+            snap["Previous Actions"] = logs
 
         return snap
 
-    def get_memory_snapshot(self, recent_steps: int = 20, is_central=True) -> dict:
-   
-        # 每個 agent 的最近紀錄
+    
+    def get_llm_log_input(self, need_process=False, mode = 'default'):
         contains_list = self.get_obj_in_containers()
         obj_list = self.get_all_objects()
-        agents = []
-        for aid, name in enumerate(self.agent_names):
-            acts = self.action_history.get(name, [])
-            succs = self.action_success_history.get(name, [])
-            fails = self.subtask_failure_reasons.get(name, {})
-            # 取尾段
-            recent_actions = acts[-recent_steps:]
-            recent_success = succs[-recent_steps:]
-            agents.append({
-                "name": name,
-                "state": self.get_agent_state(aid),
-                "last_action": acts[-1] if acts else "Idle",
-                "last_action_success": succs[-1] if succs else True,
-                "recent_actions": recent_actions,
-                "recent_success_flags": recent_success,
-                "recent_fail_reasons": fails,  # 你目前存的是單筆 payload，這裡直接放
-                "last_check_reason": self.last_check_reason.get(name),
-                "visible_objects": list(self.get_mapping_object_pos_in_view(aid).keys()),
-            })
-
-        snapshot = {
-            "task": self.task,
-            "scene": self.scene,
-            "step": max(self.step_num) if self.step_num else 0,
-            "num_agents": self.num_agents,
-            "agents": agents,
-            "Objects in environment": obj_list if is_central else [],
-            "Objects in containers": contains_list if is_central else [],
-            "open_subtasks": list(self.open_subtasks or []),
-            "closed_subtasks": list(self.closed_subtasks or []),
-            "shared_memory": self.memory[0] if self.memory else "None",
-            "suggestion": self.suggestion[0] if self.suggestion else "",
-            "subtask_success_history": self.subtask_success_history,
-            "subtask_failure_reasons": self.subtask_failure_reasons,
+        logs = self.get_log_llm_input(need_process  = need_process, mode = mode)
+        
+        snap: Dict[str, Any] = {
+            "Task": self.task,
+            "Number of agents": self.num_agents,
+            "Objects in environment": obj_list,  # list of all objects in the scene
+            "Objects in containers": contains_list,
+            "Robots' open subtasks": self.open_subtasks,
+            "Robots' completed subtasks": self.closed_subtasks,
+            "Logs": logs
         }
-        return snapshot
+        if mode == "agent":
+            prev_logs = self.get_log_llm_input(last_only=True)
+            snap['Previous Logs'] = prev_logs
+        return snap
     
+    def save_log_result(self, summary):
+        filename = self.base_path / f"event.jsonl"
+        with open(filename, "a", encoding="utf-8") as f:
+            f.write(json.dumps(summary, ensure_ascii=False) + "\n")
 
     def convert_to_dict_objprop(self, objs, obj_mass, obj_id):
         objs_dict = []
