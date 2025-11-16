@@ -1571,6 +1571,8 @@ class AI2ThorEnv_cen(BaseEnv):
             "Objects in containers": contains_list,
         }
     
+    
+    
     def get_event_log(self, last_only: bool = False):
         # 存llm留下來的重要log
         file = self.base_path / "event.jsonl"

@@ -24,13 +24,21 @@ import difflib
 import numpy as np
 
 from openai import OpenAI
-from env_log import AI2ThorEnv_cen as AI2ThorEnv
+from env_decen import AI2ThorEnv_cen as AI2ThorEnv
 from prompt_template import *
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 client = OpenAI(api_key=Path('api_key_ucsb.txt').read_text())
 
+def get_delays(mode='poisson'):
+        if mode == 'poisson':
+            return np.random.poisson(lam=3)
+        elif mode == 'geometric':
+            return np.random.geometric(p=0.3)
+        else:
+            return 0
+        
 def get_args():
     parser = argparse.ArgumentParser()
 
@@ -156,7 +164,7 @@ def prepare_payload(system_prompt, user_prompt, img_urls=None) -> list:
     
     return payload
 
-def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subtasks=[], need_process=False, info=[]) -> str:
+def prepare_prompt(env: AI2ThorEnv, mode: str = "init", agent_id: int = 0, addendum: str = "", subtasks=[], need_process=False, info=[]) -> str:
     """
     mode: str, choose from planner, action
     planner: for decomposing the task into subtasks
@@ -166,16 +174,19 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
 
     if mode == "planner":
         # for initial planning
-        system_prompt = get_planner_prompt()
-        input = env.get_center_llm_input()
+        system_prompt = get_decen_planner_prompt()
+        input = env.get_planner_llm_input(agent_id)
         user_prompt = convert_dict_to_string(input)
         # print("planner input:", user_prompt)
-    elif mode == "editor":
-        # for editing the generated plan
-        system_prompt = get_editor_prompt()
-        input = env.get_center_llm_input()
-        input["Subtasks"] = subtasks
+    elif mode == "replan":
+        # for replanning the subtasks based on the current state of the environment
+        system_prompt = get_decen_planner_prompt()
+        input = env.get_planner_llm_input(agent_id)
+        input['Suggestion'] = info.get('suggestion', '')
+        
         user_prompt = convert_dict_to_string(input)
+        # print("replan prompt:", system_prompt)
+        # print("replan use prompt:", user_prompt)
     elif mode == "action":
         # for generating automic actions for each robot to perform
         system_prompt = get_action_prompt(mode='log')
@@ -194,17 +205,7 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         input = env.get_obs_llm_input(recent_logs=True)
         user_prompt = convert_dict_to_string(input)
 
-    elif mode == "replan":
-        # for replanning the subtasks based on the current state of the environment
-
-        system_prompt = get_replanner_prompt(mode='log', need_process=need_process)
-        input = env.get_llm_log_input(need_process)
-        input['Suggestion'] = info.get('suggestion', '')
-        input['Reason'] = info.get('reason', '')
-        
-        user_prompt = convert_dict_to_string(input)
-        # print("replan prompt:", system_prompt)
-        # print("replan use prompt:", user_prompt)
+   
     elif mode == "verifier":
         # for verifying the actions taken by the robots
 
@@ -233,7 +234,7 @@ def process_llm_output(res_content, mode):
     """
     data = _to_json(res_content)
     if mode == "planner":
-        return _get(data, "Subtasks") or []
+        return _get(data, "Subtask") or ""
 
     if mode == "action":
         return _get(data, "Actions") or []
@@ -557,6 +558,80 @@ LOOP(until all subtasks are done or timeout):
     4.5. (LLM)Log summariser (log_summariser per agent): decide what to log for each agent. (trigger when subtask is success/failure or delay messaging arrived)
 5. (LLM)verify and replan if needed (verify_actions, replan_open_subtasks independently per agent)
 '''
+
+def decen_subtask_planning(env, config, agent_id, is_initial=False):
+    # planning subtasks based on environment and logs and agent's observation
+    # Only Log when initial planning (Agent_{} start {subtask} )
+    if is_initial:
+        mode = "planner"
+    else:
+        mode = "replan"
+    planner_prompt, planner_user_prompt = prepare_prompt(env, mode=mode, agent_id=agent_id)
+    planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
+    res, res_content = get_llm_response(planner_payload, model=config['model'])
+    # print('init plan llm output', res_content)
+    subtasks = process_llm_output(res_content, mode=mode)
+    # print(f"After Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
+    return subtasks
+
+def get_agent_subtask(env: AI2ThorEnv, config, agent_id, is_initial=False):
+    """
+    Will be called one by one for each agent to plan their own subtasks
+    return a list of subtasks for this agent
+    """
+    # planning subtasks based on environment and logs and agent's observation
+    subtask = decen_subtask_planning(env, config, agent_id, is_initial=is_initial)
+
+    # decompose subtask to smaller actions
+    actions = decompose_subtask_to_actions(env, subtask) # TBD
+    actions = actions[0]  # get the first agent's actions
+# 
+    if is_initial:
+        # log: agent start subtask
+        log_dict = {}
+        
+        print(f"Agent_{agent_id} start {subtask}")
+        log_dict = {
+                'timestemp':0,
+                'history': f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}."
+            }
+        # boardcast log to all agents
+        for aid in range(config['num_agents']):
+            env.save2log_by_agent(aid, log_dict)
+
+    else:
+        # log with delay messaging
+        for aid in range(config['num_agents']):
+            if aid != agent_id:
+                delay_sec = get_delays(mode='poisson')
+                env.schedule_message(delay_sec, aid, message=f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}.")
+    # return a subtask and a list of actions of this subtask
+    return subtask, actions
+
+def decen_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
+    # Init. Env & config
+    env, config = set_env_with_config(config_path)
+    timeout = timeout
+    if test_id > 0:
+        _ = env.reset(test_case_id=test_id)
+    else:
+        _ = env.reset(test_case_id=config['test_id'])
+
+    num_agent = config['num_agents']
+
+    # run initial subtask planning for each agent
+    print("\n--- Initial Subtask Planning for each agent---")
+    subtasks = []
+    for aid in range(num_agent):
+        subtask, actions = get_agent_subtask(env, config, agent_id=aid, is_initial=True)
+        subtasks.append([subtask, actions])
+    print("Initial subtasks for each agent: ", subtasks)
+
+    # loop start
+    cnt = 0
+    start_time = time.time()
+    env.close()
+    return 
 
 
 def run_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
@@ -926,16 +1001,10 @@ if __name__ == "__main__":
     # run_main(test_id = 3, config_path="config/config.json", delete_frames=True)
     # run_main(test_id = 2, config_path="config/config.json")
     # 模擬 20 次事件的 delay
-    def get_delays(mode='poisson'):
-        if mode == 'poisson':
-            return np.random.poisson(lam=3)
-        elif mode == 'geometric':
-            return np.random.geometric(p=0.3)
-        else:
-            return 0
-    samples = get_delays(mode='poisson')
     
-    print(samples)
-    delay = get_delays(mode='geometric')
-    print(delay)
+    # samples = get_delays(mode='poisson')
     
+    # print(samples)
+    # delay = get_delays(mode='geometric')
+    # print(delay)
+    decen_main(test_id = 1, config_path="config/config.json", delete_frames=True, timeout=250)

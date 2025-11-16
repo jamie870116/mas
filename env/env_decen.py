@@ -750,7 +750,11 @@ class AI2ThorEnv_cen(BaseEnv):
 
         return self.get_observations(), act_successes
     
-   
+    def save2log_by_agent(self, agent_id: int, log_dict: Dict):
+        filename = self.base_path / f"event_{agent_id}.jsonl"
+        with open(filename, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_dict, ensure_ascii=False) + "\n")
+
     def stepwise_action_loop(self, cur_plan):
         """
         cur_plan: list of dicts, each with:
@@ -1186,6 +1190,9 @@ class AI2ThorEnv_cen(BaseEnv):
             "inventory": self.inventory.copy(),
             "failed_acts": self.agent_failure_acts,
         }
+
+    def schedule_message(self, agent_id: int, message: str, delay: int):
+        heappush(self.upcoming_messages, (self.step_num[0] + delay, agent_id, message))
 
     def save_log(self):
         if self.save_logs:
@@ -1770,6 +1777,33 @@ class AI2ThorEnv_cen(BaseEnv):
             "Objects in containers": contains_list,
         }
     
+    def get_planner_llm_input(self, agent_id: int):
+        '''
+        - Task: "Put the vase, tissue box, and remote control on the table."
+        - Objects in environment: [Vase_1, TissueBox_1, RemoteControl_1, Table_1]
+        - Objects in containers: {{Table_1: [Vase_1]}}
+        - Agent's state: facing TissueBox_1, hands empty.
+        - Agent's log: shows that the agent already placed Vase_1 on the table successfully. And agent Bob is currently holding RemoteControl_1.
+        - Suggestion: "The vase is already correctly placed; focus on the tissue box next." (From verifier)
+        '''
+        obj_list = self.get_all_objects()
+        contains_list = self.get_obj_in_containers()
+        agent_state = {}
+        agent_name = self.agent_names[agent_id]
+        agent_state[f"{agent_name}'s state"] = self.input_dict.get(f"{agent_name}'s state", "")
+        agent_state[f"{agent_name}'s observation"] = list(self.get_mapping_object_pos_in_view(agent_id).keys())
+        agent_log = self.get_event_log_by_aid(agent_id)
+        output = {
+            "Task": self.task, 
+            "Objects in environment": obj_list,
+            "Objects in containers": contains_list,
+            "Agent's state": agent_state,
+        } 
+        if agent_log:
+            output["Agent's log"] = agent_log
+
+        return output
+
     def get_event_log(self, last_only: bool = False):
         # 存llm留下來的重要log
         file = self.base_path / "event.jsonl"

@@ -372,66 +372,122 @@ You are an expert task planner and editor responsible for coordinating {len(AGEN
 First, think carefully step by step about the **plan correction** per the rules, closely adhering to the **Common Guidelines**. Then, **output only the corrected Subtasks JSON with no extra text**.
 """
 
-# ACTION_PROMPT = f"""
-# # Role and Objective
-# You are an expert multi-robot controller, managing {len(AGENT_NAMES)} embodied robots, {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}, by generating executable action plans to fulfill assigned subtasks. Convert each Assignment subtask into an explicit, sequential action list for the agent, based on current state and environmental details.
+DECEN_PLANNER_PROMPT = f"""# Role and Objective
+You are a planner and robot controller for a single embodied robot (“current agent”) operating in a multi-agent environment to accomplish a high-level task.
 
-# # Instructions
-# - Treat each assignment independently; do not invent new subtasks.
-# - For each "Assignment" subtask provided (one per agent), generate an ordered list of executable atomic actions using only the defined action set and schemas.
-# - Treat each subtask independently, without inferring new subtasks, changing intent, or considering inter-agent dependencies unless explicitly described in the input.
-# - Respect the affordances of objects, preconditions of actions, and environmental constraints in translating subtasks into actions.
-# - Assign ["Idle"] only if the subtask is "Idle". Do not assign empty lists.
-# - Generate a list of action plans (lists), one per agent, in the same order as the input subtasks.
-# - Navigation/Interaction:
-#   - Prefer NavigateTo<Object> before interaction unless object is near and in view or currently held by the agent.
-#   - For micro-approach, try Move/Rotate/Look first; then retry NavigateTo.
-#   - On "object-not-in-view": try LookDown/LookUp based on likely vertical location.
-#   - On "no-plan" or "no-path": move around to clear obstacles then retry.
-# - Feasibility:
-#   - Prefer closest suitable instance if multiple exist.
+Your job in each call is to generate the shortest valid next subtask for this single agent only, given:
+- The high-level task specification
+- The current environment (objects and containers)
+- The current agent's state and history logs
+- Optional suggestions or failure analyses
 
-# # Guidelines
-# - If a referenced object is missing, inventory is full (when pickup is needed), agent state/observation is missing, or Subtask is None: output an empty list for that subtask (or {{ "Actions": [] }} if Subtasks is None).
-# - Assign only objects listed in the provided list. If multiple instances of the same type exist (e.g., Countertop_1, Countertop_2), select the most appropriate one based on the agent's current position and its proximity to the objects.
-# - when assigning actions which interact with objects and with navigation, always use NavigateTo<object_name> to approach the object first. Unless the targert obect is close enough and in the view of the agent.
-# - Avoid assigning the same object to multiple agents in the same step. 
-# - If there are multiple same object type, assign the most reachable one according the given observation of the agent.
-# - If the subtask requires micro-movements to approach an Object_name, use only Movement, Rotation, and Look actions based on position and failure reason—avoid using NavigateTo<Object_name> initially. Try one atomic movement at a time before attempting NavigateTo<Object_name> again.
-#     - When failure reason is "object-not-in-view", first try  Lookdown  or Lookup action based on the target object's most likely to be. (you can assume the agent always starts looking front. 
-#     - When failure reason is "no-plan" or "no-path", try moving around first—sometimes an obstacle (e.g., a door) may be blocking the path before re-attempting NavigateTo.
-# {COMMON_GUIDELINES}
+You do not plan for other agents; you may consider them only through the information reflected in the current agent's logs.
+
+Internally plan your steps but do not show any reasoning in the output.
 
 
-# # Context
-# - Robot names: {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}
-# {AI2THOR_ACTIONS}
-
-# # Input Context
-# - Inputs include: task description, agent states/observations, open and completed subtasks,  all objects in the environment, failed diagnostics (if any), and subtasks to be executed.
-# {ACTION_INPUT_FORMAT}
-
-# # Reasoning Steps
-# - Internally, reason step by step to extract and analyze each Assignment, confirm presence of referenced objects, consider the distance and position of agent and object, map actions using current environment and agent state, and validate required action conditions for each agent.
-# - After generating action plans, validate that each generated plan satisfies the requirements (object existence, feasible actions based on agent state/inventory, and completeness of required fields). If validation fails for a subtask, output as specified in Output Format.
+# Instructions (Decentralized, Single-Agent)
+You will receive a JSON user input describing:
+- "Task":  (string) A high-level description of the final goal.
+- "Objects in environment": List of objects currently available in the environment.
+- "Objects in containers": A dictionary where each key is a container object (e.g., Fridge, Drawer), and its value is a list of objects currently inside that container.
+- "Agent's state": current agent's position, facing, and inventory, and observation.
+- "Agent's log": (OPTIONAL) a time-ordered list or summary of this agent's action and observation history, including environment changes and information about other agents.
+- "Suggestion": (OPTIONAL) natural language hint about what to do next (e.g., after a failure or delayed message).
 
 
+Your job:
+- For the **current agent only**, produce a **short, atomic yet meaningful subtask description** that moves the global task closer to completion.
+- A **subtask** is a high-level instruction that can be expanded into one or several low-level actions from the Available Actions list.
+- For initial planning, history logs and suggestions may be empty or absent; you should still return a valid subtask for this agent based on the Task and environment.
+- For replanning, use the logs and suggestion to:
+  - Avoid repeating actions that this agent or other agent has already successfully completed unless the environment has changed and repetition is necessary.
+  - Adjust the subtask to account for failures, blocked paths, missing objects, or new information about other agents.
+- Internally interpret the Task, environment, state, logs, and Suggestion to choose the shortest valid next subtask.
+- Do **not** include your reasoning steps in the output.
 
-# # Output Format
-# The output must be a single JSON object, with no extra explanation:
-# - Key: "Actions"
-# - Value: a list of lists. Each inner list contains the atomic actions for a subtask, matching the order of input subtasks.
+{AI2THOR_ACTIONS}
+# Common Guidelines and Simulation Note
+{COMMON_GUIDELINES}
 
-# **Example:**
-# {ACTION_EXAMPLES}
+# Replanning and Failure Handling
+When logs and/or Suggestion indicate failures, delayed messages, or environment changes:
+- Prefer the **shortest corrective subtask** that gets the agent unstuck and back toward the global goal.
+- Avoid subtasks like “find”, “scan”, “explore”, or “look for” unless there is a navigation or visibility failure suggesting the target cannot be directly navigated to.
+  - If the target object is not in visibility, first consider RotateLeft/RotateRight or LookUp/LookDown before more exploratory subtasks.
+- Reuse previous progress:
+  - Do not repeat previously successful subtasks for this agent unless the environment state has changed in a way that invalidates earlier progress.
+- Use “Suggestion” as a hint, not a strict command; ensure the subtask still respects all constraints and Available Actions.
 
 
-# # Final instructions
-# First, think carefully step by step about **mapping each assignment to atomic actions**, closely adhering to the **Instruction and Global Constraints and Navigation rules**. Then, **output only the Actions JSON with no explanations**.
-# """
+# Output Format
+Return only a valid JSON object with this structure. 
+Do not include explanations, comments, or markdown formatting.
 
-# errorMessage: StandardCounterHeightWidth is blocking Agent 0 from moving by (-0.2500, 0.0000, 0.0000).
-#   - If missing object/observation/inventory invalid/Subtask None → empty list at that index.
+The JSON must contain the **next subtask for this single agent only**.  
+{{
+"Subtask": "description of subtask 1"
+}}
+
+The subtask should be a concise natural-language description that can be expanded into low-level actions, for example:
+- "navigate to the vase, pick up the vase, navigate to the table, and put it on the table"
+- "navigate to the fridge, open the fridge, put the lettuce inside, and close the fridge"
+
+# Examples
+
+Example 1 - initial planning, no logs
+Input (informal description):
+- Task: "Put the vase, tissue box, and remote control on the table."
+- Objects in environment: [Vase_1, TissueBox_1, RemoteControl_1, Table_1]
+- Objects in containers: 
+- Agent's state: agent sees all objects, hands empty.
+- Agent's log: [] (no history; initial step)
+- Suggestion: (none)
+
+Possible output:
+{
+ { "Subtask": "navigate to the vase, pick up the vase, navigate to the table, and put it on the table"}
+  
+}
+
+Example 2 - replanning with logs and suggestion
+Input (informal description):
+- Task: "Put the vase, tissue box, and remote control on the table."
+- Objects in environment: [Vase_1, TissueBox_1, RemoteControl_1, Table_1]
+- Objects in containers: {{Table_1: [Vase_1]}}
+- Agent's state: facing TissueBox_1, hands empty.
+- Agent's log: shows that the agent already placed Vase_1 on the table successfully. And agent Bob is currently holding RemoteControl_1.
+- Suggestion: "The vase is already correctly placed; focus on the tissue box next."
+
+Possible output:
+{
+{  "Subtask":
+    "navigate to the tissue box, pick up the tissue box, navigate to the table, and put it on the table"
+}
+}
+
+Example 3 - replanning after navigation failure
+Input (informal description):
+- Task: "Put the lettuce in the fridge."
+- Objects in environment: [Lettuce_1, Fridge_1]
+- Objects in containers: { {"Fridge_1": [] }}
+- Agent's state: near Lettuce_1, some previous NavigateToFridge failed due to distance-too-far.
+- Agent's log: includes a failed navigation to Fridge_1 attempt and error reason.
+- Suggestion: "Since the Agent is holding Lettuce in hand, try rotating to adjust orientation before navigating to the fridge again."
+
+Possible output:
+{{
+  "Subtask": 
+    "rotate to face the fridge, navigate to the fridge, open the fridge, put the lettuce in the fridge, and close the fridge"
+
+}}
+
+# Final Instructions
+Carefully consider the Task, environment, agent's state, logs, and optional Suggestion.  
+Then output **only** the required JSON object under the specified "Subtasks" format, containing the **next subtask sequence for this single agent**. No additional text, explanations, or formatting.
+
+"""
+
 
 # for SUMMARY
 MEMORY_PROMPT = f"""
@@ -604,7 +660,8 @@ Return ONLY one JSON object:
 #     }}
 # }}
 
-
+def get_decen_planner_prompt():
+    return DECEN_PLANNER_PROMPT
 
 def get_log_prompt():
     return LOG_PROMPT
@@ -869,7 +926,7 @@ def get_replanner_prompt(mode: str = "summary", need_process: bool = False) -> s
 
 
 if __name__ == "__main__":
-    print("Testing prompt generation... Summary version:")
+    # print("Testing prompt generation... Summary version:")
     # print(get_planner_prompt()) # 1500+ token
     # print("--------------------------------")
     # print(get_allocator_prompt()) # 1400+ token
@@ -883,7 +940,7 @@ if __name__ == "__main__":
     # print(get_memory_prompt()) # 1800+ token
     # print("--------------------------------")
     
-    print("Testing prompt generation... Log version:")
+    # print("Testing prompt generation... Log version:")
     # print(get_planner_prompt())
     # print("--------------------------------")
     # print(get_allocator_prompt(mode='log'))
@@ -896,3 +953,6 @@ if __name__ == "__main__":
     # print("--------------------------------")
     # print(get_log_prompt()) # 250+ token
     # print("--------------------------------")
+
+    print("Testing Decentralized planner prompt generation...")
+    print(get_decen_planner_prompt()) # 2000+ token
