@@ -17,8 +17,7 @@ log example in event.jsonl:
 {"timestemp": 17, "agent_id": 1, "agent_name": "Bob", "curr_subtask": "ToggleObjectOff(LightSwitch_1)", "type": "Success", "payload": {"last_action": "ToggleObjectOff(LightSwitch_1)", "postion": "(-3.50, 0.75)", "rotation": "south", "inventory": "nothing", "observation": "I see: ['HousePlant_1', 'LightSwitch_1', 'Painting_1', 'RemoteControl_1', 'SideTable_2', 'SideTable_3']"}}
 {"timestemp": 17, "agent_id": 0, "agent_name": "Alice", "curr_subtask": "NavigateTo(FloorLamp_1)", "type": "Attempt", "payload": {"last_action": "MoveAhead", "postion": "(-1.25, 2.50)", "rotation": "east", "inventory": "nothing", "observation": "I see: ['Curtains_1', 'DeskLamp_1', 'KeyChain_1', 'SideTable_1', 'Vase_1', 'Window_1']"}}
 
-TBD: 單獨的 log 分析與回饋模組 
-checker for task type 4 要改
+
 '''
 
 import json
