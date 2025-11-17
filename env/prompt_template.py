@@ -225,7 +225,7 @@ Each line follows this format:
 LOG_ORIGINAL_INPUT_FORMAT = """
 - "Logs": a list of JSON objects. Each object represents one action execution log for a specific agent at a certain timestamp.
 JSON field description:
-- "timestemp" (number): The timestamp of the action.
+- "timestamp" (number): The timestamp of the action.
 - "agent_id" (integer): The ID of the agent (e.g., 0 or 1).
 - "agent_name" (string): The name of the agent.
 - "curr_subtask" (string): The subtask the agent is currently executing.
@@ -408,6 +408,7 @@ Your job:
 
 {AI2THOR_ACTIONS}
 # Common Guidelines and Simulation Note
+- Always navigate directly to the target object, not to its surface or container.
 {COMMON_GUIDELINES}
 
 # Replanning and Failure Handling
@@ -659,12 +660,96 @@ Return ONLY one JSON object:
 #     "...": "..."
 #     }}
 # }}
+LOG_DECEN_PROMPT = f""" 
+# Role
+You are the Memory Aggregator and Messenger for a multi-robot AI2-THOR system.
+You operate **for one agent at a time** (“current agent”) and condense its execution logs into a factual summary that supports future replanning, and optionally produce a short message for other agents.
+
+# Input
+You will receive:
+- Task description
+- Objects in the environment
+- This agent's past memory entries: a list of JSON objects, each with:
+  {{ "timestamp": <int>, "history": "<previous factual summary>" }}
+- This agent's new execution log: a single JSON object in the action-log format:
+  {{
+    "timestamp": <int>,
+    "agent_id": <int>,
+    "agent_name": <string>,
+    "curr_subtask": <string>,
+    "curr_high_level_action": <string or null>,
+    "type": "Attempt" | "Success" | "Failed",
+    "payload": 
+      "last_action": <string>,
+      "last_action_status": <string, optional>,
+      "failed_reason": <string, optional>,
+      "postion": <string>,
+      "rotation": <string>,
+      "inventory": <string>,
+      "observation": <string>
+    
+  }}
+
+# Guidelines
+- Use the **new execution log** as the primary source of new information.
+- Use past memory entries only as context; do **not** rewrite or restate them.
+- Keep only facts that are useful for **future planning / replanning** for this agent:
+  - dynamic world changes (object moved, stored, opened/closed, cooked, sliced, broken, cleaned, etc.),
+  - stable object relations (on/in/next to),
+  - failures and their causes (e.g., navigation blocked, object missing),
+  - meaningful progress on the current subtask.
+- Do NOT infer task completion unless the log's `"type"` is `"Success"` for the relevant subtask.
+- Never assume all misplaced or remaining items are handled unless explicitly supported by the environment/object list or logs.
+- Avoid restating:
+  - full inventories,
+  - large raw observation lists,
+  - generic “success” messages,
+  unless they directly affect planning decisions.
+
+# Message to Other Agents
+Decide whether the new log contains information that other agents need for their own subtask planning.
+Share only short, factual updates that may affect other agents' decisions, such as:
+- this agent is blocked by another agent,
+- an important object changed state or location,
+- this agent's subtask succeeded, failed, or is being abandoned,
+- this agent is switching to a different object or path.
+
+Keep the message brief and directly useful for planning.
+Do not mention delays or timestamps.
+If nothing is relevant, return "".
+
+# Output
+Return ONLY one JSON object with this structure:
+{{
+  "log":
+    {{"timestamp": "<int>  copy from the new log's timestamp" ,
+    "history": "<compact factual narrative for this agent>"}}
+  ,
+  "message_to_others": "<short message for other agents or empty string>"
+}}
+
+# Writing Rules
+- "history" should:
+  - be ≤ 100 words,
+  - be a concise, factual narrative emphasizing world changes, object relations, failures, and subtask progress that matter for future replanning.
+- "message_to_others" should:
+  - be one short sentence or a very short paragraph,
+  - explicitly mention key facts that other agents should know (e.g., who is blocking whom, which object is already handled),
+  - be empty string "" if no broadcast is needed.
+- No speculation or uncertainty; only describe facts present in the given information.
+- Do not include any explanations, comments, or extra keys outside the specified JSON format.
+"""
+
 
 def get_decen_planner_prompt():
     return DECEN_PLANNER_PROMPT
 
 def get_log_prompt():
     return LOG_PROMPT
+
+def get_decen_log_prompt():
+    return LOG_DECEN_PROMPT
+
 
 def get_planner_prompt():
     return PLANNER_PROMPT
@@ -730,9 +815,14 @@ def get_allocator_prompt(mode='summary'):
     return prompt
 
 def get_action_prompt(mode="summary"):
+    if mode == 'decen':
+      first_line = "You are an expert robot controller, managing a single embodied robots by generating executable action plans to fulfill assigned subtasks. Convert the assigned subtask into an explicit, sequential action list for the agent, based on current state and environmental details."
+    else:
+      first_line = f"""You are an expert multi-robot controller, managing {len(AGENT_NAMES)} embodied robots, {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}" }, by generating executable action plans to fulfill assigned subtasks. Convert each Assignment subtask into an explicit, sequential action list for the agent, based on current state and environmental details."""
+        
     base_prompt = f"""
     # Role and Objective
-    You are an expert multi-robot controller, managing {len(AGENT_NAMES)} embodied robots, {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}" }, by generating executable action plans to fulfill assigned subtasks. Convert each Assignment subtask into an explicit, sequential action list for the agent, based on current state and environmental details.
+    {first_line}
 
     # Instructions
     - Treat each assignment independently; do not invent new subtasks.
@@ -761,7 +851,6 @@ def get_action_prompt(mode="summary"):
     {COMMON_GUIDELINES}
 
     # Context
-    - Robot names: {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}
     {AI2THOR_ACTIONS}
     """
 
@@ -773,7 +862,7 @@ def get_action_prompt(mode="summary"):
         - Inputs include: task description, agent states/observations, open and completed subtasks, reachable positions, all objects in the environment, failed diagnostics (if any), and subtasks to be executed.
         {input_format}
         """
-    else:  # mode == "log"
+    elif mode == "log":
         input_format = BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + AGENT_INPUT_FORMAT + ASSINMENG_INPUT_FORMAT
 
         input_section = f"""
@@ -781,29 +870,35 @@ def get_action_prompt(mode="summary"):
         - Inputs include: task description, agent states/observations, open and completed subtasks, all objects in the environment, failed diagnostics (if any), and subtasks to be executed.
         {input_format}
         """
+    else:
+        # mode == 'decen'
+         input_section = f"""
+        # Input Context
+          - Inputs include: task description, agent states/observations, all objects in the environment, and subtasks to be executed.
+          {BASE_INPUT_FORMAT + TASK_INPUT_FORMAT + AGENT_INPUT_FORMAT + ASSINMENG_INPUT_FORMAT}
+        """
+
 
     output_section = f"""
-      # Reasoning Steps
-      - Internally, reason step by step to extract and analyze each Assignment, confirm presence of referenced objects, consider the distance and position of agent and object, map actions using current environment and agent state, and validate required action conditions for each agent.
-      - After generating action plans, validate that each generated plan satisfies the requirements (object existence, feasible actions based on agent state/inventory, and completeness of required fields). If validation fails for a subtask, output as specified in Output Format.
+        # Reasoning Steps
+        - Internally, reason step by step to extract and analyze each Assignment, confirm presence of referenced objects, consider the distance and position of agent and object, map actions using current environment and agent state, and validate required action conditions for each agent.
+        - After generating action plans, validate that each generated plan satisfies the requirements (object existence, feasible actions based on agent state/inventory, and completeness of required fields). If validation fails for a subtask, output as specified in Output Format.
 
-      # Output Format
-      The output must be a single JSON object, with no extra explanation:
-      - Key: "Actions"
-      - Value: a list of lists. Each inner list contains the atomic actions for a subtask, matching the order of input subtasks.
+        # Output Format
+        The output must be a single JSON object, with no extra explanation:
+        - Key: "Actions"
+        - Value: a list of lists. Each inner list contains the atomic actions for a subtask, matching the order of input subtasks.
 
-      **Example:**
-      {ACTION_EXAMPLES}
+        **Example:**
+        {ACTION_EXAMPLES}
 
-      # Final instructions
-      First, think carefully step by step about **mapping each assignment to atomic actions**, closely adhering to the **Instruction and Global Constraints and Navigation rules**. Then, **output only the Actions JSON with no explanations**.
-      """
+        # Final instructions
+        First, think carefully step by step about **mapping each assignment to atomic actions**, closely adhering to the **Instruction and Global Constraints and Navigation rules**. Then, **output only the Actions JSON with no explanations**.
+        """
     return base_prompt + input_section + output_section
 
 
 def get_verifier_prompt(mode: str = "summary", need_process: bool = False) -> str:
-
-
     base_prompt = f"""# Role and Objective
         You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
         You will get a description of the task robots are supposed to do. You will get an image of the environment from {", ".join([f"{name}'s perspective" for name in AGENT_NAMES[:-1]]) + f", and {AGENT_NAMES[-1]}'s perspective"} as the observation input.
@@ -925,6 +1020,63 @@ def get_replanner_prompt(mode: str = "summary", need_process: bool = False) -> s
     return base + context_block + final_block
 
 
+def get_decen_verifier_prompt():
+    prompt = f"""
+    # Role and Objective
+    You are an excellent planner and robot controller tasked with helping a **single embodied robot (the current agent)** carry out a task in a multi-agent AI2-THOR environment.  
+    The current agent has a partially observable view of the environment and may be affected by other agents’ behavior (e.g., blocking paths or competing for the same object).
+
+    You will get:
+    - A description of the overall task.
+    - The current agent's state.
+    - A **log history** for this agent, each entry containing a timestamp and a compact factual history string.
+
+    Your goal is to:
+    - Verify and interpret the most recent failures or issues for this agent based on its log history and state.
+    - Suggest a **concise, actionable recommendation ("suggestion")** that will help guide the next replanning step for this agent.
+
+    You must **not assume or infer missing facts**. Only evaluate based on explicitly provided data.
+
+    # Instructions
+    - Use observations, failure descriptions, memory/log history, and progress to infer causes.
+    - Do not suggest subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. 
+    - By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
+    {COMMON_GUIDELINES}
+    - Environment Hazards: open objects can block paths; avoid mutual blocking/collisions.
+    - Electronics: operate directly on the device—do not use remotes unless required.
+    - Use navigate to the object, unless something wrong while navigation. (no-path, distance-too-far..etc)
+
+    # Reasoning Steps
+    - Internally reason over:
+      - the task description,
+      - the current agent's state,
+      - the agent's log history (timestamp + history strings),
+      to isolate the most likely failure cause(s) and the most helpful corrective direction.
+    - You are supposed to reason over the agent's previous actions, previous failures, previous memory/logs, subtasks, and the available actions the agent can perform, and think step by step.
+    - Then output a **single textual "suggestion"** that will guide the next replanning step for this agent.
+
+    # OUTPUT FORMAT
+    You must output a JSON dictionary with:
+    - "suggestion": string.  
+      A concise, actionable recommendation for what this **single agent** should do or how its plan should be adjusted next (for example: change navigation strategy, wait/yield because of blocking, choose another object instance, skip the subtask, or hand the responsibility to another agent).
+    The suggestion should be written so that a planner/replanner module can use it as a hint to update subtasks and actions for this agent.
+
+    {VERIFY_EXAMPLE}
+
+    # Context
+    You will receive a JSON object with these fields:
+    - "Task":  (string) A high-level description of the final goal.
+    - "Agent's state": Current agent's position, facing, and inventory. (string or structured description)
+    - "Log": a list of JSON objects for **this agent only**, each with:
+      - "timestamp": (number) the time of the summarized history entry.
+      - "history": (string) a compact factual description of what happened and how the world changed, suitable for planning.
+
+    # Final instructions
+    First, think carefully step by step about the **most likely failure cause and the most helpful next adjustment** for this agent, closely adhering to the **Important Notes and Common Guidelines**.  
+    Then, **output only the specified dictionary with the single "suggestion" field**.
+    """
+    return prompt
+
 if __name__ == "__main__":
     # print("Testing prompt generation... Summary version:")
     # print(get_planner_prompt()) # 1500+ token
@@ -955,4 +1107,4 @@ if __name__ == "__main__":
     # print("--------------------------------")
 
     print("Testing Decentralized planner prompt generation...")
-    print(get_decen_planner_prompt()) # 2000+ token
+    # print(get_decen_planner_prompt()) # 2000+ token
