@@ -1045,6 +1045,8 @@ def get_decen_verifier_prompt():
     - Environment Hazards: open objects can block paths; avoid mutual blocking/collisions.
     - Electronics: operate directly on the device—do not use remotes unless required.
     - Use navigate to the object, unless something wrong while navigation. (no-path, distance-too-far..etc)
+    - If the best decision is for the current agent to remain idle / keep yielding / keep its current behavior and **no new subtask is needed**, set `"need_replan": false` and give a short suggestion like “remain idle near the fridge to yield space”.
+    - If the log suggests that this agent could **usefully change its behavior** (e.g., try a different motion pattern, take over a remaining object, or help complete a task another agent is struggling with), set `"need_replan": true` and describe that adjustment in "suggestion".
 
     # Reasoning Steps
     - Internally reason over:
@@ -1053,23 +1055,27 @@ def get_decen_verifier_prompt():
       - the agent's log history (timestamp + history strings),
       to isolate the most likely failure cause(s) and the most helpful corrective direction.
     - You are supposed to reason over the agent's previous actions, previous failures, previous memory/logs, subtasks, and the available actions the agent can perform, and think step by step.
+    - When the agent is free or stuck in its current subtask, also consider whether it should yield, stay idle, or take over a remaining goal that another agent may be struggling to complete.
     - Then output a **single textual "suggestion"** that will guide the next replanning step for this agent.
 
     # OUTPUT FORMAT
     You must output a JSON dictionary with:
+    - "need_replan": boolean.  
+      - Use `false` when the agent should just keep its current plan or remain idle/yield (no new subtask or plan change is needed).  
+      - Use `true` when the agent's plan should be updated (e.g., change navigation strategy, retry with a different motion, skip this subtask, or take over a remaining task from another agent).
     - "suggestion": string.  
       A concise, actionable recommendation for what this **single agent** should do or how its plan should be adjusted next (for example: change navigation strategy, wait/yield because of blocking, choose another object instance, skip the subtask, or hand the responsibility to another agent).
     The suggestion should be written so that a planner/replanner module can use it as a hint to update subtasks and actions for this agent.
 
     {VERIFY_EXAMPLE}
 
-    # Context
+    # Input Context
     You will receive a JSON object with these fields:
     - "Task":  (string) A high-level description of the final goal.
     - "Agent's state": Current agent's position, facing, and inventory. (string or structured description)
     - "Log": a list of JSON objects for **this agent only**, each with:
       - "timestamp": (number) the time of the summarized history entry.
-      - "history": (string) a compact factual description of what happened and how the world changed, suitable for planning.
+      - "history": (string) a compact factual description of what happened and how the world changed, including any important information received about other agents, suitable for planning.
 
     # Final instructions
     First, think carefully step by step about the **most likely failure cause and the most helpful next adjustment** for this agent, closely adhering to the **Important Notes and Common Guidelines**.  

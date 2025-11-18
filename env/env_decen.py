@@ -601,29 +601,7 @@ class AI2ThorEnv_cen(BaseEnv):
         return self.step_num[0]
 
     def stepwise_decen_loop(self):
-        '''
-        function stepwise_decen_loop(timeout):
-        start_time = now()
-        last_obs = None
-
-        while True:
-            if now() - start_time > timeout:
-                return last_obs, {}, []        # timeout, no replanning info
-
-            obs, info = exe_step_decen()      # one global step
-
-            last_obs = obs
-            replan_agents = info.replan_agents
-
-            if replan_agents not empty:
-                # pause execution and return to LLM side
-                return obs, info.per_agent_status, replan_agents
-
-            if all_agents_finished(info.per_agent_status):
-                # no more subtasks / actions for any agent
-                return obs, info.per_agent_status, []
         
-        '''
         succ = [True] * self.num_agents
         start_time = time.time()
         while True:
@@ -1039,6 +1017,15 @@ class AI2ThorEnv_cen(BaseEnv):
             self.logs.append(f"nxt task: {self.current_hl}")
             self.logs.append(f"current action queue: {self.action_queue}")
             self.logs.append("-------------------------")
+
+    def check_if_all_idle(self):
+        acts = [False] * self.num_agents
+        for aid in range(self.num_agents):
+            if len(self.pending_high_level[aid]) == 1 and self.pending_high_level[aid][0].lower() =='idle':
+                acts[aid] = True
+        return all(acts)
+
+            
 
     def get_decomp_steps(self, pending_subtasks: Dict[int, List[str]]):
         """Set the action queue for each agent."""
@@ -1890,8 +1877,8 @@ class AI2ThorEnv_cen(BaseEnv):
         snap: Dict[str, Any] = {
             "Task": self.task,
             "Agent's state": agent_state,
-            # "Objects in environment": obj_list,  # list of all objects in the scene
-            # "Objects in containers": contains_list,
+            "Objects in environment": obj_list,  # list of all objects in the scene
+            "Objects in containers": contains_list,
             "Logs": logs
         }
         return snap
