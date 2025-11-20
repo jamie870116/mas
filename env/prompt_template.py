@@ -372,123 +372,6 @@ You are an expert task planner and editor responsible for coordinating {len(AGEN
 First, think carefully step by step about the **plan correction** per the rules, closely adhering to the **Common Guidelines**. Then, **output only the corrected Subtasks JSON with no extra text**.
 """
 
-DECEN_PLANNER_PROMPT = f"""# Role and Objective
-You are a planner and robot controller for a single embodied robot (“current agent”) operating in a multi-agent environment to accomplish a high-level task.
-
-Your job in each call is to generate the shortest valid next subtask for this single agent only, given:
-- The high-level task specification
-- The current environment (objects and containers)
-- The current agent's state and history logs
-- Optional suggestions or failure analyses
-
-You do not plan for other agents; you may consider them only through the information reflected in the current agent's logs.
-
-Internally plan your steps but do not show any reasoning in the output.
-
-
-# Instructions (Decentralized, Single-Agent)
-You will receive a JSON user input describing:
-- "Task":  (string) A high-level description of the final goal.
-- "Objects in environment": List of objects currently available in the environment.
-- "Objects in containers": A dictionary where each key is a container object (e.g., Fridge, Drawer), and its value is a list of objects currently inside that container.
-- "Agent's state": current agent's position, facing, and inventory, and observation.
-- "Agent's log": (OPTIONAL) a time-ordered list or summary of this agent's action and observation history, including environment changes and information about other agents.
-- "Suggestion": (OPTIONAL) natural language hint about what to do next (e.g., after a failure or delayed message).
-
-
-Your job:
-- For the **current agent only**, produce a **short, atomic yet meaningful subtask description** that moves the global task closer to completion.
-- A **subtask** is a high-level instruction that can be expanded into one or several low-level actions from the Available Actions list.
-- For initial planning, history logs and suggestions may be empty or absent; you should still return a valid subtask for this agent based on the Task and environment.
-- For replanning, use the logs and suggestion to:
-  - Avoid repeating actions that this agent or other agent has already successfully completed unless the environment has changed and repetition is necessary.
-  - Adjust the subtask to account for failures, blocked paths, missing objects, or new information about other agents.
-- Internally interpret the Task, environment, state, logs, and Suggestion to choose the shortest valid next subtask.
-- Do **not** include your reasoning steps in the output.
-
-{AI2THOR_ACTIONS}
-# Common Guidelines and Simulation Note
-- Always navigate directly to the target object, not to its surface or container.
-{COMMON_GUIDELINES}
-
-# Replanning and Failure Handling
-When logs and/or Suggestion indicate failures, delayed messages, or environment changes:
-- Prefer the **shortest corrective subtask** that gets the agent unstuck and back toward the global goal.
-- Avoid subtasks like “find”, “scan”, “explore”, or “look for” unless there is a navigation or visibility failure suggesting the target cannot be directly navigated to.
-  - If the target object is not in visibility, first consider RotateLeft/RotateRight or LookUp/LookDown before more exploratory subtasks.
-- Reuse previous progress:
-  - Do not repeat previously successful subtasks for this agent unless the environment state has changed in a way that invalidates earlier progress.
-- Use “Suggestion” as a hint, not a strict command; ensure the subtask still respects all constraints and Available Actions.
-
-
-# Output Format
-Return only a valid JSON object with this structure. 
-Do not include explanations, comments, or markdown formatting.
-
-The JSON must contain the **next subtask for this single agent only**.  
-{{
-"Subtask": "description of subtask 1"
-}}
-
-The subtask should be a concise natural-language description that can be expanded into low-level actions, for example:
-- "navigate to the vase, pick up the vase, navigate to the table, and put it on the table"
-- "navigate to the fridge, open the fridge, put the lettuce inside, and close the fridge"
-
-# Examples
-
-Example 1 - initial planning, no logs
-Input (informal description):
-- Task: "Put the vase, tissue box, and remote control on the table."
-- Objects in environment: [Vase_1, TissueBox_1, RemoteControl_1, Table_1]
-- Objects in containers: 
-- Agent's state: agent sees all objects, hands empty.
-- Agent's log: [] (no history; initial step)
-- Suggestion: (none)
-
-Possible output:
-{
- { "Subtask": "navigate to the vase, pick up the vase, navigate to the table, and put it on the table"}
-  
-}
-
-Example 2 - replanning with logs and suggestion
-Input (informal description):
-- Task: "Put the vase, tissue box, and remote control on the table."
-- Objects in environment: [Vase_1, TissueBox_1, RemoteControl_1, Table_1]
-- Objects in containers: {{Table_1: [Vase_1]}}
-- Agent's state: facing TissueBox_1, hands empty.
-- Agent's log: shows that the agent already placed Vase_1 on the table successfully. And agent Bob is currently holding RemoteControl_1.
-- Suggestion: "The vase is already correctly placed; focus on the tissue box next."
-
-Possible output:
-{
-{  "Subtask":
-    "navigate to the tissue box, pick up the tissue box, navigate to the table, and put it on the table"
-}
-}
-
-Example 3 - replanning after navigation failure
-Input (informal description):
-- Task: "Put the lettuce in the fridge."
-- Objects in environment: [Lettuce_1, Fridge_1]
-- Objects in containers: { {"Fridge_1": [] }}
-- Agent's state: near Lettuce_1, some previous NavigateToFridge failed due to distance-too-far.
-- Agent's log: includes a failed navigation to Fridge_1 attempt and error reason.
-- Suggestion: "Since the Agent is holding Lettuce in hand, try rotating to adjust orientation before navigating to the fridge again."
-
-Possible output:
-{{
-  "Subtask": 
-    "rotate to face the fridge, navigate to the fridge, open the fridge, put the lettuce in the fridge, and close the fridge"
-
-}}
-
-# Final Instructions
-Carefully consider the Task, environment, agent's state, logs, and optional Suggestion.  
-Then output **only** the required JSON object under the specified "Subtasks" format, containing the **next subtask sequence for this single agent**. No additional text, explanations, or formatting.
-
-"""
-
 
 # for SUMMARY
 MEMORY_PROMPT = f"""
@@ -741,8 +624,155 @@ Return ONLY one JSON object with this structure:
 """
 
 
-def get_decen_planner_prompt():
-    return DECEN_PLANNER_PROMPT
+def get_decen_planner_prompt(agent_id=0):
+    cur_agent = AGENT_NAMES[agent_id]
+    others = [name for i, name in enumerate(AGENT_NAMES) if i != agent_id]
+
+    prompt = f"""# Role and Objective
+    You are the planner and controller for the current agent {cur_agent} in a multi-agent environment, alongside other agents {others} who are working toward the same task.
+
+    Your job in each call is to generate the shortest valid next subtask for this single agent only, given:
+    - The high-level task specification
+    - The current environment (objects and containers)
+    - The current agent's state and history logs
+    - Optional suggestions or failure analyses
+
+    You do not plan for other agents; you may consider them only through the information reflected in the current agent's logs.
+
+    Internally plan your steps but do not show any reasoning in the output.
+
+
+    # Instructions (Decentralized, Single-Agent)
+    You will receive a JSON user input describing:
+    - "Task":  (string) A high-level description of the final goal.
+    - "Objects in environment": List of objects currently available in the environment.
+    - "Objects in containers": A dictionary where each key is a container object (e.g., Fridge, Drawer), and its value is a list of objects currently inside that container.
+    - "Agent's state": current agent's position, facing, and inventory, and observation.
+    - "Agent's log": (OPTIONAL) a time-ordered list or summary of this agent's action and observation history, including environment changes and information about other agents.
+    - "Suggestion": (OPTIONAL) natural language hint about what to do next (e.g., after a failure or delayed message).
+
+
+    Your job:
+    - For the **current agent only**, produce a **short, atomic yet meaningful subtask description** that moves the global task closer to completion.
+    - A **subtask** is a high-level instruction that can be expanded into one or several low-level actions from the Available Actions list.
+    - For initial planning, history logs and suggestions may be empty or absent; you should still return a valid subtask for this agent based on the Task and environment.
+    - For replanning, use the logs and suggestion to:
+      - Avoid repeating actions that this agent or other agent has already successfully completed unless the environment has changed and repetition is necessary.
+      - Adjust the subtask to account for failures, blocked paths, missing objects, or new information about other agents.
+    - Internally interpret the Task, environment, state, logs, and Suggestion to choose the shortest valid next subtask.
+    - Do **not** include your reasoning steps in the output.
+    -Also, produce short messages to other agents in the form of a mapping {{"AgentName": "message"}}, which may:
+      - Telling other agent that you are taking over the subtask.
+      - Sharing remaining task status or completed subtasks, when such information is relevant for coordination.
+      - Ask another agent to start or take over a subtask.
+      - Request help or coordination.
+      - Be an empty string or the entire mapping may be {{}} if no message is needed.
+
+    {AI2THOR_ACTIONS}
+    # Common Guidelines and Simulation Note
+    - Always navigate directly to the target object, not to its surface or container.
+    {COMMON_GUIDELINES}
+
+    # Replanning and Failure Handling
+    When logs and/or Suggestion indicate failures, delayed messages, or environment changes:
+    - Prefer the **shortest corrective subtask** that gets the agent unstuck and back toward the global goal.
+    - Avoid subtasks like “find”, “scan”, “explore”, or “look for” unless there is a navigation or visibility failure suggesting the target cannot be directly navigated to.
+      - If the target object is not in visibility, first consider RotateLeft/RotateRight or LookUp/LookDown before more exploratory subtasks.
+    - Reuse previous progress:
+      - Do not repeat previously successful subtasks for this agent unless the environment state has changed in a way that invalidates earlier progress.
+    - Use “Suggestion” as a hint, not a strict command; ensure the subtask still respects all constraints and Available Actions.
+
+
+    # Output Format
+    Return only a valid JSON object with this structure. 
+    Do not include explanations, comments, or markdown formatting.
+
+    "The JSON must contain the next subtask for this single agent only, plus an set of messages to other agents." 
+    {{
+      "Subtask": "description",
+      "Messages":{ {
+        "<AgentName>": "<message string or empty>"
+      }}
+    }}
+
+    The subtask should be a concise natural-language description that can be expanded into low-level actions, for example:
+    - "navigate to the vase, pick up the vase, navigate to the table, and put it on the table"
+    - "navigate to the fridge, open the fridge, put the lettuce inside, and close the fridge"
+
+    # Examples
+
+    Example 1 - initial planning, no logs
+    Input (informal description):
+    - Task: "Put the vase, tissue box, and remote control on the table."
+    - Objects in environment: [Vase_1, TissueBox_1, RemoteControl_1, Table_1]
+    - Objects in containers: 
+    - Agent's state: agent sees all objects, hands empty.
+    - Agent's log: [] (no history; initial step)
+    - Suggestion: (none)
+
+    Possible output:
+    {{
+      "Subtask": "navigate to the vase, pick up the vase, navigate to the table, and put it on the table",
+      "Messages": {{}}
+    }}
+
+    Example 2 - replanning with logs and suggestion
+    Input (informal description):
+    - Task: "Put the vase, tissue box, and remote control on the table."
+    - Objects in environment: [Vase_1, TissueBox_1, RemoteControl_1, Table_1]
+    - Objects in containers: {{Table_1: [Vase_1]}}
+    - Agent's state: facing TissueBox_1, hands empty.
+    - Agent's log: shows that the agent already placed Vase_1 on the table successfully. And agent Bob is currently holding RemoteControl_1.
+    - Suggestion: "The vase is already correctly placed; focus on the tissue box next. "
+
+    Possible output:
+    {{
+      "Subtask": "navigate to the tissue box, pick up the tissue box, navigate to the table, and put it on the table",
+      "Messages": {{
+        "Bob": "Alice starting subtask: place the tissue box. No remaining subtasks assigned to Bob; Bob may stay idle."
+      }}
+    }}
+
+    Example 3 - replanning after navigation failure
+    Input (informal description):
+    - Task: "Put the lettuce in the fridge."
+    - Objects in environment: [Lettuce_1, Fridge_1]
+    - Objects in containers: {{ "Fridge_1": ["Apple_1"] }}
+    - Agent's state: near Lettuce_1, some previous NavigateToFridge failed due to distance-too-far.
+    - Agent's log: includes a failed navigation to Fridge_1 attempt and error reason.
+    - Suggestion: "Since the Agent is holding Lettuce in hand, try rotating to adjust orientation before navigating to the fridge again."
+
+    Possible output:
+    {{
+      "Subtask": 
+        "rotate to face the fridge, navigate to the fridge, open the fridge, put the lettuce in the fridge, and close the fridge",
+      "Messages": {{}}
+    }}
+
+    Example 4 -  coordination request due to blocking
+    Input (informal description):
+    - Task: "Put all the food in the fridge."
+    - Objects in environment: [Lettuce_1, Bread_1, Tomato_1, Egg_1, Apple_1, Fridge_1]
+    - Objects in containers: {{}}
+    - Agent's state: Alice is facing the fridge while holding Lettuce_1, but Bob is standing directly in the path.
+    - Agent's log: indicates Alice's previous NavigateToFridge attempts failed due to Bob blocking the approach route.
+    - Suggestion: "Alice is blocked by Bob; Bob should clear the path."
+
+    Possible output:
+    {{
+      "Subtask": "wait briefly and retry navigating to the fridge to place the lettuce inside",
+      "Messages":{{
+        "Bob": "Move aside to clear Alice's path and take over any pending food-placement subtasks when free."
+      }}
+    }}
+
+    # Final Instructions
+    Carefully consider the Task, environment, agent's state, logs, and optional Suggestion.  
+    Then output **only** the required JSON object under the specified "Subtasks" format, containing the **next subtask sequence for this single agent**. No additional text, explanations, or formatting.
+
+    """
+
+    return prompt
 
 def get_log_prompt():
     return LOG_PROMPT
@@ -1112,5 +1142,6 @@ if __name__ == "__main__":
     # print(get_log_prompt()) # 250+ token
     # print("--------------------------------")
 
-    print("Testing Decentralized planner prompt generation...")
-    # print(get_decen_planner_prompt()) # 2000+ token
+    # print("Testing Decentralized planner prompt generation...")
+    print(get_decen_planner_prompt()) # 2000+ token
+    # print(get_decen_log_prompt())

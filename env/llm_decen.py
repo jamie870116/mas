@@ -172,13 +172,13 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", agent_id: int = 0, adden
 
     if mode == "planner":
         # for initial planning
-        system_prompt = get_decen_planner_prompt()
+        system_prompt = get_decen_planner_prompt(agent_id)
         input = env.get_planner_llm_input(agent_id)
         user_prompt = convert_dict_to_string(input)
         # print("planner input:", user_prompt)
     elif mode == "replan":
         # for replanning the subtasks based on the current state of the environment
-        system_prompt = get_decen_planner_prompt()
+        system_prompt = get_decen_planner_prompt(agent_id)
         input = env.get_planner_llm_input(agent_id)
         if info:
             input['Suggestion'] = info
@@ -226,11 +226,11 @@ def process_llm_output(res_content, mode):
       - verifier -> (failure_reason, memory, reason, suggestion)
     """
     data = _to_json(res_content)
-    if mode == "planner":
-        return _get(data, "Subtask") or ""
+    if mode == "planner" or mode == "replan":
+        return [_get(data, "Subtask"), _get(data, "Messages")] or ""
 
     if mode == "action":
-        return _get(data, "Actions") or []
+        return data["Actions"] if data else []
 
     
     if mode == "verifier":
@@ -245,6 +245,7 @@ def process_llm_output(res_content, mode):
         return data
 
     return data
+
 
 def _get(d: dict, key: str, aliases=None):
         if key in d: return d[key]
@@ -279,9 +280,9 @@ def decompose_subtask_to_actions(env, subtasks, info={}):
     # print("action prompt:", action_prompt)
     # print("action user prompt:", action_user_prompt)
     res, res_content = get_llm_response(action_payload, model=config['model'])
-    print('action llm output', res_content)
+    # print('action llm output', res_content)
     actions = process_llm_output(res_content, mode="action")
-
+    print("after llm processed output action: ", actions)
     # For testing 
     # actions = [['NavigateTo(Tomato_1)', 'PickupObject(Tomato_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)'], ['NavigateTo(Lettuce_1)', 'PickupObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)']]
     return actions
@@ -427,9 +428,9 @@ def decen_subtask_planning(env, config, agent_id, is_initial=False, info=""):
     planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
     res, res_content = get_llm_response(planner_payload, model=config['model'])
     # print('init plan llm output', res_content)
-    subtasks = process_llm_output(res_content, mode=mode)
-    # print(f"After Planner LLM Response: {subtasks}, type of res_content: {type(subtasks)}")
-    return subtasks
+    subtasks, msg = process_llm_output(res_content, mode=mode)
+    print(f"After Planner LLM Response subtasks: {subtasks}, msg: {msg}")
+    return subtasks, msg
 
 def get_agent_subtask(env: AI2ThorEnv, config, agent_id, is_initial=False, info=""):
     """
@@ -437,8 +438,8 @@ def get_agent_subtask(env: AI2ThorEnv, config, agent_id, is_initial=False, info=
     return a list of subtasks for this agent
     """
     # planning subtasks based on environment and logs and agent's observation
-    subtask = decen_subtask_planning(env, config, agent_id, is_initial=is_initial, info=info)
-
+    subtask, msg = decen_subtask_planning(env, config, agent_id, is_initial=is_initial, info=info)
+    
     # decompose subtask to smaller actions
     actions = decompose_subtask_to_actions(env, subtask)
     actions = actions[0]  # get the first agent's actions
@@ -459,18 +460,36 @@ def get_agent_subtask(env: AI2ThorEnv, config, agent_id, is_initial=False, info=
     else:
         # log with delay messaging
         for aid in range(config['num_agents']):
-            if aid != agent_id:
-                delay_sec = get_delays(mode='poisson')
-                if delay_sec == 0:
-                    log_dict = {
-                        'timestamp':env.get_cur_ts(),
-                        'history': f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}."
-                    }
-                    env.save2log_by_agent(aid, log_dict)
-                else:
-                    env.schedule_message(aid, f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}.", delay_sec)
+            if aid == agent_id:
+                continue
+            
+            target_name = AGENT_NAMES[aid]
+            
+            if not msg.get(target_name):
+                continue
+            
+            delay_sec = get_delays(mode='poisson')
+            if delay_sec == 0:
+                log_dict = {
+                    'timestamp': env.get_cur_ts(),
+                    'history': msg[target_name]
+                }
+                env.save2log_by_agent(aid, log_dict)
+            else:
+                env.schedule_message(aid, msg[target_name], delay_sec)
+        # for aid in range(config['num_agents']):
+        #     if aid != agent_id:
+        #         delay_sec = get_delays(mode='poisson')
+        #         if delay_sec == 0:
+        #             log_dict = {
+        #                 'timestamp':env.get_cur_ts(),
+        #                 'history': f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}."
+        #             }
+        #             env.save2log_by_agent(aid, log_dict)
+        #         else:
+        #             env.schedule_message(aid, f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}.", delay_sec)
     # return a subtask and a list of actions of this subtask
-    return subtask, actions
+    return subtask, actions, msg
 
 def decen_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
     # Init. Env & config
@@ -488,10 +507,12 @@ def decen_main(test_id = 0, config_path="config/config.json", delete_frames=Fals
     print("\n--- Initial Subtask Planning for each agent---")
     logs_llm.append("\n--- Initial Subtask Planning for each agent---")
     subtasks = {}
+    msg_list = []
     for aid in range(num_agent):
-        subtask, actions = get_agent_subtask(env, config, agent_id=aid, is_initial=True)
+        subtask, actions, msg = get_agent_subtask(env, config, agent_id=aid, is_initial=True)
         subtasks[aid] = (subtask, actions)
-    print("Initial subtasks for each agent: ", subtasks)
+        msg_list.append(msg)
+    print("Initial subtasks for each agent: ", subtasks, "with msg:", msg_list)
     """
     self.current_subtask: {0: 'navigate to the bread, pick up the bread, navigate to the fridge, open the fridge, put the bread in the fridge, and close the fridge', 1: 'navigate to the bread, pick up the bread, navigate to the fridge, open the fridge, put the bread in the fridge, and close the fridge'}
     self.pending_high_level: defaultdict(<class 'collections.deque'>, {0: deque(['NavigateTo(Bread_1)', 'PickupObject(Bread_1)', 'NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)']), 1: deque(['NavigateTo(Bread_1)', 'PickupObject(Bread_1)', 'NavigateTo(Fridge_1)', 'OpenObject(Fridge_1)', 'PutObject(Fridge_1)', 'CloseObject(Fridge_1)'])})
@@ -499,7 +520,7 @@ def decen_main(test_id = 0, config_path="config/config.json", delete_frames=Fals
     self.action_queue: defaultdict(<class 'collections.deque'>, {0: deque([]), 1: deque([])})
     
     """
-    logs_llm.append(f"Initial subtasks for each agent: {subtasks}")
+    logs_llm.append(f"Initial subtasks for each agent: {subtasks} with msg: {msg_list}")
 
     # save the subtasks to env
     env.update_decen_plan(subtasks)
@@ -507,7 +528,7 @@ def decen_main(test_id = 0, config_path="config/config.json", delete_frames=Fals
     # loop start
     cnt = 0
     start_time = time.time()
-    # TBD: (more test) 重複執行，未檢查出正確完成的時機
+    # TBD: (more test) 
     while True:
         if time.time() - start_time > timeout:
             print("Timeout reached, ending loop.")
@@ -536,7 +557,6 @@ def decen_main(test_id = 0, config_path="config/config.json", delete_frames=Fals
         logs_llm.append(f"message status: {old_msg}")
 
         # which agent need replan (due to failure or/and new msg)
-       
         for aid in range(num_agent):
             
             failed = not succ[aid]
@@ -550,23 +570,26 @@ def decen_main(test_id = 0, config_path="config/config.json", delete_frames=Fals
                 need_replan = False
             print(f"check if replan is needed for agent {aid}: need_replan: {need_replan} ;failed {failed}, new_msg {new_msg}, done_all {done_all}")
             logs_llm.append(f"check if replan is needed for agent {aid}: need_replan: {need_replan} ;failed {failed}, new_msg {new_msg}, done_all {done_all}")
-            # TBD: verify & replan
+            #  verify & replan
             if need_replan:
                 verify_res = verify_actions(env, agent_id=aid)
                 print(verify_res)
                 logs_llm.append(f"verified res for agent {aid}: {verify_res}")
                 if verify_res["need_replan"]:
-                    subtask, actions = get_agent_subtask(env, config, agent_id=aid, is_initial=False, info=verify_res['suggestion'])
+                    subtask, actions, msg = get_agent_subtask(env, config, agent_id=aid, is_initial=False, info=verify_res['suggestion'])
                     print(f"new subtasks for  agent {aid}: {subtask}")
                     print(f"new actions for  agent {aid}: {actions}")
+                    print(f"new message from agent {aid}: {msg}")
                     logs_llm.append(f"new subtasks for  agent {aid}: {subtask}")
                     logs_llm.append(f"new actions for  agent {aid}: {actions}")
+                    logs_llm.append(f"new message from agent {aid}: {msg}")
                     # After replanning, update plan
-                    # env.upadate_decen_subtasks_by_agent(agent_id=aid, subtask = subtask, actions=actions)
+                    env.upadate_decen_subtasks_by_agent(agent_id=aid, subtask = subtask, actions=actions)
                 else:
-                    actions = ['Idle']
-                    subtask = 'Remain idle.'
-                env.upadate_decen_subtasks_by_agent(agent_id=aid, subtask = subtask, actions=actions)
+                    # Get previous plan, and continuly work on previous plan
+                    subtask, actions = env.get_curr_subtask_agent(aid)
+            else: 
+                subtask, actions = env.get_curr_subtask_agent(aid)
             
         
         with open(logs_llm_path, "a", encoding="utf-8") as f:
@@ -629,33 +652,33 @@ if __name__ == "__main__":
     # {
     #     "task_folder": "1_put_bread_lettuce_tomato_fridge",
     #     "task": "put bread, lettuce, and tomato in the fridge",
-    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    #     "scenes": ["FloorPlan4", "FloorPlan5"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
     # {
     #     "task_folder": "1_put_computer_book_remotecontrol_sofa",
     #     "task": "put laptop, book and remote control on the sofa",
-    #     "scenes": ["FloorPlan201"] #,"FloorPlan201", "FloorPlan202""FloorPlan203", "FloorPlan209", "FloorPlan224"
+    #     "scenes": ["FloorPlan202"] #,"FloorPlan201", "FloorPlan202","FloorPlan203", "FloorPlan209", "FloorPlan224"
     # },
     # {
     #     "task_folder": "1_put_knife_bowl_mug_countertop",
     #     "task": "put knife, bowl, and mug on the counter top",
-    #     "scenes": ["FloorPlan1"] #"FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    #     "scenes": ["FloorPlan2"] #"FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
     # {
     #     "task_folder": "1_put_plate_mug_bowl_fridge",
     #     "task": "put plate, mug, and bowl in the fridge",
     #     "scenes": ["FloorPlan1"] #"FloorPlan1", "FloorPlan2",,"FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
-    # {
-    #     "task_folder": "1_put_remotecontrol_keys_watch_box",
-    #     "task": "put remote control, keys, and watch in the box",
-    #     "scenes": ["FloorPlan201"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
-    # },
-    # {
-    #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
-    #     "task": "put vase, tissue box, and remote control on the side table1",
-    #     "scenes": [ "FloorPlan201"] # "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"
-    # },
+    {
+        "task_folder": "1_put_remotecontrol_keys_watch_box",
+        "task": "put remote control, keys, and watch in the box",
+        "scenes": ["FloorPlan201"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
+    },
+    {
+        "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
+        "task": "put vase, tissue box, and remote control on the side table1",
+        "scenes": [ "FloorPlan201"] # "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"
+    },
 
     # {
     #     "task_folder": "1_slice_bread_lettuce_tomato_egg",
@@ -667,11 +690,11 @@ if __name__ == "__main__":
     #     "task": "turn off the sink faucet and turn off the light switch",
     #     "scenes": ["FloorPlan1"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
-    {
-        "task_folder": "1_wash_bowl_mug_pot_pan",
-        "task": "clean the bowl, mug, pot, and pan",
-        "scenes": ["FloorPlan1"] #"FloorPlan3","FloorPlan1",  "FloorPlan2", "FloorPlan4", "FloorPlan5"
-    },
+    # {
+    #     "task_folder": "1_wash_bowl_mug_pot_pan",
+    #     "task": "clean the bowl, mug, pot, and pan",
+    #     "scenes": ["FloorPlan1"] #"FloorPlan3","FloorPlan1",  "FloorPlan2", "FloorPlan4", "FloorPlan5"
+    # },
 ]
 
     TASKS_2 = [
@@ -763,32 +786,32 @@ if __name__ == "__main__":
     ]
 
     TASKS_4 = [
-    {
-        "task_folder": "4_clear_couch_livingroom",
-        "task": "Clear the couch by placing the items in other appropriate positions ",
-        "scenes": ["FloorPlan201"] #"FloorPlan212" hen "FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
-    },
-    {
-        "task_folder": "4_clear_countertop_kitchen",
-        "task": "Clear the countertop by placing items in their appropriate positions",
-        "scenes": ["FloorPlan1"] # "FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"
-    },
-    {
-        "task_folder": "4_clear_floor_kitchen",
-        "task": "Clear the floor by placing items at their appropriate positions",
-        "scenes": ["FloorPlan1"]# "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    },
-    {
-        "task_folder": "4_clear_table_kitchen",
-        "task": "Clear the table by placing the items in their appropriate positions",
-        "scenes": ["FloorPlan4"] #"FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"
-    },
+    # {
+    #     "task_folder": "4_clear_couch_livingroom",
+    #     "task": "Clear the couch by placing the items in other appropriate positions ",
+    #     "scenes": ["FloorPlan201"] #"FloorPlan212" hen "FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
+    # },
+    # {
+    #     "task_folder": "4_clear_countertop_kitchen",
+    #     "task": "Clear the countertop by placing items in their appropriate positions",
+    #     "scenes": ["FloorPlan1"] # "FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"
+    # },
+    # {
+    #     "task_folder": "4_clear_floor_kitchen",
+    #     "task": "Clear the floor by placing items at their appropriate positions",
+    #     "scenes": ["FloorPlan1"]# "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    # },
+    # {
+    #     "task_folder": "4_clear_table_kitchen",
+    #     "task": "Clear the table by placing the items in their appropriate positions",
+    #     "scenes": ["FloorPlan4"] #"FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"
+    # },
     
-    {
-        "task_folder": "4_put_appropriate_storage",
-        "task": "Place all utensils into their appropriate positions",
-        "scenes": [  "FloorPlan2"] # "FloorPlan2",  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6
-    }, 
+    # {
+    #     "task_folder": "4_put_appropriate_storage",
+    #     "task": "Place all utensils into their appropriate positions",
+    #     "scenes": [  "FloorPlan2"] # "FloorPlan2",  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6
+    # }, 
     {
         "task_folder": "4_make_livingroom_dark",
         "task": "Make the living room dark",
@@ -796,7 +819,7 @@ if __name__ == "__main__":
     }, 
 ]
     
-    # batch_run(TASKS_1, base_dir="config", start=60, end=60, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_1, base_dir="config", start=63, end=63, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=60, end=60, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_3, base_dir="config", start=60, end=60, sleep_after=50, delete_frames=True)
     batch_run(TASKS_4, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)

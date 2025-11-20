@@ -1,14 +1,90 @@
-# MS project
+#  LLM Agents for Multi-Robot Task Planning: Centralized and Decentralized Systems
+
+*Jamie Lai*
+
+(Title TBD)
+
+This project investigates centralized and decentralized LLM-driven task planning architectures for multi-robot coordination in AI2-THOR. Using agentic LLMs, the system performs subtask decomposition, action generation, inter-agent communication, and reactive replanning for long-horizon embodied tasks. The project compares how centralized and decentralized planners differ in coordination efficiency, robustness, and agent autonomy. In addition, it evaluates summary-based versus log-based state representations to study LLM forgetting, information retention, and stability across multi-step control. The goal is to better understand how LLM agents can support scalable, reliable multi-robot reasoning in complex simulated environments.
+
+## System Overview
+
+### Centralized Architecture  
+
+![Centralized Pipeline](img/cen_workflow.png)
+
+### Decentralized Architecture  
+
+![Decentralized Pipeline](img/decen_workflow.png)
+
+## Setup
+
+### Env
+I ran on conda environment with python=3.10.
+Other dependecies are shown in `requirements.txt`
+
+### LLM API key
+- log file path: `logs/{task_name}`
+- LLM api key file: `api_ley.txt` in root folder. 
+- You can get an api key on [OpenAI Website](https://platform.openai.com/api-keys). The *gpt-4.1* model is used for all experiments.
+
+## Test
+- config file path: `config/config.json`
+- Before testing, change the content in config file
+```python 
+{   
+    # change these value
+    "num_agents": 2,
+    "scene": "FloorPlan201", 
+    "task": "put remote control, keys, and watch in the box",
+    "model": "gpt-4.1-2025-04-14" # choose from gpt models
+    "task_folder": "1_put_remotecontrol_keys_watch_box" # Tasks/{task_folder} for checker and scene_init
+}
+```
+> **Configuration Options Reference**  
+>  
+> `num_agents`: Integer between **1** and **7**  
+>  
+> `scene`: Format `"FloorPlanX"`  
+> Categories (Same as defined in AI2Thor):  
+> - Kitchen: `FloorPlan1` to `FloorPlan30`  
+> - Living Room: `FloorPlan201` to `FloorPlan230`  
+> - Bedroom: `FloorPlan301` to `FloorPlan330`  
+> - Bathroom: `FloorPlan401` to `FloorPlan430`  
+>  
+> `task`: High-level natural language instruction combining actions like:  
+> - Put [object] in/on [location]` 
+> - Slice [object]` 
+> - Clean [object]  
+> - Turn on/off [appliance]
+> Refer to `config/scene_objects.json` to check which objects are included in each floorplan.  
+
+
+
+### Centralized Architecture with summary
+For testing, change the content in config file and run:
+
+```python
+python env/llm_cm.py
+```
+### Centralized Architecture with log
+For testing, change the content in config file and run:
+
+```python
+python env/llm_log3.py
+```
+### Decentralized Architecture with log
+For testing, change the content in config file and run:
+
+```python
+python env/llm_dec.py
+```
+
+
+
+
+<!-- # MS project
 Aiming to implement a decentralized, LLM-driven multi-robot task planning and coordination system that is tolerant of unexpected events during execution.
 
-
-
-## TODO
-- [x] Built env with ai2thor    
-- [x] Set up  LLM workflow and Baselines: Centraulized (One time planning, Replanning loop)
-- [ ] Test cases
-- [ ] Decentualized planning
-- [ ] Experiment
 
 ## Setup
 
@@ -140,4 +216,4 @@ python env/llm_log3.py
 For testing, change the content in config file and  run:
 ```python
 python env/llm_decen.py
-```
+``` -->

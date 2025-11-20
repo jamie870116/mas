@@ -1,4 +1,3 @@
-# 改成各自存log file -> llm_log2.py
 import json
 import os
 from pathlib import Path
@@ -1025,7 +1024,8 @@ class AI2ThorEnv_cen(BaseEnv):
                 acts[aid] = True
         return all(acts)
 
-            
+    def get_curr_subtask_agent(self, agent_id):
+        return self.current_subtask[agent_id], self.pending_high_level[agent_id]
 
     def get_decomp_steps(self, pending_subtasks: Dict[int, List[str]]):
         """Set the action queue for each agent."""
