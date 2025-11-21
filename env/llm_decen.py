@@ -450,8 +450,9 @@ def get_agent_subtask(env: AI2ThorEnv, config, agent_id, is_initial=False, info=
         
         print(f"Agent_{agent_id} start {subtask}")
         log_dict = {
-                'timestamp':0,
-                'history': f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}."
+                'sent_at':0,
+                'received_at':0,
+                'msg': f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}."
             }
         # boardcast log to all agents
         for aid in range(config['num_agents']):
@@ -471,8 +472,9 @@ def get_agent_subtask(env: AI2ThorEnv, config, agent_id, is_initial=False, info=
             delay_sec = get_delays(mode='poisson')
             if delay_sec == 0:
                 log_dict = {
-                    'timestamp': env.get_cur_ts(),
-                    'history': msg[target_name]
+                    'sent_at': env.get_cur_ts(),
+                    'received_at':env.get_cur_ts(),
+                    'msg': msg[target_name]
                 }
                 env.save2log_by_agent(aid, log_dict)
             else:
@@ -491,7 +493,7 @@ def get_agent_subtask(env: AI2ThorEnv, config, agent_id, is_initial=False, info=
     # return a subtask and a list of actions of this subtask
     return subtask, actions, msg
 
-def decen_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
+def decen_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250, timeout_step=200):
     # Init. Env & config
     env, config = set_env_with_config(config_path)
     if test_id > 0:
@@ -534,6 +536,11 @@ def decen_main(test_id = 0, config_path="config/config.json", delete_frames=Fals
             print("Timeout reached, ending loop.")
             logs_llm.append(f"""Timeout ({timeout} second) reached, ending loop.""")
             break
+        if env.get_cur_ts() > timeout_step:
+            print("max. step reached, ending loop.")
+            logs_llm.append(f"""max ({timeout_step} step) reached, ending loop.""")
+            break
+
         print(f"\n--- Loop {cnt + 1} ---")
         logs_llm.append(f"\n--- Loop {cnt + 1} ---")
 
@@ -649,16 +656,16 @@ def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delet
 
 if __name__ == "__main__":
     TASKS_1 = [
-    # {
-    #     "task_folder": "1_put_bread_lettuce_tomato_fridge",
-    #     "task": "put bread, lettuce, and tomato in the fridge",
-    #     "scenes": ["FloorPlan4", "FloorPlan5"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    # },
-    # {
-    #     "task_folder": "1_put_computer_book_remotecontrol_sofa",
-    #     "task": "put laptop, book and remote control on the sofa",
-    #     "scenes": ["FloorPlan202"] #,"FloorPlan201", "FloorPlan202","FloorPlan203", "FloorPlan209", "FloorPlan224"
-    # },
+    {
+        "task_folder": "1_put_bread_lettuce_tomato_fridge",
+        "task": "put bread, lettuce, and tomato in the fridge",
+        "scenes": ["FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    },
+    {
+        "task_folder": "1_put_computer_book_remotecontrol_sofa",
+        "task": "put laptop, book and remote control on the sofa",
+        "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203", "FloorPlan209", "FloorPlan224"] #,"FloorPlan201", "FloorPlan202","FloorPlan203", "FloorPlan209", "FloorPlan224"
+    },
     # {
     #     "task_folder": "1_put_knife_bowl_mug_countertop",
     #     "task": "put knife, bowl, and mug on the counter top",
@@ -674,11 +681,11 @@ if __name__ == "__main__":
         "task": "put remote control, keys, and watch in the box",
         "scenes": ["FloorPlan201"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
     },
-    {
-        "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
-        "task": "put vase, tissue box, and remote control on the side table1",
-        "scenes": [ "FloorPlan201"] # "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"
-    },
+    # {
+    #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
+    #     "task": "put vase, tissue box, and remote control on the side table1",
+    #     "scenes": [ "FloorPlan201"] # "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"
+    # },
 
     # {
     #     "task_folder": "1_slice_bread_lettuce_tomato_egg",
@@ -819,10 +826,10 @@ if __name__ == "__main__":
     }, 
 ]
     
-    # batch_run(TASKS_1, base_dir="config", start=63, end=63, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_1, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=60, end=60, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_3, base_dir="config", start=60, end=60, sleep_after=50, delete_frames=True)
-    batch_run(TASKS_4, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_4, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
 
 
     # decen_main(test_id = 1, config_path="config/config.json", delete_frames=True, timeout=250)

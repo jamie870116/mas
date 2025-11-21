@@ -712,8 +712,9 @@ class AI2ThorEnv_cen(BaseEnv):
                     
                     if delay_sec == 0:
                         log_dict = {
-                            'timestamp':self.step_num[0],
-                            'history': msg
+                            'sent_at':self.step_num[0],
+                            'received_at':self.step_num[0],
+                            'msg': msg
                         }
                         self.save2log_by_agent(aid, log_dict)
                     else:
@@ -944,10 +945,11 @@ class AI2ThorEnv_cen(BaseEnv):
 
         # TBD: handle delayed message
         while self.upcoming_messages and self.upcoming_messages[0][0] <= self.step_num[aid]:
-            _, to_agent_id, msg = heappop(self.upcoming_messages)
+            _, to_agent_id, msg, send_at = heappop(self.upcoming_messages)
             log_dict = {
-                        'timestamp':self.step_num[0],
-                        'history': msg
+                        'sent_at':send_at,
+                        'received_at':self.step_num[0],
+                        'msg': msg
                     }
             self.save2log_by_agent(to_agent_id, log_dict)
             no_new_info[to_agent_id] = True
@@ -1100,7 +1102,7 @@ class AI2ThorEnv_cen(BaseEnv):
         }
 
     def schedule_message(self, agent_id: int, message: str, delay: int):
-        heappush(self.upcoming_messages, (self.step_num[0] + delay, agent_id, message))
+        heappush(self.upcoming_messages, (self.step_num[0] + delay, agent_id, message, self.step_num[0]))
 
     def save_log(self):
         if self.save_logs:

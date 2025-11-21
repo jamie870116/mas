@@ -553,7 +553,7 @@ You will receive:
 - Task description
 - Objects in the environment
 - This agent's past memory entries: a list of JSON objects, each with:
-  {{ "timestamp": <int>, "history": "<previous factual summary>" }}
+  {{ "timestamp": <int>, "history": "<previous factual summary>" }} or {{"timestamp": <int: the original timestamp when the message sent from other>, "received_at": <int: the timestamp received the message, it may have delay> , "history": "<message from other agent>" }}
 - This agent's new execution log: a single JSON object in the action-log format:
   {{
     "timestamp": <int>,
@@ -648,7 +648,8 @@ def get_decen_planner_prompt(agent_id=0):
     - "Objects in environment": List of objects currently available in the environment.
     - "Objects in containers": A dictionary where each key is a container object (e.g., Fridge, Drawer), and its value is a list of objects currently inside that container.
     - "Agent's state": current agent's position, facing, and inventory, and observation.
-    - "Agent's log": (OPTIONAL) a time-ordered list or summary of this agent's action and observation history, including environment changes and information about other agents.
+    - "Agent's log": (OPTIONAL)  a time-ordered log of this agent's action and observation history, and message from other agents in the same environment.
+      - format will be either  {{ "timestamp": <int>, "history": "<previous factual summary>" }} or {{"sent_at": <int: the original timestamp when the message sent from other>, "received_at": <int: the timestamp received the message, it may have delay> , "msg": "<message from other agent>" }}
     - "Suggestion": (OPTIONAL) natural language hint about what to do next (e.g., after a failure or delayed message).
 
 
