@@ -1,7 +1,7 @@
 {
   "num_agents": 2,
   "scene": "FloorPlan2",
-  "task": "Clear the countertop2 by placing small items in their appropriate storage",
+  "task": "Clear the countertop by placing items in their appropriate positions",
   "timeout": 30,
   "model": "gpt-4.1-2025-04-14",
   "use_obs_summariser": false,

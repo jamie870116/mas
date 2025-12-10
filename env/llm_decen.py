@@ -426,6 +426,7 @@ def decen_subtask_planning(env, config, agent_id, is_initial=False, info=""):
         mode = "replan"
     planner_prompt, planner_user_prompt = prepare_prompt(env, mode=mode, agent_id=agent_id, info=info)
     planner_payload = prepare_payload(planner_prompt, planner_user_prompt)
+
     res, res_content = get_llm_response(planner_payload, model=config['model'])
     # print('init plan llm output', res_content)
     subtasks, msg = process_llm_output(res_content, mode=mode)
@@ -449,13 +450,20 @@ def get_agent_subtask(env: AI2ThorEnv, config, agent_id, is_initial=False, info=
         log_dict = {}
         
         print(f"Agent_{agent_id} start {subtask}")
-        log_dict = {
-                'sent_at':0,
-                'received_at':0,
-                'msg': f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}."
-            }
+
         # boardcast log to all agents
         for aid in range(config['num_agents']):
+            if aid == agent_id:
+                log_dict = {
+                'timestamp':0,
+                'history': f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}."
+                }
+            else:
+                log_dict = {
+                    'sent_at': env.get_cur_ts(),
+                    'received_at':env.get_cur_ts(),
+                    'msg': f"Agent_{agent_id} {AGENT_NAMES[agent_id]} starts {subtask}."
+                }
             env.save2log_by_agent(aid, log_dict)
 
     else:
@@ -530,8 +538,11 @@ def decen_main(test_id = 0, config_path="config/config.json", delete_frames=Fals
     # loop start
     cnt = 0
     start_time = time.time()
+    
     # TBD: (more test) 
     while True:
+        need_replan_arr = [True] * num_agent
+
         if time.time() - start_time > timeout:
             print("Timeout reached, ending loop.")
             logs_llm.append(f"""Timeout ({timeout} second) reached, ending loop.""")
@@ -572,17 +583,18 @@ def decen_main(test_id = 0, config_path="config/config.json", delete_frames=Fals
             done_all = env.check_if_done_byagent(aid)
             
             if failed or new_msg or done_all:
-                need_replan = True
+                need_replan_arr[aid] = True
             else:
-                need_replan = False
-            print(f"check if replan is needed for agent {aid}: need_replan: {need_replan} ;failed {failed}, new_msg {new_msg}, done_all {done_all}")
-            logs_llm.append(f"check if replan is needed for agent {aid}: need_replan: {need_replan} ;failed {failed}, new_msg {new_msg}, done_all {done_all}")
+                need_replan_arr[aid] = False
+            print(f"check if replan is needed for agent {aid}: need_replan: {need_replan_arr[aid]} ;failed {failed}, new_msg {new_msg}, done_all {done_all}")
+            logs_llm.append(f"check if replan is needed for agent {aid}: need_replan: {need_replan_arr[aid]} ;failed {failed}, new_msg {new_msg}, done_all {done_all}")
             #  verify & replan
-            if need_replan:
+            if need_replan_arr[aid]:
                 verify_res = verify_actions(env, agent_id=aid)
                 print(verify_res)
                 logs_llm.append(f"verified res for agent {aid}: {verify_res}")
-                if verify_res["need_replan"]:
+                need_replan_arr[aid] = verify_res["need_replan"]
+                if need_replan_arr[aid]:
                     subtask, actions, msg = get_agent_subtask(env, config, agent_id=aid, is_initial=False, info=verify_res['suggestion'])
                     print(f"new subtasks for  agent {aid}: {subtask}")
                     print(f"new actions for  agent {aid}: {actions}")
@@ -597,7 +609,14 @@ def decen_main(test_id = 0, config_path="config/config.json", delete_frames=Fals
                     subtask, actions = env.get_curr_subtask_agent(aid)
             else: 
                 subtask, actions = env.get_curr_subtask_agent(aid)
-            
+
+        if not any(need_replan_arr):
+            iscomplete, report = env.run_task_check()
+            if iscomplete:
+                print("Task Completed --- End")
+                logs_llm.append("Task Completed --- End")
+                break
+                
         
         with open(logs_llm_path, "a", encoding="utf-8") as f:
             for log in logs_llm:
@@ -625,7 +644,7 @@ def decen_main(test_id = 0, config_path="config/config.json", delete_frames=Fals
     env.close()
   
 
-def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delete_frames=False, timeout=250):
+def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delete_frames=False, timeout=350):
     """
     tasks: e.g. TASKS_1, TASKS_2 ...
     base_dir: the root config folder
@@ -656,139 +675,135 @@ def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delet
 
 if __name__ == "__main__":
     TASKS_1 = [
-    {
-        "task_folder": "1_put_bread_lettuce_tomato_fridge",
-        "task": "put bread, lettuce, and tomato in the fridge",
-        "scenes": ["FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    },
-    {
-        "task_folder": "1_put_computer_book_remotecontrol_sofa",
-        "task": "put laptop, book and remote control on the sofa",
-        "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203", "FloorPlan209", "FloorPlan224"] #,"FloorPlan201", "FloorPlan202","FloorPlan203", "FloorPlan209", "FloorPlan224"
-    },
+    # {
+    #     "task_folder": "1_put_bread_lettuce_tomato_fridge",
+    #     "task": "put bread, lettuce, and tomato in the fridge",
+    #     "scenes": ["FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    # },
+    # {
+    #     "task_folder": "1_put_computer_book_remotecontrol_sofa",
+    #     "task": "put laptop, book and remote control on the sofa",
+    #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203", "FloorPlan209", "FloorPlan224"] #,"FloorPlan201", "FloorPlan202","FloorPlan203", "FloorPlan209", "FloorPlan224"
+    # },
     # {
     #     "task_folder": "1_put_knife_bowl_mug_countertop",
     #     "task": "put knife, bowl, and mug on the counter top",
-    #     "scenes": ["FloorPlan2"] #"FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
     # {
     #     "task_folder": "1_put_plate_mug_bowl_fridge",
     #     "task": "put plate, mug, and bowl in the fridge",
-    #     "scenes": ["FloorPlan1"] #"FloorPlan1", "FloorPlan2",,"FloorPlan3", "FloorPlan4", "FloorPlan5"
+    #     "scenes": ["FloorPlan1" ,"FloorPlan2","FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2",,"FloorPlan3", "FloorPlan4", "FloorPlan5"
+    # },
+    # {
+    #     "task_folder": "1_put_remotecontrol_keys_watch_box",
+    #     "task": "put remote control, keys, and watch in the box",
+    #     "scenes": [ "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan215", "FloorPlan207" ] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
     # },
     {
-        "task_folder": "1_put_remotecontrol_keys_watch_box",
-        "task": "put remote control, keys, and watch in the box",
-        "scenes": ["FloorPlan201"] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
+        "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
+        "task": "put vase, tissue box, and remote control on the side table1",
+        "scenes": [ "FloorPlan229"] # "FloorPlan201",  "FloorPlan203", "FloorPlan216", "FloorPlan219"
     },
-    # {
-    #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
-    #     "task": "put vase, tissue box, and remote control on the side table1",
-    #     "scenes": [ "FloorPlan201"] # "FloorPlan201", "FloorPlan219", "FloorPlan203", "FloorPlan216", "FloorPlan219"
-    # },
 
     # {
     #     "task_folder": "1_slice_bread_lettuce_tomato_egg",
     #     "task": "slice bread, lettuce, tomato, and egg with knife",
-    #     "scenes": [ "FloorPlan1"] #"FloorPlan1", , "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    #     "scenes": [ "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1" , "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
     # {
     #     "task_folder": "1_turn_off_faucet_light",
     #     "task": "turn off the sink faucet and turn off the light switch",
-    #     "scenes": ["FloorPlan1"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    #     "scenes": ["FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
     # {
     #     "task_folder": "1_wash_bowl_mug_pot_pan",
     #     "task": "clean the bowl, mug, pot, and pan",
-    #     "scenes": ["FloorPlan1"] #"FloorPlan3","FloorPlan1",  "FloorPlan2", "FloorPlan4", "FloorPlan5"
+    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan4", "FloorPlan5"] #"FloorPlan3","FloorPlan1",  "FloorPlan2", "FloorPlan4", "FloorPlan5"
     # },
 ]
 
     TASKS_2 = [
-        {
-            "task_folder": "2_open_all_cabinets",
-            "task": "open all the cabinets",
-            "scenes": [ "FloorPlan1",]# "FloorPlan1", "FloorPlan6",   "FloorPlan7", "FloorPlan8", "FloorPlan10"
-        },
-        {
-            "task_folder": "2_open_all_drawers",
-            "task": "open all the drawers",
-            "scenes": ["FloorPlan1"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9"
-        },
+        # {
+        #     "task_folder": "2_open_all_cabinets",
+        #     "task": "open all the cabinets",
+        #     "scenes": [ "FloorPlan6",   "FloorPlan7", "FloorPlan8", "FloorPlan10"]# "FloorPlan1", "FloorPlan6",   "FloorPlan7", "FloorPlan8", "FloorPlan10"
+        # },
+        # {
+        #     "task_folder": "2_open_all_drawers",
+        #     "task": "open all the drawers",
+        #     "scenes": ["FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9"
+        # },
         {
             "task_folder": "2_put_all_creditcards_remotecontrols_box",
             "task": "put all credit cards and remote controls in the box",
-            "scenes": ["FloorPlan201"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"
+            "scenes": ["FloorPlan202"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"
         },
-        {
-            "task_folder": "2_put_all_vases_countertop",
-            "task": "put all the vases on the counter top",
-            "scenes": ["FloorPlan1"] #, "FloorPlan5"
-        },
-        {
-            "task_folder": "2_put_all_tomatoes_potatoes_fridge",
-            "task": "put all tomatoes and potatoes in the fridge",
-            "scenes": ["FloorPlan1"] # "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-        },
+        # {
+        #     "task_folder": "2_put_all_vases_countertop",
+        #     "task": "put all the vases on the counter top",
+        #     "scenes": ["FloorPlan1", "FloorPlan5"] #
+        # },
+        # {
+        #     "task_folder": "2_put_all_tomatoes_potatoes_fridge",
+        #     "task": "put all tomatoes and potatoes in the fridge",
+        #     "scenes": ["FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+        # },
         
-        {
-            "task_folder": "2_turn_on_all_stove_knobs",
-            "task": "turn on all the stove knobs",
-            "scenes": ["FloorPlan1"] #"FloorPlan1", "FloorPlan2","FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan7", "FloorPlan8"
-        },  
+        # {
+        #     "task_folder": "2_turn_on_all_stove_knobs",
+        #     "task": "turn on all the stove knobs",
+        #     "scenes": ["FloorPlan4", "FloorPlan5", "FloorPlan7", "FloorPlan8"] #"FloorPlan1", "FloorPlan2","FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan7", "FloorPlan8"
+        # },  
     ]
 
     TASKS_3 = [
         # {
         #     "task_folder": "3_clear_table_to_sofa",
         #     "task": "Put all readable objects on the sofa",
-        #     "scenes": ["FloorPlan201"] #"FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"
+        #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"] #"FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"
         # },
         # {
         #     "task_folder": "3_put_all_food_countertop",
         #     "task": "Put all food on the countertop",
-        #     "scenes": [ "FloorPlan1"] #  "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4","FloorPlan5"
+        #     "scenes": [ "FloorPlan2", "FloorPlan3","FloorPlan4","FloorPlan5"] #  "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4","FloorPlan5"
         # },
-        {
-            "task_folder": "3_put_all_groceries_fridge",
-            "task": "Put all groceries in the fridge",
-            "scenes": [ "FloorPlan1"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-        },
-        {
-            "task_folder": "3_put_all_kitchenware_box",
-            "task": "Put all kitchenware in the cardboard box",
-            "scenes": ["FloorPlan201"]
-        },
-        {
-            "task_folder": "3_put_all_school_supplies_sofa",
-            "task": "Put all school supplies on the sofa",
-            "scenes": ["FloorPlan201"] #"FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"
-        },
-        {
-            "task_folder": "3_put_all_shakers_fridge",
-            "task": "Put all shakers in the fridge",
-            "scenes": [ "FloorPlan1"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-        },  
-        {
-            "task_folder": "3_put_all_shakers_tomato", # on countertop
-            "task": "put all shakers and tomato on the counter top",
-            "scenes": ["FloorPlan1"] # "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-        },  
-        {
-            "task_folder": "3_put_all_silverware_drawer",
-            "task": "Put all silverware in the drawer",
-            "scenes": [ "FloorPlan2" ]  #"FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
-        },  
+        # {
+        #     "task_folder": "3_put_all_groceries_fridge",
+        #     "task": "Put all groceries in the fridge",
+        #     "scenes": [  "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+        # },
+        # {
+        #     "task_folder": "3_put_all_kitchenware_box",
+        #     "task": "Put all kitchenware in the cardboard box",
+        #     "scenes": ["FloorPlan201"]
+        # },
+        # {
+        #     "task_folder": "3_put_all_school_supplies_sofa",
+        #     "task": "Put all school supplies on the sofa",
+        #     "scenes": [ "FloorPlan203","FloorPlan209", "FloorPlan212"] #"FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"
+        # },
+        # {
+        #     "task_folder": "3_put_all_shakers_fridge",
+        #     "task": "Put all shakers in the fridge",
+        #     "scenes": [ "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+        # },  
+        # {
+        #     "task_folder": "3_put_all_shakers_tomato", # on countertop
+        #     "task": "put all shakers and tomato on the counter top",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+        # },  
+        # {
+        #     "task_folder": "3_put_all_silverware_drawer",
+        #     "task": "Put all silverware in the drawer",
+        #     "scenes": [ "FloorPlan5", "FloorPlan6"]  #"FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+        # },  
         {
             "task_folder": "3_put_all_tableware_countertop",
             "task": "Put all tableware on the countertop",
-            "scenes": ["FloorPlan1"] #["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+            "scenes": ["FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
         },  
-        # {
-        #     "task_folder": "3_transport_groceries",
-        #     "task": "put_all_food_countertops",
-        #     "scenes": ["FloorPlan1"]
-        # },  
+        
         
     ]
 
@@ -796,40 +811,44 @@ if __name__ == "__main__":
     # {
     #     "task_folder": "4_clear_couch_livingroom",
     #     "task": "Clear the couch by placing the items in other appropriate positions ",
-    #     "scenes": ["FloorPlan201"] #"FloorPlan212" hen "FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
+    #     "scenes": ["FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209" ] #"FloorPlan212" hen "FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
     # },
     # {
     #     "task_folder": "4_clear_countertop_kitchen",
     #     "task": "Clear the countertop by placing items in their appropriate positions",
-    #     "scenes": ["FloorPlan1"] # "FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"
+    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"] # "FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"
     # },
     # {
     #     "task_folder": "4_clear_floor_kitchen",
     #     "task": "Clear the floor by placing items at their appropriate positions",
-    #     "scenes": ["FloorPlan1"]# "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]# "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
-    # {
-    #     "task_folder": "4_clear_table_kitchen",
-    #     "task": "Clear the table by placing the items in their appropriate positions",
-    #     "scenes": ["FloorPlan4"] #"FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"
-    # },
-    
-    # {
-    #     "task_folder": "4_put_appropriate_storage",
-    #     "task": "Place all utensils into their appropriate positions",
-    #     "scenes": [  "FloorPlan2"] # "FloorPlan2",  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6
-    # }, 
     {
-        "task_folder": "4_make_livingroom_dark",
-        "task": "Make the living room dark",
-        "scenes": ["FloorPlan201"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204","FloorPlan205"
+        "task_folder": "4_clear_table_kitchen",
+        "task": "Clear the table by placing the items in their appropriate positions",
+        "scenes": ["FloorPlan16", "FloorPlan17"] #"FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"
+    },
+    
+    {
+        "task_folder": "4_put_appropriate_storage",
+        "task": "Place all utensils into their appropriate positions",
+        "scenes": [  "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"] # "FloorPlan2",  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6
     }, 
+    # {
+    #     "task_folder": "4_make_livingroom_dark",
+    #     "task": "Make the living room dark",
+    #     "scenes": ["FloorPlan204","FloorPlan205"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204","FloorPlan205"
+    # }, 
 ]
     
-    batch_run(TASKS_1, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_2, base_dir="config", start=60, end=60, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_3, base_dir="config", start=60, end=60, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_4, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_1, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_2, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_3, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_4, base_dir="config", start=62, end=62, sleep_after=50, delete_frames=True)
 
-
-    # decen_main(test_id = 1, config_path="config/config.json", delete_frames=True, timeout=250)
+    decen_main(test_id = 102, config_path="config/config.json", delete_frames=False, timeout=250, timeout_step=200)
+    # decen_main(test_id = 100, config_path="config/config.json", delete_frames=True, timeout=250)
+    # env, config = set_env_with_config("config/config.json")
+    # _ = env.reset(test_case_id=100)
+    # planner_prompt, planner_user_prompt = prepare_prompt(env, mode='planner', agent_id=1)
+    # print(planner_user_prompt)

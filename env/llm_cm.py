@@ -215,7 +215,6 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         system_prompt = get_replanner_prompt(mode="summary")
         try:
             input = env.get_obs_llm_input(prev_info=info)
-            del input['Reachable positions']
         except KeyError as e:
             print(f"[Error] Missing key in info for replan: {e}")
             return None, None
@@ -227,7 +226,6 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         # for verifying the actions taken by the robots
         system_prompt = get_verifier_prompt(mode="summary")
         input = env.get_obs_llm_input(prev_info=info)
-        del input['Reachable positions']
 
         user_prompt = convert_dict_to_string(input)
     elif mode == "memory":
@@ -884,7 +882,7 @@ if __name__ == "__main__":
         # {
         #     "task_folder": "2_open_all_cabinets",
         #     "task": "open all the cabinets",
-        #     "scenes": ["FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan10"] #"FloorPlan1", 
+        #     "scenes": [ "FloorPlan8", "FloorPlan10"] #"FloorPlan1", 
         # },
         # {
         #     "task_folder": "2_open_all_drawers",
@@ -896,40 +894,40 @@ if __name__ == "__main__":
         #     "task": "put all credit cards and remote controls in the box",
         #     "scenes": ["FloorPlan201", "FloorPlan203","FloorPlan204", "FloorPlan205"]
         # },
-        {
-            "task_folder": "2_put_all_vases_countertop",
-            "task": "put all the vases on the counter top",
-            "scenes": ["FloorPlan1", "FloorPlan5"]
-        },
+        # {
+        #     "task_folder": "2_put_all_vases_countertop",
+        #     "task": "put all the vases on the counter top",
+        #     "scenes": ["FloorPlan1", "FloorPlan5"]
+        # },
         # {
         #     "task_folder": "2_put_all_tomatoes_potatoes_fridge",
         #     "task": "put all tomatoes and potatoes in the fridge",
         #     "scenes": [ "FloorPlan5"]#"FloorPlan1", "FloorPlan2","FloorPlan3", "FloorPlan4", 
         # },
         
-        # {
-        #     "task_folder": "2_turn_on_all_stove_knobs",
-        #     "task": "turn on all the stove knobs",
-        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6", "FloorPlan7", "FloorPlan8", "FloorPlan9"]
-        # },  
+        {
+            "task_folder": "2_turn_on_all_stove_knobs",
+            "task": "turn on all the stove knobs",
+            "scenes": [ "FloorPlan8"]
+        },  
     ]
 
     TASKS_3 = [
-        {
-            "task_folder": "3_clear_table_to_sofa",
-            "task": "Put all readable objects on the sofa",
-            "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"]
-        },
         # {
-        #     "task_folder": "3_put_all_food_countertop",
-        #     "task": "Put all food on the countertop",
-        #     "scenes": [ "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3",
+        #     "task_folder": "3_clear_table_to_sofa",
+        #     "task": "Put all readable objects on the sofa",
+        #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"]
         # },
         {
-            "task_folder": "3_put_all_groceries_fridge",
-            "task": "Put all groceries in the fridge",
-            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+            "task_folder": "3_put_all_food_countertop",
+            "task": "Put all food on the countertop",
+            "scenes": [ "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3",
         },
+        # {
+        #     "task_folder": "3_put_all_groceries_fridge",
+        #     "task": "Put all groceries in the fridge",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        # },
         # {
         #     "task_folder": "3_put_all_kitchenware_box",
         #     "task": "Put all kitchenware in the cardboard box",
@@ -940,21 +938,21 @@ if __name__ == "__main__":
         #     "task": "Put all school supplies on the sofa",
         #     "scenes": ["FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"]
         # },
-        {
-            "task_folder": "3_put_all_shakers_fridge",
-            "task": "Put all shakers in the fridge",
-            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-        },  
+        # {
+        #     "task_folder": "3_put_all_shakers_fridge",
+        #     "task": "Put all shakers in the fridge",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        # },  
         # {
         #     "task_folder": "3_put_all_shakers_tomato", # on countertop
         #     "task": "put all shakers and tomato on the counter top",
         #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
         # },  
-        {
-            "task_folder": "3_put_all_silverware_drawer",
-            "task": "Put all silverware in the drawer",
-            "scenes": [ "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
-        },  
+        # {
+        #     "task_folder": "3_put_all_silverware_drawer",
+        #     "task": "Put all silverware in the drawer",
+        #     "scenes": [ "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+        # },  
         # {
         #     "task_folder": "3_put_all_tableware_countertop",
         #     "task": "Put all tableware on the countertop",
@@ -979,31 +977,31 @@ if __name__ == "__main__":
     #     "task": "Clear the countertop by placing items in their appropriate positions",
     #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"]
     # },
-    {
-        "task_folder": "4_clear_floor_kitchen",
-        "task": "Clear the floor by placing items at their appropriate positions",
-        "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    },
     # {
-    #     "task_folder": "4_clear_table_kitchen",
-    #     "task": "Clear the table by placing the items in their appropriate positions",
-    #     "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
+    #     "task_folder": "4_clear_floor_kitchen",
+    #     "task": "Clear the floor by placing items at their appropriate positions",
+    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
+    {
+        "task_folder": "4_clear_table_kitchen",
+        "task": "Clear the table by placing the items in their appropriate positions",
+        "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
+    },
     # {
     #     "task_folder": "4_make_livingroom_dark",
     #     "task": "Make the living room dark",
     #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"]
     # },
-    # {
-    #     "task_folder": "4_put_appropriate_storage",
-    #     "task": "Place all utensils into their appropriate positions",
-    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
-    # },  
+    {
+        "task_folder": "4_put_appropriate_storage",
+        "task": "Place all utensils into their appropriate positions",
+        "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+    },  
 ]
 
     # batch_run(TASKS_1, base_dir="config", start=0, end=0, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_2, base_dir="config", start=3, end=3, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_2, base_dir="config", start=10, end=10, sleep_after=50, delete_frames=True)
 
-    batch_run(TASKS_4, base_dir="config", start=3, end=3, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_4, base_dir="config", start=10, end=10, sleep_after=50, delete_frames=True)
 
     # run_main(test_id = 4, config_path="config/4_put_appropriate_storage/FloorPlan2/config.json")

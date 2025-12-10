@@ -2,7 +2,7 @@
 # from env_b import AI2ThorEnv
 # from env_cen import AI2ThorEnv_cen as AI2ThorEnv
 
-from env_log import AI2ThorEnv_cen as AI2ThorEnv
+from env_cen import AI2ThorEnv_cen as AI2ThorEnv
 import os
 import sys
 import json
@@ -178,7 +178,7 @@ if __name__ == "__main__":
             task_name = config["task"]
     
     
-    # obs = env.reset(test_case_id="19")
+    obs = env.reset(test_case_id="19")
     
     # input_llm = env.get_obs_llm_input()
     # print("LLM input:\n", input_llm)
@@ -187,8 +187,8 @@ if __name__ == "__main__":
     # # list of [x,y]
 
     
-    # get_object_dict = env.get_object_dict()
-    # # print("Object dictionary:", get_object_dict)
+    get_object_dict = env.get_object_dict()
+    print("Object dictionary:", get_object_dict)
     # obj_status = env.get_all_object_status()
     # # print("Before Object status:", obj_status)
     # # print("---------")
@@ -212,7 +212,7 @@ if __name__ == "__main__":
     # objs = env.get_all_objects()
     # # print(objs)
     high_level_tasks = [
-         ["RotateRight"], ["Idle"]
+         ["NavigateTo(Lettuce_1)", "PickupObject(Lettuce_1)"], ["NavigateTo(Mug_1)", "PickupObject(Mug_1)", "NavigateTo(CoffeeMachine_1)", "PutObject(CoffeeMachine_1)"]
     #     [
     #   "NavigateTo(Spatula_1)",
     #   "PickupObject(Spatula_1)",
@@ -239,30 +239,30 @@ if __name__ == "__main__":
     #     #  ['NavigateTo(ButterKnife_1)', 'PickupObject(ButterKnife_1)', 'NavigateTo(Lettuce_1)', 'SliceObject(Lettuce_1)', 'NavigateTo(CounterTop_1)', 'PutObject(CounterTop_1)', 'NavigateTo(Lettuce_2)', 'PickupObject(Lettuce_2)', 'NavigateTo(Pan_1)', 'PutObject(Pan_1)', 'PickupObject(Pan_1)', 'NavigateTo(StoveBurner_1)', 'PutObject(StoveBurner_1)','NavigateTo(StoveKnob_1)', 'ToggleObjectOn(StoveKnob_1)','NavigateTo(StoveKnob_1)','ToggleObjectOff(StoveKnob_1)'], ['Idle']
     # ]
     
-    run_test(
-        env,
-        high_level_tasks=high_level_tasks,
-        test_name="Test 18",
-        test_id=1,
-        task_name = task_name,
-    )
+    # run_test(
+    #     env,
+    #     high_level_tasks=high_level_tasks,
+    #     test_name="Test 18",
+    #     test_id=1,
+    #     task_name = task_name,
+    # )
     # input_llm = env.get_obs_llm_input()
     # print("LLM input:\n", input_llm)
     # reach_pos = env.get_cur_reachable_positions_2d()
     
     # print("Initial reachable positions:", reach_pos)
     # # list of [x,y]
-    # # obs = env.get_observations()
+    obs = env.get_observations()
     
-    # print("Initial Observations:", obs)
-    # for i in range(2):
-    #     state = env.get_agent_state(i)
-    #     view = env.get_object_in_view(i)
-    #     mapping = env.get_mapping_object_pos_in_view(i)
-    #     print(f"Agent {i} ({env.agent_names[i]}) observation: I see:", mapping) # list of object ids in view
-    #     print(f"Agent {i} ({env.agent_names[i]}) state: {state}") # I am at coordinates: (2.00, -1.50), facing west, holding nothing
-    #     print(f"Agent {i} ({env.agent_names[i]}) can see object:", view) # list of object ids in view
-    # objs = env.get_all_objects()
+    print("Initial Observations:", obs)
+    for i in range(2):
+        state = env.get_agent_state(i)
+        view = env.get_object_in_view(i)
+        mapping = env.get_mapping_object_pos_in_view(i)
+        print(f"Agent {i} ({env.agent_names[i]}) observation: I see:", mapping) # list of object ids in view
+        print(f"Agent {i} ({env.agent_names[i]}) state: {state}") # I am at coordinates: (2.00, -1.50), facing west, holding nothing
+        print(f"Agent {i} ({env.agent_names[i]}) can see object:", view) # list of object ids in view
+    objs = env.get_all_objects()
     env.close() 
     # plot_positions(reach_pos, show_hull=True)  
     # objs = env.get_readable_object_list(env.get_object_in_view(0))

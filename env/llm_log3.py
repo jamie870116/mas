@@ -902,16 +902,16 @@ if __name__ == "__main__":
     #     "task": "Clear the countertop by placing items in their appropriate positions",
     #     "scenes": ["FloorPlan1"] # "FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"
     # },
-    # {
-    #     "task_folder": "4_clear_floor_kitchen",
-    #     "task": "Clear the floor by placing items at their appropriate positions",
-    #     "scenes": ["FloorPlan1", "FloorPlan2","FloorPlan3"]# "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    # },
     {
-        "task_folder": "4_clear_table_kitchen",
-        "task": "Clear the table by placing the items in their appropriate positions",
-        "scenes": ["FloorPlan15", "FloorPlan16", "FloorPlan17"] #"FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"
+        "task_folder": "4_clear_floor_kitchen",
+        "task": "Clear the floor by placing items at their appropriate positions",
+        "scenes": ["FloorPlan1", "FloorPlan2","FloorPlan3", "FloorPlan4", "FloorPlan5"]# "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     },
+    # {
+    #     "task_folder": "4_clear_table_kitchen",
+    #     "task": "Clear the table by placing the items in their appropriate positions",
+    #     "scenes": ["FloorPlan15", "FloorPlan16", "FloorPlan17"] #"FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"
+    # },
     
     # {
     #     "task_folder": "4_put_appropriate_storage",
@@ -928,7 +928,7 @@ if __name__ == "__main__":
     # batch_run(TASKS_1, base_dir="config", start=50, end=50, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=51, end=51, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_3, base_dir="config", start=52, end=52, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_4, base_dir="config", start=51, end=51, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_4, base_dir="config", start=52, end=52, sleep_after=50, delete_frames=True)
     # run_main(test_id = 3, config_path="config/config.json", delete_frames=True)
     # run_main(test_id = 2, config_path="config/config.json")
    

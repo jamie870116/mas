@@ -1,10 +1,13 @@
 #  LLM Agents for Multi-Robot Task Planning: Centralized and Decentralized Systems
 
-*Jamie Lai*
+The Impact of State Representation and Decentralization in LLM-Based Multi-Robot Coordination
 
-(Title TBD)
+*Chieh-Ying (Jamie) Lai*
 
-This project investigates centralized and decentralized LLM-driven task planning architectures for multi-robot coordination in AI2-THOR. Using agentic LLMs, the system performs subtask decomposition, action generation, inter-agent communication, and reactive replanning for long-horizon embodied tasks. The project compares how centralized and decentralized planners differ in coordination efficiency, robustness, and agent autonomy. In addition, it evaluates summary-based versus log-based state representations to study LLM forgetting, information retention, and stability across multi-step control. The goal is to better understand how LLM agents can support scalable, reliable multi-robot reasoning in complex simulated environments.
+
+This project explores how large language models (LLMs) can act as planners and coordinators in a multi-robot system guided by a natural-language task specification. We build an agentic system using text representations and LLM reasoning for for task breakdown/allocation, state tracking, and action generation, and evaluate it in the AI2-THOR simulator for multi-robot housekeeping tasks. Our inquiry focuses on how environment state and robots’ memory should be represented to support reliable LLM planning. We compare summary-based and structured log-based representations, and find that log-based memory better preserves fine-grained events and contextual details, resulting in improved task success. Log-based memory is more easily decentralized, so we also examine decentralized planning under unreliable communication, where each robot must make decisions with partial and delayed information. We find that task success is mostly preserved except for the most complex tasks. Our work demonstrates that a careful study of design choices in text-based state representation can have a large impact on the performance of LLM-based robotic reasoning systems.
+
+
 
 ## System Overview
 
@@ -76,7 +79,7 @@ python env/llm_log3.py
 For testing, change the content in config file and run:
 
 ```python
-python env/llm_dec.py
+python env/llm_decen.py
 ```
 
 
