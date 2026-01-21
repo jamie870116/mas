@@ -25,11 +25,11 @@ Here are demo videos for each method on the task "Put the remote control, key, a
 ### Centralized Summary
 
 
-[![Demo Video](https://img.youtube.com/vi/VLYmGB1zoug/0.jpg)](https://www.youtube/VLYmGB1zoug)
+[![Demo Video](https://img.youtube.com/vi/VLYmGB1zoug/0.jpg)](https://youtu.be/VLYmGB1zoug)
 ### Centralized Log
-[![Demo Video](https://img.youtube.com/vi/MUhhc11NK6M/0.jpg)](https://www.youtube/MUhhc11NK6M)
+[![Demo Video](https://img.youtube.com/vi/MUhhc11NK6M/0.jpg)](https://youtu.be/MUhhc11NK6M)
 ### Decentralized Log
-[![Demo Video](https://img.youtube.com/vi/n4R83JsJZTk/0.jpg)](https://www.youtube/n4R83JsJZTk)
+[![Demo Video](https://img.youtube.com/vi/n4R83JsJZTk/0.jpg)](https://youtu.be/n4R83JsJZTk)
 ## Setup
 
 ### Env
