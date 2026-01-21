@@ -578,7 +578,7 @@ def get_shortest_path_to_object(controller, object_id,
         # print('filtered reachable ', reachable_positions)
     
     
-    # print('final filtered reachable ', reachable_positions)
+    print('final filtered reachable ', reachable_positions)
 
     # Compute plan; Actually need to call the A* twice.
     # The first time determines the position the robot will end
@@ -617,22 +617,24 @@ def get_shortest_path_to_object(controller, object_id,
                                                           debug=True,
                                                           **params)
     # # For debugging purposes
-    if isVisualize:
-        plot_navigation_search_result(start_pose,
-                                    (target_position, start_rotation),
-                                    tentative_plan,
-                                    expanded_poses,
-                                    reachable_positions, grid_size, ax=None)
-        # plt.show()
-        save_path = 'debugs/nav_debug.png'
-        base = save_path.replace('.png', '')
-        if cur_step is not None:
-            base += f'_{cur_step}'
-        out_path = base + '.png'
-        plt.savefig(out_path, dpi=300, bbox_inches="tight")
-        # plt.close(fig)
-        print(f'Plot saved to: {out_path}')
-    
+    # if isVisualize:
+    # plot_navigation_search_result(start_pose,
+    #                             (target_position, start_rotation),
+    #                             tentative_plan,
+    #                             expanded_poses,
+    #                             reachable_positions, grid_size, ax=None)
+    # # plt.show()
+    # save_path = 'debugs/nav_debug.png'
+    # base = save_path.replace('.png', '')
+    # if cur_step is not None:
+    #     base += f'_{cur_step}'
+    # out_path = base + '.png'
+    # plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    # # plt.close(fig)
+    # print(f'Plot saved to: {out_path}')
+    print("start_pose:", start_pose)
+    print("target_position:", target_position)
+    print("tentative_plan:", tentative_plan)
         
     if tentative_plan is None:
         return None, None

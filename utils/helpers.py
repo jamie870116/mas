@@ -94,7 +94,7 @@ def save_to_video(file_name: str, fps: int = 10, project_root: str = None):
 if __name__ == "__main__":
     # Example usage with relative path
     
-    save_to_video(f"logs/test_only/Floorplan1/test_1")
+    save_to_video(f"logs/put_remote_control,_keys,_and_watch_in_the_box/FloorPlan203/test_102")
     # for i in range(1,9):
         # save_to_video(f"logs/Summary/open_all_the_drawers/Floorplan6/test_{i}")
         # save_to_video(f"logs/Summary/open_all_the_drawers/Floorplan7/test_{i}")
