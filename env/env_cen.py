@@ -559,6 +559,13 @@ class AI2ThorEnv_cen(BaseEnv):
             else:
                 success = True
 
+            # TBD: handle blocking situation
+            # by teleporting - start by testing small teleport distances in all directions, then keep increasing distance if nothing is found.
+            if not success:
+                err = self.event.events[aid].metadata.get("errorMessage") or "unknown-error"
+                if "blocking" in err:
+                    print("")
+
 
             self.step_num[aid] += 1
             if not success:

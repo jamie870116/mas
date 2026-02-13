@@ -38,9 +38,10 @@ def get_args():
     args = parser.parse_args()
     return args
 
-args = get_args()
+# args = get_args()
+test_config_path = "config/config.json"
 AGENT_NAMES_ALL = ["Alice", "Bob", "Charlie", "David", "Emma"]
-with open(args.config_file, "r") as f:
+with open(test_config_path, "r") as f:
         config = json.load(f)
         NUM_AGENTS = config["num_agents"]
 
@@ -587,10 +588,9 @@ def set_env_with_config(config_file: str):
         config = json.load(f)
     return env, config
 
-def run_main(test_id = 0, config_path="config/config.json", delete_frames=False):
+def run_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
     # --- Init.
     env, config = set_env_with_config(config_path)
-    timeout = 250
     if test_id > 0:
         obs = env.reset(test_case_id=test_id)
     else:
@@ -740,7 +740,7 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False)
 #             print(f"==== Finished {cfg_path} ====")
 
 
-def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delete_frames=False):
+def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delete_frames=False, timeout=250):
     """
     tasks: e.g. TASKS_1, TASKS_2 ...
     base_dir: the root config folder
@@ -763,7 +763,7 @@ def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delet
 
             for r in range(start, end + 1):
                 print(f"---- Run {r}/{end} for {cfg_path} ----")
-                run_main(test_id = r, config_path=str(cfg_path), delete_frames=delete_frames)
+                run_main(test_id = r, config_path=str(cfg_path), delete_frames=delete_frames, timeout=timeout)
                 time.sleep(sleep_after)
 
             print(f"==== Finished {cfg_path} ====")

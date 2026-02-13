@@ -578,7 +578,7 @@ def get_shortest_path_to_object(controller, object_id,
         # print('filtered reachable ', reachable_positions)
     
     
-    print('final filtered reachable ', reachable_positions)
+    # print('final filtered reachable ', reachable_positions)
 
     # Compute plan; Actually need to call the A* twice.
     # The first time determines the position the robot will end
@@ -632,9 +632,9 @@ def get_shortest_path_to_object(controller, object_id,
     # plt.savefig(out_path, dpi=300, bbox_inches="tight")
     # # plt.close(fig)
     # print(f'Plot saved to: {out_path}')
-    print("start_pose:", start_pose)
-    print("target_position:", target_position)
-    print("tentative_plan:", tentative_plan)
+    # print("start_pose:", start_pose)
+    # print("target_position:", target_position)
+    # print("tentative_plan:", tentative_plan)
         
     if tentative_plan is None:
         return None, None

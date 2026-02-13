@@ -45,9 +45,10 @@ def get_args():
     args = parser.parse_args()
     return args
 
-args = get_args()
+# args = get_args()
+test_config_path = "config/config.json"
 AGENT_NAMES_ALL = ["Alice", "Bob", "Charlie", "David", "Emma"]
-with open(args.config_file, "r") as f:
+with open(test_config_path, "r") as f:
         config = json.load(f)
         NUM_AGENTS = config["num_agents"]
 AGENT_NAMES = AGENT_NAMES_ALL[:NUM_AGENTS]

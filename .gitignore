@@ -5,6 +5,8 @@ api_key_ucsb.txt
 # log data
 logs/*
 debugs/*
+exp_logs/*
+.runs/*
 
 # some side notes
 note.txt
