@@ -116,7 +116,7 @@ def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
 
     if task_name:
         print('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
-        save_to_video('logs/' + task_name.replace(" ", "_") + f"/test_{test_id}")
+        save_to_video('logs/' + task_name.replace(" ", "_") + f"/FloorPlan1/test_{test_id}")
 
 import matplotlib.pyplot as plt
 from scipy.spatial import ConvexHull
@@ -124,7 +124,7 @@ from scipy.spatial import ConvexHull
 def plot_positions(points, show_hull=False):
     """
     Plot reachable positions as scatter plot.
-    
+    ce
     Args:
         points (list of tuple): list of (x, y) coordinates
         show_hull (bool): if True, draw the convex hull (polygon boundary)
@@ -178,7 +178,7 @@ if __name__ == "__main__":
             task_name = config["task"]
     
     
-    obs = env.reset(test_case_id="19")
+    obs = env.reset(test_case_id="1")
     
     # input_llm = env.get_obs_llm_input()
     # print("LLM input:\n", input_llm)
@@ -212,24 +212,11 @@ if __name__ == "__main__":
     # objs = env.get_all_objects()
     # # print(objs)
     high_level_tasks = [
-         ["NavigateTo(CreditCard_1)"],
-    #     [
-    #   "NavigateTo(Spatula_1)",
-    #   "PickupObject(Spatula_1)",
-    #   "NavigateTo(Fridge_1)",
-    #   "OpenObject(Fridge_1)",
-    #   "PutObject(Fridge_1)",
-    #   "CloseObject(Fridge_1)"
-    # ],
-    # [
-    #   "NavigateTo(ButterKnife_1)",
-    #   "PickupObject(ButterKnife_1)",
-    # #   "NavigateTo(Drawer_3)",
-    # #   "OpenObject(Drawer_3)",
-    # #   "PutObject(Drawer_3)",
-    # #   "CloseObject(Drawer_3)"
-    # ]
+      ["NavigateTo(Fridge_1)", "OpenObject(Fridge_1)","MoveAhead"],
+      [ "MoveAhead",]
     ]
+    
+    
     # high_level_tasks = [
     #     ["NavigateTo(RemoteControl_1)", "PickupObject(RemoteControl_1)", "NavigateTo(Box_1)", "PutObject(Box_1)"],
     #     ["NavigateTo(CreditCard_1)", "PickupObject(CreditCard_1)", "NavigateTo(Box_1)", "PutObject(Box_1)"],
@@ -242,8 +229,8 @@ if __name__ == "__main__":
     run_test(
         env,
         high_level_tasks=high_level_tasks,
-        test_name="Test 2",
-        test_id=2,
+        test_name="Test",
+        test_id=1,
         task_name = task_name,
     )
     # input_llm = env.get_obs_llm_input()

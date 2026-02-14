@@ -8,6 +8,9 @@ debugs/*
 exp_logs/*
 .runs/*
 
+# prev test files
+env/discard/*
+
 # some side notes
 note.txt
 test_env.py

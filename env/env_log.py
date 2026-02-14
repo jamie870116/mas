@@ -596,7 +596,7 @@ class AI2ThorEnv_cen(BaseEnv):
                     success = True
                     # log_dict['type'] = 'Success' # (Log3)
                 
-
+            # TBD: handle blocking situation (need more tests for collision)
             
             self.step_num[aid] += 1
             if not success:

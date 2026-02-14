@@ -559,13 +559,32 @@ class AI2ThorEnv_cen(BaseEnv):
             else:
                 success = True
 
-            # TBD: handle blocking situation
+            # TBD: handle blocking situation (need more tests for collision)
             # by teleporting - start by testing small teleport distances in all directions, then keep increasing distance if nothing is found.
             if not success:
                 err = self.event.events[aid].metadata.get("errorMessage") or "unknown-error"
                 if "blocking" in err:
-                    print("")
+                    err_split = err.split(" ")
+                    coords_str = re.search(r"\((.*?)\)", err).group(1)
+                    x, _, z = map(float, coords_str.split(","))
+                    a_pos = self.get_agent_position_dict(aid)
+                    base = {"x": a_pos["x"], "y": a_pos["y"], "z": a_pos["z"]}
+                    new_pos = {"x": a_pos["x"] - x, "y": a_pos["y"], "z": a_pos["z"] - z}
+                    
 
+                    blocked_obj = err_split[0].split("_")[0]
+                    if  blocked_obj in ["Fridge", "Drawer", "Cabinet"]:
+                        print("blocked by object: ", blocked_obj)
+
+                    if blocked_obj.startswith("Agent"):
+                        print("blocked by another agent")
+                    teleport_act_dict = {"agentId": aid, "action": "Teleport", "position": new_pos}
+                    self.event = self.controller.step(teleport_act_dict)
+                    success = self.event.events[aid].metadata["lastActionSuccess"]
+                    if success:
+                        # try again previous action after teleporting
+                        self.event = self.controller.step(action_dict)
+                        success = self.event.events[aid].metadata["lastActionSuccess"]
 
             self.step_num[aid] += 1
             if not success:

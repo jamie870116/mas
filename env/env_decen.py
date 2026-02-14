@@ -807,7 +807,7 @@ class AI2ThorEnv_cen(BaseEnv):
                     success = True
                 
 
-            
+            # TBD: handle blocking situation (need more tests for collision)
             
             if not success:
                 log_dict['type'] = 'Failed'
