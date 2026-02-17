@@ -588,7 +588,7 @@ def set_env_with_config(config_file: str):
         config = json.load(f)
     return env, config
 
-def run_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250):
+def run_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=350):
     # --- Init.
     env, config = set_env_with_config(config_path)
     if test_id > 0:
@@ -1002,6 +1002,6 @@ if __name__ == "__main__":
     # batch_run(TASKS_1, base_dir="config", start=0, end=0, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=10, end=10, sleep_after=50, delete_frames=True)
 
-    batch_run(TASKS_4, base_dir="config", start=10, end=10, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_4, base_dir="config", start=10, end=10, sleep_after=50, delete_frames=True)
 
-    # run_main(test_id = 4, config_path="config/4_put_appropriate_storage/FloorPlan2/config.json")
+    run_main(test_id = 1, config_path="config/2_open_all_drawers/FloorPlan1/config.json")

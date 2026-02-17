@@ -2,7 +2,7 @@
   "num_agents": 2,
   "scene": "FloorPlan1",
   "task": "test",
-  "timeout": 30,
+  "timeout": 350,
   "model": "gpt-4.1-2025-04-14",
   "use_obs_summariser": false,
   "use_act_summariser": false,
@@ -17,5 +17,5 @@
   "overhead": true,
   "test_id": 3,
   "save_logs": true,
-  "task_folder": "1_put_knife_bowl_mug_countertop"
+  "task_folder": "2_open_all_drawers"
 }

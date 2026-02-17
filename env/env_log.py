@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+from random import random
 import cv2
 import ai2thor.controller
 from typing import Dict, List, Tuple, Any, Optional, Callable
@@ -46,6 +47,40 @@ def closest_angles(values, query):
     closest to `query` in unit circle angles"""
     values.append(360)
     return min(values, key=lambda v: abs(v-query)) % 360
+
+def roundany(x, base):
+    # round to nearest grid
+    return round(x / base) * base
+
+def xz_key_from_dict(pos: dict, grid_size: float) -> tuple[float, float]:
+    return (roundany(pos["x"], grid_size), roundany(pos["z"], grid_size))
+
+def xz_key_from_tuple_xyz(xyz: tuple[float, float, float], grid_size: float) -> tuple[float, float]:
+    x, _, z = xyz
+    return (roundany(x, grid_size), roundany(z, grid_size))
+
+def build_blocked_xz_set(other_agent_position: list[dict],
+                         grid_size: float=0.25,
+                         include_diagonals: bool = True) -> set[tuple[float, float]]:
+    """
+    Build a blocked xz set from other agents with a 3x3 enclosure.
+    other_agent_position: list of dicts with keys x,y,z
+    """
+    blocked = set()
+
+    # basic occupied cells
+    base_cells = [xz_key_from_dict(p, grid_size) for p in other_agent_position]
+
+    # 3x3 enclosure
+    sweep = [-1, 0, 1]
+    for (x, z) in base_cells:
+        for dx in sweep:
+            for dz in sweep:
+                if not include_diagonals and abs(dx) + abs(dz) > 1:
+                    continue
+                blocked.add((x + dx * grid_size, z + dz * grid_size))
+
+    return blocked
 
 
 
@@ -502,7 +537,105 @@ class AI2ThorEnv_cen(BaseEnv):
                     res.append(action)
         return res
     
+     # New
+    def get_filtered_reachable_positions(self,aid: int,
+                                     base: dict,
+                                     other_agent_position: list[dict] | None,
+                                     grid_size: float = 0.25) -> list[dict]:
+        """
+        Returns reachable positions (dicts) filtered to avoid other agents' cells.
+        """
+        # 1) get reachable positions (list of dicts)
+        evt = self.controller.step(action="GetReachablePositions", agentId=aid)
+        reachable = evt.metadata["actionReturn"]  # list[dict{x,y,z}]
+
+        # 2) build reachable xz set
+        reachable_xz = set(xz_key_from_dict(p, grid_size) for p in reachable)
+
+        # 3) build blocked xz set from other agents (with enclosure)
+        if other_agent_position:
+            blocked_xz = build_blocked_xz_set(other_agent_position, grid_size, include_diagonals=True)
+        else:
+            blocked_xz = set()
+
+        # 4) subtlety: don't block the agent's own current position
+        self_xz = (roundany(base["x"], grid_size), roundany(base["z"], grid_size))
+        blocked_xz.discard(self_xz)
+
+        # 5) filter reachable by xz
+        filtered_xz = [xz for xz in reachable_xz if xz not in blocked_xz]
+
+        # map back to position dicts:
+        # pick one y from original reachable matching xz (y is usually constant floor height)
+        xz_to_pos = {}
+        for p in reachable:
+            k = xz_key_from_dict(p, grid_size)
+            # keep first occurrence
+            if k not in xz_to_pos:
+                xz_to_pos[k] = {"x": k[0], "y": p["y"], "z": k[1]}
+
+        # # ensure self position exists as candidate (optional)
+        # if self_xz in xz_to_pos:
+        #     pass
+
+        return [xz_to_pos[k] for k in filtered_xz if k in xz_to_pos]
     
+     # New
+    def pick_nearest_k_positions(self,base: dict, candidates: list[dict],
+                             k: int = 8, grid_size: float = 0.25) -> list[dict]:
+        """
+        Pick nearest k candidates by xz distance to base, excluding base cell itself.
+        """
+        bx, bz = roundany(base["x"], grid_size), roundany(base["z"], grid_size)
+
+        def dist2(p: dict) -> float:
+            dx = p["x"] - bx
+            dz = p["z"] - bz
+            return dx * dx + dz * dz
+
+        # exclude base cell itself
+        filtered = [p for p in candidates if not (p["x"] == bx and p["z"] == bz)]
+        filtered.sort(key=dist2)
+        return filtered[:k]
+
+    # New
+    def try_unblock_with_random_nearest_teleports(self, aid: int,
+                                                prev_action_dict: dict,
+                                                base: dict,
+                                                other_agent_position: list[dict] | None,
+                                                grid_size: float = 0.25,
+                                                k: int = 8) -> bool:
+        """
+        Returns True if unblocked and prev_action succeeds after teleport attempts.
+        """
+        # Get filtered candidates
+        candidates = self.get_filtered_reachable_positions(
+            aid=aid,
+            base=base,
+            other_agent_position=other_agent_position,
+            grid_size=grid_size,
+        )
+
+        nearest = self.pick_nearest_k_positions(base, candidates, k=k, grid_size=grid_size)
+        if not nearest:
+            return False
+
+        random.shuffle(nearest)
+
+        for pos in nearest:
+            # teleport attempt
+            evt = self.controller.step(action="Teleport", agentId=aid, position=pos)
+            if not evt.events[aid].metadata["lastActionSuccess"]:
+                continue
+
+            # retry previous action
+            evt2 = self.controller.step(prev_action_dict)
+            if evt2.events[aid].metadata["lastActionSuccess"]:
+                return True
+
+        return False
+
+
     def exe_step(self, actions:List[str]):
         """execute one step, each agent per step (can be IDLE)"""
         
@@ -596,8 +729,61 @@ class AI2ThorEnv_cen(BaseEnv):
                     success = True
                     # log_dict['type'] = 'Success' # (Log3)
                 
-            # TBD: handle blocking situation (need more tests for collision)
-            
+            # New TBD: handle blocking situation (need more tests for collision)
+            # by teleporting - start by testing small teleport distances in all directions, then keep increasing distance if nothing is found.
+            if not success:
+                err = self.event.events[aid].metadata.get("errorMessage") or "unknown-error"
+                if "blocking" in err:
+                    err_split = err.split(" ")
+                    blocked_obj = err_split[0].split("_")[0]
+
+                    if  blocked_obj in ["Fridge", "Drawer", "Cabinet"]:
+                        print("blocked by object: ", blocked_obj)
+                        self.logs.append("blocked by object: " + blocked_obj)
+                    if blocked_obj.startswith("Agent"):
+                        print("blocked by another agent")
+                        self.logs.append("blocked by another agent")
+                            # TBD
+                    else:
+                        print("blocked by unknown object: ", blocked_obj)
+                        self.logs.append("blocked by unknown object: " + blocked_obj)
+
+                    coords_str = re.search(r"\((.*?)\)", err).group(1)
+                    x, _, z = map(float, coords_str.split(","))
+                    a_pos = self.get_agent_position_dict(aid)
+                    other_agents = [
+                        self.event.events[i].metadata["agent"]["position"]
+                        for i in range(self.num_agents)
+                        if i != aid
+                    ]
+                    base = {"x": a_pos["x"], "y": a_pos["y"], "z": a_pos["z"]}
+
+                    success = self.try_unblock_with_random_nearest_teleports(
+                        aid=aid,
+                        prev_action_dict=action_dict,
+                        base=base,
+                        other_agent_position=other_agents,
+                        grid_size=0.25,
+                        k=8
+                    )
+
+                    # new_pos = {"x": a_pos["x"] - x, "y": a_pos["y"], "z": a_pos["z"] - z}
+                    # # reachable_2d = self.get_cur_reachable_positions_2d(is_filter=True, mannual_block_pos=self.mannual_block_pos)
+                    # # reachable_2d = [(round(x, 2), round(z, 2)) for (x, z) in reachable_2d]
+                    # print("blocked err: ", err)
+                    
+                    # teleport_act_dict = {"agentId": aid, "action": "Teleport", "position": new_pos}
+                    # self.event = self.controller.step(teleport_act_dict)
+                    # success = self.event.events[aid].metadata["lastActionSuccess"]
+                    if success:
+                        # decompose the original action again after teleporting
+                        actions = ["Idle"] * self.num_agents
+                        actions[aid] = self.current_hl[aid]
+                        _ = self.step_decomp(actions, agent_id=aid)
+                            # self.event = self.controller.step(action_dict)
+                            # success = self.event.events[aid].metadata["lastActionSuccess"]
+                        success = True
+
             self.step_num[aid] += 1
             if not success:
                 log_dict['type'] = 'Failed'
@@ -677,10 +863,15 @@ class AI2ThorEnv_cen(BaseEnv):
                         self.nav_no_plan[self.agent_names[aid]] = False
 
                     else:
-                        print(f'subtask: {sub} failed, errorMessage: {log_dict["payload"].get("failed_reason", "")}')
+                        # New edit
+                        print(f'subtask: {sub} not completed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
+                    # New edit
                     if self.save_logs:
-                        self.logs.append(f'subtask: {sub} for agent {aid} ({self.agent_names[aid]}) failed, errorMessage: {log_dict["payload"].get("failed_reason", "")}')
-                        self.logs.append(f'last reason: {last_reason}')
+                        if self.event:
+                            self.logs.append(f'subtask: {sub} for agent {aid} ({self.agent_names[aid]}) failed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
+                            self.logs.append(f'last reason: {last_reason}')
+                        else:
+                            self.logs.append(f'subtask: {sub} for agent {aid} ({self.agent_names[aid]}) not completed, errorMessage: {self.event.events[aid].metadata["errorMessage"] if self.event else ""}')
 
             # handle AlignOrientation separately
             if self.action_queue[aid] and self.action_queue[aid][0].startswith("AlignOrientation"):
@@ -1175,7 +1366,7 @@ class AI2ThorEnv_cen(BaseEnv):
             dist = ((agent_pos["x"] - obj_pos["x"])**2 + (agent_pos["z"] - obj_pos["z"])**2)**0.5
             if self.save_logs:
                 self.logs.append(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
-            print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
+            # print(f"Checking distance for object {obj_id} at {obj_pos} from agent {agent_id} at {agent_pos}: {dist:.2f}m")
             if dist > 1.0 and dist < 1.5 and obj_name in self.large_receptacles and obj_id in self.get_object_in_view(agent_id):
                 suc = True
                 self.current_hl[agent_id] = None
@@ -1184,17 +1375,6 @@ class AI2ThorEnv_cen(BaseEnv):
                 suc = True
                 self.current_hl[agent_id] = None
                 self.action_queue[agent_id].clear()
-            # elif dist > 1.4:
-            #     # error_type += f": distance-too-far ({dist:.2f}m)"
-            #     if not self.action_queue[agent_id]:
-            #         self.last_check_reason[self.agent_names[agent_id]] = f"no path to object {obj_id} with distance ({dist:.2f}m), may be block by other agent, should wait for one step"
-            #     suc = False
-            #     return suc 
-            # elif obj_id in self.get_object_in_view(agent_id):
-            #         #  and obj_name in self.receptacle_objects
-            #         suc = True
-            #         self.subtask_success_history[self.agent_names[agent_id]].append(subtask)
-            #         return suc
             elif dist <= 1.0:
                 if obj_id not in self.get_object_in_view(agent_id) and obj_name not in self.small_objects:
                     # not in view
@@ -1202,18 +1382,6 @@ class AI2ThorEnv_cen(BaseEnv):
                     suc = False
                     return suc
                 else:
-                    # agnet_rot = self.event.events[agent_id].metadata["agent"]["rotation"]["y"]
-                    # agent_cam = self.event.events[agent_id].metadata["agent"]["cameraHorizon"]
-                    # if not self.action_queue[agent_id] and obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id):
-                        
-                    #     suc = True
-                    #     self.current_hl[agent_id] = None
-                    #     self.action_queue[agent_id].clear()
-                        
-                    #     # self.pending_high_level[agent_id].appendleft(subtask)
-                    #     self.pending_high_level[agent_id].appendleft('MoveBack')
-                        # print('pending: ',self.pending_high_level[agent_id])
-                    # el
                     if obj_id in self.get_object_in_view(agent_id):
                         detections = self.event.events[agent_id].instance_detections2D
                         obj_bbox = detections[obj_id]
@@ -1229,15 +1397,12 @@ class AI2ThorEnv_cen(BaseEnv):
                             self.pending_high_level[agent_id].appendleft(act_pitch+"(" + str(p_degree) + ")")
                         # suc = self.is_object_in_center_view(agent_pos, obj_pos, agnet_rot, agent_cam)
                         # print(f'*** is obect {obj} in center view: {suc}')
-                    # elif obj_name in self.small_objects and obj_id not in self.get_object_in_view(agent_id) and not self.action_queue[agent_id]:
-                    #     suc = True
-                    #     self.current_hl[agent_id] = None
-                    #     self.action_queue[agent_id].clear()
-                        
-                    #     # self.pending_high_level[agent_id].appendleft(subtask)
-                    #     self.pending_high_level[agent_id].appendleft('LookDown(30)')
-                    #     print('pending: ',self.pending_high_level[agent_id])
-                    
+                    # New
+                    elif obj_name == 'Drawer' and not self.action_queue[agent_id]:
+                        print(f"Agent {agent_id} is close to the drawer {obj}, but cannot see it, maybe because view is blocker by other openend drawer, allow to put the subtask as done and let the agent open it/put object inside in the next step")
+                        if self.save_logs:
+                            self.logs.append(f"Agent {agent_id} is close to the drawer {obj}, but cannot see it, maybe because view is blocker by other openend drawer, allow to put the subtask as done and let the agent open it/put object inside in the next step")
+                        suc = True
                     else:
                         if self.save_logs:
                             self.logs.append(f'in is_sub_task_done(): naivifate-to-object({obj})-failed')

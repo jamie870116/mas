@@ -103,7 +103,7 @@ def run_test(env, high_level_tasks, test_name, test_id, task_name=None):
     print("Initial Observations:\n", obs)
 
     print("high_level_tasks: ", high_level_tasks)
-    history = env.action_loop(high_level_tasks)
+    history = env.action_loop(high_level_tasks) # stepwise_action_loop
     for step_idx, (obs, succ) in enumerate(history, start=1):
         print(f"\n--- Step {step_idx} ---")
         # print("Observations:", obs)
@@ -212,10 +212,13 @@ if __name__ == "__main__":
     # objs = env.get_all_objects()
     # # print(objs)
     high_level_tasks = [
-      ["NavigateTo(Fridge_1)", "OpenObject(Fridge_1)","MoveAhead"],
+      [
+        "NavigateTo(Drawer_1)", "OpenObject(Drawer_1)","NavigateTo(Drawer_2)", "OpenObject(Drawer_2)","NavigateTo(Drawer_3)", "OpenObject(Drawer_3)",
+       "NavigateTo(Drawer_4)", "OpenObject(Drawer_4)","NavigateTo(Drawer_5)", "OpenObject(Drawer_5)","NavigateTo(Drawer_6)", "OpenObject(Drawer_6)",
+       "NavigateTo(Drawer_7)", "OpenObject(Drawer_7)","NavigateTo(Drawer_8)", "OpenObject(Drawer_8)","NavigateTo(Drawer_9)", "OpenObject(Drawer_9)",],
       [ "MoveAhead",]
     ]
-    
+    cur_plan = [{"subtask": "Navigate to garbage can after opening fridge", "actions":["NavigateTo(Fridge_1)", "OpenObject(Fridge_1)","NavigateTo(GarbageCan_1)"]}, {"subtask": "move ahead once", "actions": ["MoveAhead"]}]
     
     # high_level_tasks = [
     #     ["NavigateTo(RemoteControl_1)", "PickupObject(RemoteControl_1)", "NavigateTo(Box_1)", "PutObject(Box_1)"],
@@ -230,7 +233,7 @@ if __name__ == "__main__":
         env,
         high_level_tasks=high_level_tasks,
         test_name="Test",
-        test_id=1,
+        test_id=3,
         task_name = task_name,
     )
     # input_llm = env.get_obs_llm_input()
