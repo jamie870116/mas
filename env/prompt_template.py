@@ -971,7 +971,7 @@ def get_verifier_prompt(mode: str = "summary", need_process: bool = False) -> st
         - "need_replan": boolean (true/false), If you think the current plan is not valid or efficient, output True.
         - "failure reason": string or "None", Describe why the last action failed, if any. If all were successful, output "None".
         - "reason": string, The reasoning for what each robot is supposed to do next.
-        - "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...") The actions the robots should take in the next step to make progress toward completing the task.
+        - "suggestion": string (e.g., "next, Alice-0 should ..., Bob-1 should ...") The actions the robots should take in the next step to make progress toward completing the task. keep it short and concise.   
 
         {VERIFY_EXAMPLE}
 

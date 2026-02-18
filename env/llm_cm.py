@@ -215,7 +215,7 @@ def prepare_prompt(env: AI2ThorEnv, mode: str = "init", addendum: str = "", subt
         # for replanning the subtasks based on the current state of the environment
         system_prompt = get_replanner_prompt(mode="summary")
         try:
-            input = env.get_obs_llm_input(prev_info=info)
+            input = env.get_obs_llm_input(prev_info=info, mode="replan")
         except KeyError as e:
             print(f"[Error] Missing key in info for replan: {e}")
             return None, None
@@ -296,7 +296,7 @@ def process_llm_output(res_content, mode):
             _get(data, "memory"),
             _get(data, "reason"),
             _get(data, "suggestion"),
-            _get(data, "need_plan"),
+            _get(data, "need_replan"),
         )
     if mode == "memory":
         return bool(data["use_in_next_plan"]), data
@@ -394,7 +394,7 @@ def verify_actions(env, info):
         for image in base64_image
     ]
     verify_payload = prepare_payload(verify_prompt, verify_user_prompt, img_urls=image_urls)
-    # print("verify prompt: ", verify_user_prompt)
+    print("verify user prompt: ", verify_user_prompt)
     res, res_content = get_llm_response(verify_payload, model=config['model'])
     # print('verify llm output', res_content)
     failure_reason, memory, reason, suggestion, need_plan = process_llm_output(res_content, mode="verifier")
@@ -492,7 +492,7 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
 def replan_open_subtasks(env, info, completed_subtasks, verify_info):
     replan_prompt, replan_user_prompt = prepare_prompt(env, mode="replan", info=info, verify_info=verify_info)
     # print("replan system prompt: ", replan_prompt)
-    # print("replan user prompt: ", replan_user_prompt)
+    print("replan user prompt: ", replan_user_prompt)
     replan_payload = prepare_payload(replan_prompt, replan_user_prompt)
     res, res_content = get_llm_response(replan_payload, model=config['model'])
     # print('replan llm output', res_content)
@@ -650,7 +650,7 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False,
         logs.append(f"after verify open_subtasks: {open_subtasks}")
         logs.append(f"after verify closed_subtasks: {completed_subtasks}")
         env.update_plan(open_subtasks, completed_subtasks)
-        # 6. verify the execution and update memory
+        # 6. verify the execution and update memory TBF
         logs.append(f"----replanning subtasks to agents----")
         verify_res = verify_actions(env, info)
         print("verify result: ", verify_res)
@@ -1004,4 +1004,4 @@ if __name__ == "__main__":
 
     # batch_run(TASKS_4, base_dir="config", start=10, end=10, sleep_after=50, delete_frames=True)
 
-    run_main(test_id = 1, config_path="config/2_open_all_drawers/FloorPlan1/config.json")
+    run_main(test_id = 4, config_path="config/1_put_bread_lettuce_tomato_fridge/FloorPlan5/config.json", delete_frames=True)

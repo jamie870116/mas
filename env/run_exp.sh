@@ -4,13 +4,13 @@ set -euo pipefail
 METHOD="${1:-decen}"     # summary | log | decen
 TASKSET="${2:-ALL}"      # ALL | TASKS_1 | TASKS_2 | TASKS_3 | TASKS_4
 
-CHUNK=5
+CHUNK=3
 START=1
 END=1
 TIMEOUT=300
 SLEEP_AFTER=5
-
-IDLE_LIMIT=90     #  90 sec沒有任何輸出就重啟（自行調整）
+MAX_RETRIES=3
+IDLE_LIMIT=60     #  90 sec沒有任何輸出就重啟（自行調整）
 POLL_INTERVAL=15  # 每 15 秒檢查一次 log 是否有更新
 KILL_GRACE=10     # 先 TERM，等 10 秒不退就 KILL
 
@@ -23,7 +23,7 @@ while true; do
   echo "=== RUN chunk: method=${METHOD}, taskset=${TASKSET} ===" | tee -a "$LOG"
 
   # 啟動 python（放背景），stdout/stderr 同時寫 log + 螢幕
-  python -u run_exp.py \
+  python -u env/run_exp.py \
     --method "$METHOD" \
     --taskset "$TASKSET" \
     --chunk "$CHUNK" \
@@ -31,6 +31,8 @@ while true; do
     --end "$END" \
     --timeout "$TIMEOUT" \
     --sleep_after "$SLEEP_AFTER" \
+    --delete_frames \
+    --max_retries "$MAX_RETRIES" \
     2>&1 | tee -a "$LOG" &
   PID=$!
 

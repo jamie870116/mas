@@ -944,23 +944,30 @@ class AI2ThorEnv_cen(BaseEnv):
             # by teleporting - start by testing small teleport distances in all directions, then keep increasing distance if nothing is found.
             if not success:
                 err = self.event.events[aid].metadata.get("errorMessage") or "unknown-error"
-                if "blocking" in err:
-                    err_split = err.split(" ")
-                    blocked_obj = err_split[0].split("_")[0]
+                # New edited
+                if "blocking" in err or "a held item" in err:
+                    if "blocking" in err:
+                        err_split = err.split(" ")
+                        blocked_obj = err_split[0].split("_")[0]
 
-                    if  blocked_obj in ["Fridge", "Drawer", "Cabinet"]:
-                        print("blocked by object: ", blocked_obj)
-                        self.logs.append("blocked by object: " + blocked_obj)
-                    if blocked_obj.startswith("Agent"):
-                        print("blocked by another agent")
-                        self.logs.append("blocked by another agent")
+                        if  blocked_obj in ["Fridge", "Drawer", "Cabinet"]:
+                            print("blocked by object: ", blocked_obj)
+                            if self.save_logs:
+                                self.logs.append("blocked by object: " + blocked_obj)
+                        if blocked_obj.startswith("Agent"):
+                            print("blocked by another agent")
+                            if self.save_logs:
+                                self.logs.append("blocked by another agent")
                             # TBD
+                        else:
+                            print("blocked by unknown object: ", blocked_obj)
+                            if self.save_logs:
+                                self.logs.append("blocked by unknown object: " + blocked_obj)
                     else:
-                        print("blocked by unknown object: ", blocked_obj)
-                        self.logs.append("blocked by unknown object: " + blocked_obj)
+                        print("blocked because of held item, error message: ", err)
+                        if self.save_logs:
+                            self.logs.append("blocked because of held item, error message: " + err)
 
-                    coords_str = re.search(r"\((.*?)\)", err).group(1)
-                    x, _, z = map(float, coords_str.split(","))
                     a_pos = self.get_agent_position_dict(aid)
                     other_agents = [
                         self.event.events[i].metadata["agent"]["position"]

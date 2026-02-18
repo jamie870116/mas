@@ -33,10 +33,26 @@ def flatten_tasks(tasks_list):
             })
     return out
 
+# def load_state(path: Path):
+#     if path.exists():
+#         return json.loads(path.read_text(encoding="utf-8"))
+#     return {"done": {}, "updated_at": None}
+
 def load_state(path: Path):
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    return {"done": {}, "updated_at": None}
+        try:
+            txt = path.read_text(encoding="utf-8").strip()
+            if not txt:
+                raise json.JSONDecodeError("empty", "", 0)
+            state = json.loads(txt)
+        except json.JSONDecodeError:
+            return {"done": {}, "failed": {}, "retries": {}, "updated_at": None}
+        state.setdefault("done", {})
+        state.setdefault("failed", {})
+        state.setdefault("retries", {})
+        state.setdefault("updated_at", None)
+        return state
+    return {"done": {}, "failed": {}, "retries": {}, "updated_at": None}
 
 def save_state(path: Path, state: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,6 +72,7 @@ def main():
     ap.add_argument("--sleep_after", type=float, default=5.0)
     ap.add_argument("--delete_frames", action="store_true")
     ap.add_argument("--timeout", type=int, default=350)
+    ap.add_argument("--max_retries", type=int, default=3)
 
     args = ap.parse_args()
 
@@ -75,13 +92,36 @@ def main():
     state = load_state(state_path)
 
     # 找下一段未完成 index（以 index 當 key，簡單穩定）
-    done = state["done"]  # dict of {"idx": {"time":...}}
+    # done = state["done"]  # dict of {"idx": {"time":...}}
+    # next_indices = []
+    # for i in range(len(configs)):
+    #     if str(i) not in done:
+    #         next_indices.append(i)
+    #     if len(next_indices) >= args.chunk:
+    #         break
+
+    # if not next_indices:
+    #     print(f"[DONE] All configs finished for {args.method} {args.taskset}.")
+    #     sys.exit(0)
+
+    done = state["done"]
+    failed = state["failed"]
+    retries = state["retries"]
+
     next_indices = []
     for i in range(len(configs)):
-        if str(i) not in done:
-            next_indices.append(i)
+        key = str(i)
+        if key in done or key in failed:
+            continue
+        if int(retries.get(key, 0)) >= args.max_retries:
+            failed[key] = {"time": now(), "reason": f"exceeded max_retries={args.max_retries}"}
+            continue
+        next_indices.append(i)
         if len(next_indices) >= args.chunk:
             break
+
+    # 若剛剛有把一些 index 標 failed，記得存檔
+    save_state(state_path, state)
 
     if not next_indices:
         print(f"[DONE] All configs finished for {args.method} {args.taskset}.")
@@ -132,7 +172,19 @@ def main():
 
     except Exception as e:
         # failure: do not mark done; exit non-zero so bash can log it and continue/retry
-        print(f"[CHUNK ERROR] {repr(e)}", file=sys.stderr)
+        err = repr(e)
+        print(f"[CHUNK ERROR] {err}", file=sys.stderr)
+        # increment retries for these indices
+        for idx in next_indices:
+            key = str(idx)
+            retries[key] = int(retries.get(key, 0)) + 1
+
+            # if exceed max, mark failed
+            if retries[key] >= args.max_retries:
+                failed[key] = {"time": now(), "reason": err}
+
+        # persist state before raising
+        save_state(state_path, state)
         raise
 
 if __name__ == "__main__":

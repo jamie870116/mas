@@ -615,10 +615,14 @@ class AI2ThorEnv_cen(BaseEnv):
             evt = self.controller.step(action="Teleport", agentId=aid, position=pos)
             if not evt.events[aid].metadata["lastActionSuccess"]:
                 continue
-
+            print(f"Agent {self.agent_names[aid]} teleported to {pos} to unblock.")
+            if self.save_logs:
+                self.logs.append(f"Agent {self.agent_names[aid]} teleported to {pos} to unblock.")
             # retry previous action
             evt2 = self.controller.step(prev_action_dict)
             if evt2.events[aid].metadata["lastActionSuccess"]:
+                if self.save_logs:
+                    self.logs.append(f"Agent {self.agent_names[aid]} re-executed previous action after teleporting (action: {prev_action_dict}) and succeeded.")
                 return True
 
         return False
@@ -694,27 +698,35 @@ class AI2ThorEnv_cen(BaseEnv):
             else:
                 success = True
 
-            # New TBD: handle blocking situation (need more tests for collision)
+            # New TBD: handle blocking situation (need more tests for collision) 
+            # TBD: a held item sometime cause collision when rotating as well
             # by teleporting - start by testing small teleport distances in all directions, then keep increasing distance if nothing is found.
             if not success:
                 err = self.event.events[aid].metadata.get("errorMessage") or "unknown-error"
-                if "blocking" in err:
-                    err_split = err.split(" ")
-                    blocked_obj = err_split[0].split("_")[0]
+                # New edited
+                if "blocking" in err or "a held item" in err:
+                    if "blocking" in err:
+                        err_split = err.split(" ")
+                        blocked_obj = err_split[0].split("_")[0]
 
-                    if  blocked_obj in ["Fridge", "Drawer", "Cabinet"]:
-                        print("blocked by object: ", blocked_obj)
-                        self.logs.append("blocked by object: " + blocked_obj)
-                    if blocked_obj.startswith("Agent"):
-                        print("blocked by another agent")
-                        self.logs.append("blocked by another agent")
+                        if  blocked_obj in ["Fridge", "Drawer", "Cabinet"]:
+                            print("blocked by object: ", blocked_obj)
+                            if self.save_logs:
+                                self.logs.append("blocked by object: " + blocked_obj)
+                        if blocked_obj.startswith("Agent"):
+                            print("blocked by another agent")
+                            if self.save_logs:
+                                self.logs.append("blocked by another agent")
                             # TBD
+                        else:
+                            print("blocked by unknown object: ", blocked_obj)
+                            if self.save_logs:
+                                self.logs.append("blocked by unknown object: " + blocked_obj)
                     else:
-                        print("blocked by unknown object: ", blocked_obj)
-                        self.logs.append("blocked by unknown object: " + blocked_obj)
+                        print("blocked because of held item, error message: ", err)
+                        if self.save_logs:
+                            self.logs.append("blocked because of held item, error message: " + err)
 
-                    coords_str = re.search(r"\((.*?)\)", err).group(1)
-                    x, _, z = map(float, coords_str.split(","))
                     a_pos = self.get_agent_position_dict(aid)
                     other_agents = [
                         self.event.events[i].metadata["agent"]["position"]
@@ -731,15 +743,6 @@ class AI2ThorEnv_cen(BaseEnv):
                         grid_size=0.25,
                         k=8
                     )
-
-                    # new_pos = {"x": a_pos["x"] - x, "y": a_pos["y"], "z": a_pos["z"] - z}
-                    # # reachable_2d = self.get_cur_reachable_positions_2d(is_filter=True, mannual_block_pos=self.mannual_block_pos)
-                    # # reachable_2d = [(round(x, 2), round(z, 2)) for (x, z) in reachable_2d]
-                    # print("blocked err: ", err)
-                    
-                    # teleport_act_dict = {"agentId": aid, "action": "Teleport", "position": new_pos}
-                    # self.event = self.controller.step(teleport_act_dict)
-                    # success = self.event.events[aid].metadata["lastActionSuccess"]
                     if success:
                         # decompose the original action again after teleporting
                         actions = ["Idle"] * self.num_agents
@@ -1352,12 +1355,12 @@ class AI2ThorEnv_cen(BaseEnv):
                             self.logs.append(f"Agent {agent_id} is close to the drawer {obj}, but cannot see it, maybe because view is blocker by other openend drawer, allow to put the subtask as done and let the agent open it/put object inside in the next step")
                         suc = True
                     else:
-                        if self.save_logs:
-                            self.logs.append(f'in is_sub_task_done(): naivifate-to-object({obj})-failed')
-                        # print(f'in is_sub_task_done(): naivifate-to-object({obj})-failed')
-                        obj_in_view = self.get_mapping_object_pos_in_view(agent_id)
-                        # print(f'agent {agent_id} can see: {obj_in_view}')
-                        self.last_check_reason[self.agent_names[agent_id]] = f"naivifate-to-object({obj})-failed"
+                        # if self.save_logs:
+                        #     self.logs.append(f'in is_sub_task_done(): naivigate-to-object({obj})-failed')
+                        # # print(f'in is_sub_task_done(): naivifate-to-object({obj})-failed')
+                        # obj_in_view = self.get_mapping_object_pos_in_view(agent_id)
+                        # # print(f'agent {agent_id} can see: {obj_in_view}')
+                        # self.last_check_reason[self.agent_names[agent_id]] = f"naivigate-to-object({obj})-failed"
                         suc = False
 
         if suc:
@@ -2092,7 +2095,7 @@ class AI2ThorEnv_cen(BaseEnv):
         }
  
 
-    def get_obs_llm_input(self, prev_info={}) -> Dict[str, Any]:
+    def get_obs_llm_input(self, prev_info={}, mode="default") -> Dict[str, Any]:
         """
         info:
         {
@@ -2148,8 +2151,9 @@ class AI2ThorEnv_cen(BaseEnv):
                 if subtask_failure_reasons:
                     reason_description = self.input_dict.get(f"{name}'s previous failures", "None") + f", because of {subtask_failure_reasons['reason']}"
                     snap[f"{name}'s subtask_failure_reasons"] = reason_description
-                
-        snap['suggestion'] = self.suggestion[0] if self.suggestion else "None"
+        
+        if mode == "replan":
+            snap['suggestion'] = self.suggestion[0] if self.suggestion else "None"
             
 
         # if self.use_shared_subtask:
