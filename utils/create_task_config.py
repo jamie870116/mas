@@ -30,36 +30,36 @@ BASE_CONFIG = {
 
 
 TASKS_1 = [
-    # {
-    #     "task_folder": "1_put_bread_lettuce_tomato_fridge",
-    #     "task": "put bread, lettuce, and tomato in the fridge",
-    #     "scenes": ["floorplan1", "floorplan2", "floorplan3", "floorplan4", "floorplan5"]
-    # },
-    # {
-    #     "task_folder": "1_put_computer_book_remotecontrol_sofa",
-    #     "task": "put labtop, book and remote control on the sofa",
-    #     "scenes": ["floorplan201", "floorplan202", "floorplan203", "floorplan209", "floorplan224"]
-    # },
-    # {
-    #     "task_folder": "1_put_knife_bowl_mug_countertop",
-    #     "task": "put knife, bowl, and mug on the counter top",
-    #     "scenes": ["floorplan1", "floorplan2", "floorplan3", "floorplan4", "floorplan5"]
-    # },
-    # {
-    #     "task_folder": "1_put_plate_mug_bowl_fridge",
-    #     "task": "put plate, mug, and bowl in the fridge",
-    #     "scenes": ["floorplan1", "floorplan2", "floorplan3", "floorplan4", "floorplan5"]
-    # },
-    # {
-    #     "task_folder": "1_put_remotecontrol_keys_watch_box",
-    #     "task": "put remote control, keys, and watch in the box",
-    #     "scenes": ["floorplan201", "floorplan202", "floorplan203", "floorplan207","floorplan209", "floorplan215", "floorplan226", "floorplan228"]
-    # },
-    # {
-    #     "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
-    #     "task": "put vase, tissue box, and remote control on the dinning table",
-    #     "scenes": ["floorplan201", "floorplan203", "floorplan216", "floorplan219", "floorplan229"]
-    # },
+    {
+        "task_folder": "1_put_bread_lettuce_tomato_fridge",
+        "task": "put bread, lettuce, and tomato in the fridge",
+        "scenes": ["floorplan1", "floorplan2", "floorplan3", "floorplan4", "floorplan5"]
+    },
+    {
+        "task_folder": "1_put_computer_book_remotecontrol_sofa",
+        "task": "put labtop, book and remote control on the sofa",
+        "scenes": ["floorplan201", "floorplan202", "floorplan203", "floorplan209", "floorplan224"]
+    },
+    {
+        "task_folder": "1_put_knife_bowl_mug_countertop",
+        "task": "put knife, bowl, and mug on the counter top",
+        "scenes": ["floorplan1", "floorplan2", "floorplan3", "floorplan4", "floorplan5"]
+    },
+    {
+        "task_folder": "1_put_plate_mug_bowl_fridge",
+        "task": "put plate, mug, and bowl in the fridge",
+        "scenes": ["floorplan1", "floorplan2", "floorplan3", "floorplan4", "floorplan5"]
+    },
+    {
+        "task_folder": "1_put_remotecontrol_keys_watch_box",
+        "task": "put remote control, keys, and watch in the box",
+        "scenes": ["floorplan201", "floorplan202", "floorplan203", "floorplan207","floorplan209", "floorplan215", "floorplan226", "floorplan228"]
+    },
+    {
+        "task_folder": "1_put_vase_tissuebox_remotecontrol_table",
+        "task": "put vase, tissue box, and remote control on the dinning table",
+        "scenes": ["floorplan201", "floorplan203", "floorplan216", "floorplan219", "floorplan229"]
+    },
     {
         "task_folder": "1_slice_bread_lettuce_tomato_egg",
         "task": "slice bread, lettuce, tomato, and egg with knife",
@@ -98,11 +98,11 @@ TASKS_2 = [
         "task": "put all tomatoes and potatoes in the fridge",
         "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
     },
-    # {
-    #     "task_folder": "2_put_all_vases_countertop",
-    #     "task": "put all the vases on the counter top",
-    #     "scenes": ["FloorPlan1", "FloorPlan5"]
-    # },
+    {
+        "task_folder": "2_put_all_vases_countertop",
+        "task": "put all the vases on the counter top",
+        "scenes": ["FloorPlan1", "FloorPlan5"]
+    },
     {
         "task_folder": "2_turn_on_all_stove_knobs",
         "task": "turn on all the stove knobs",
@@ -386,7 +386,7 @@ def compute_transport_rate(final_report: dict) -> float:
 
     return 0.0
 
-def evaluate_tasks(tasks: List[Dict[str, Any]]):
+def evaluate_tasks(tasks: List[Dict[str, Any]], method=""):
 
     all_results = []
 
@@ -408,7 +408,11 @@ def evaluate_tasks(tasks: List[Dict[str, Any]]):
             task_log_file = task_str.replace(" ", "_")  # e.g. "Clear_the_couch_by_..."
 
             # 2. logs/{task_log_file}/{scene}/test_*/log_llm.txt
-            logs_root = BASE_DIR / "logs" / task_log_file / scene
+            if method:
+                logs_root = BASE_DIR / "logs" / method / task_log_file / scene
+            else:                
+                logs_root = BASE_DIR / "logs" / task_log_file / scene
+            
             if not logs_root.exists():
                 print(f"[WARN] logs root not found: {logs_root}")
                 continue
@@ -454,6 +458,34 @@ def evaluate_tasks(tasks: List[Dict[str, Any]]):
 
     return all_results
 
+from typing import List, Dict, Any
+
+def summarize_results(results: List[Dict[str, Any]]) -> Dict[str, float]:
+    if not results:
+        print("No results to summarize.")
+        return {}
+
+    n = len(results)
+
+    avg_success = sum(1 if r["success"] else 0 for r in results) / n
+    avg_tr = sum(r["transport_rate"] for r in results) / n
+    avg_steps = sum(r["steps"] for r in results if r["steps"] is not None) / n
+
+    summary = {
+        "num_tasks": n,
+        "avg_success_rate": avg_success,
+        "avg_transport_rate": avg_tr,
+        "avg_steps": avg_steps,
+    }
+
+    print("\n===== OVERALL SUMMARY =====")
+    print(f"Total Tasks        : {n}")
+    print(f"Avg Success Rate   : {avg_success:.4f}")
+    print(f"Avg Transport Rate : {avg_tr:.4f}")
+    print(f"Avg Steps          : {avg_steps:.2f}")
+    print("===========================\n")
+
+    return summary
 
 def save_results_to_csv(results, csv_path):
     """
@@ -487,11 +519,12 @@ if __name__ == "__main__":
     # print("Num objects:", len(objects))
     
     results_1 = evaluate_tasks(TASKS_1)
-    save_results_to_csv(results_1, 'cen_summary_r_task1.csv')
-    results_2 = evaluate_tasks(TASKS_2)
-    save_results_to_csv(results_2, 'cen_summary_r_task2.csv')
-    results_3 = evaluate_tasks(TASKS_3)
-    save_results_to_csv(results_3, 'cen_summary_r_task3.csv')
-    results_4 = evaluate_tasks(TASKS_4)
-    save_results_to_csv(results_4, 'cen_summary_r_task4.csv')
+    sum1 = summarize_results(results_1)
+    save_results_to_csv(results_1, 'cen_log_r_task1.csv')
+    # results_2 = evaluate_tasks(TASKS_2)
+    # save_results_to_csv(results_2, 'cen_summary_r_task2.csv')
+    # results_3 = evaluate_tasks(TASKS_3)
+    # save_results_to_csv(results_3, 'cen_summary_r_task3.csv')
+    # results_4 = evaluate_tasks(TASKS_4)
+    # save_results_to_csv(results_4, 'cen_summary_r_task4.csv')
    

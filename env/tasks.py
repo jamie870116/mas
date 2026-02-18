@@ -22,7 +22,7 @@ TASKS_1 = [
     {
         "task_folder": "1_put_remotecontrol_keys_watch_box",
         "task": "put remote control, keys, and watch in the box",
-        "scenes": [ "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan215", "FloorPlan207" ] # "FloorPlan201", "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
+        "scenes": [ "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan215", "FloorPlan207" ] # "FloorPlan201"(miss), "FloorPlan202", "FloorPlan203", ,"FloorPlan209", "FloorPlan215", "FloorPlan226", "FloorPlan228", "FloorPlan201", "FloorPlan202", "FloorPlan203", "FloorPlan207"
     },
     {
         "task_folder": "1_put_vase_tissuebox_remotecontrol_table",

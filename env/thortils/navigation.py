@@ -525,6 +525,7 @@ def get_shortest_path_to_object(controller, object_id,
         tuple(map(lambda x: roundany(x, grid_size), pos))
         for pos in thor_reachable_positions(controller)]
     original_reachable_positions = reachable_positions.copy()
+    # print(f'orig reachable positions: {original_reachable_positions}')
     # if other agent exist, remove the position of other_agent from reachable positions
     if other_agent_position:
         tuplize=lambda p : (p['x'], p['y'], p['z'])

@@ -677,8 +677,7 @@ def get_decen_planner_prompt(agent_id=0):
     # Replanning and Failure Handling
     When logs and/or Suggestion indicate failures, delayed messages, or environment changes:
     - Prefer the **shortest corrective subtask** that gets the agent unstuck and back toward the global goal.
-    - Avoid subtasks like “find”, “scan”, “explore”, or “look for” unless there is a navigation or visibility failure suggesting the target cannot be directly navigated to.
-      - If the target object is not in visibility, first consider RotateLeft/RotateRight or LookUp/LookDown before more exploratory subtasks.
+    - Avoid subtasks like “find”, “scan”, “explore”, or “look for” unless there is a navigation failure suggesting the target cannot be directly navigated to.
     - Reuse previous progress:
       - Do not repeat previously successful subtasks for this agent unless the environment state has changed in a way that invalidates earlier progress.
     - Use “Suggestion” as a hint, not a strict command; ensure the subtask still respects all constraints and Available Actions.
@@ -931,8 +930,8 @@ def get_action_prompt(mode="summary"):
 
 def get_verifier_prompt(mode: str = "summary", need_process: bool = False) -> str:
     base_prompt = f"""# Role and Objective
-        You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. Both robots have a partially observable view of the environment. Hence they have to explore around in the environment to do the task.
-        You will get a description of the task robots are supposed to do. You will get an image of the environment from {", ".join([f"{name}'s perspective" for name in AGENT_NAMES[:-1]]) + f", and {AGENT_NAMES[-1]}'s perspective"} as the observation input.
+        You are an excellent planner and robot controller who is tasked with helping {len(AGENT_NAMES)} embodied robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"} carry out a task. 
+        You will get a description of the task robots are supposed to do. You will get an object list of the environment from {", ".join([f"{name}'s perspective" for name in AGENT_NAMES[:-1]]) + f", and {AGENT_NAMES[-1]}'s perspective"} as the observation input.
         To help you with detecting objects in the image, you will also get a list objects each agent is able to see in the environment. Here the objects are named as "<object_name>_<object_id>".
         So, along with the image inputs you will get the following information:
         - A task description
@@ -997,7 +996,7 @@ def get_replanner_prompt(mode: str = "summary", need_process: bool = False) -> s
 
         # Instructions
         - Avoid repeating success subtasks unless conditions have changed; minimize steps.
-        - Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. If the target object is not in visibility try RotateLeft/Right or LookUp/Down first.
+        - Do not generate subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred.
         - By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
         {COMMON_GUIDELINES}
 
@@ -1071,7 +1070,7 @@ def get_decen_verifier_prompt():
     # Instructions
     - Use observations, failure descriptions, memory/log history, and progress to infer causes.
     - Do not suggest subtasks like “find”, “scan”, “explore”, or “look for” unless a navigation failure has occurred. 
-    - By default, object visibility is not required—always use NavigateTo(<Object>) directly when no navigation error is present.
+    - By default, object visibility is not required — always use NavigateTo(<Object>) directly when no navigation error is present.
     {COMMON_GUIDELINES}
     - Environment Hazards: open objects can block paths; avoid mutual blocking/collisions.
     - Electronics: operate directly on the device—do not use remotes unless required.

@@ -87,7 +87,7 @@ def build_blocked_xz_set(other_agent_position: list[dict],
 
 class AI2ThorEnv_cen(BaseEnv):
     """Main AI2THOR environment for multi-agent tasks with global timer and frame saving."""
-    def __init__(self, config_path: str = "config.json"):
+    def __init__(self, controller, config_path: str = "config.json"):
         super().__init__()
         with open(config_path, "r") as f:
             self.config = json.load(f)
@@ -109,8 +109,8 @@ class AI2ThorEnv_cen(BaseEnv):
         self.overhead = self.config["overhead"]
         self.save_logs = self.config["save_logs"]
         self.logs = []
-        
-        self.controller = ai2thor.controller.Controller(width=1000, height=1000, gridSize=0.25)
+        self.controller = controller
+        # self.controller = ai2thor.controller.Controller(width=1000, height=1000, gridSize=0.25)
         self.controller.reset(self.scene)
         
         self.subtasks = ["Initial subtask"] if self.use_shared_subtask else ["Initial subtask"] * self.num_agents
@@ -642,7 +642,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 actions[aid] = self.current_hl[aid]
                 _ = self.step_decomp(actions, agent_id=aid)
             if self.save_logs:
-                # self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
+                self.logs.append(f"Executing action for agent {aid} ({self.agent_names[aid]}): {self.action_queue[aid]}")
                 self.logs.append(f"""current high level task for agent {aid} ({self.agent_names[aid]}): {self.current_hl[aid]}""")
                 self.logs.append(f"""remaining high level tasks for agent {aid} ({self.agent_names[aid]}): {self.pending_high_level[aid]}""")
             # print(f"Executing action for agent {aid} ({self.agent_names[aid]}")
@@ -698,9 +698,8 @@ class AI2ThorEnv_cen(BaseEnv):
             else:
                 success = True
 
-            # New TBD: handle blocking situation (need more tests for collision) 
-            # TBD: a held item sometime cause collision when rotating as well
-            # by teleporting - start by testing small teleport distances in all directions, then keep increasing distance if nothing is found.
+            # New TBD: handle blocking situation (need more tests for collision) by teleporting
+            # TBD: a held item sometime cause collision when rotating
             if not success:
                 err = self.event.events[aid].metadata.get("errorMessage") or "unknown-error"
                 # New edited
@@ -717,7 +716,6 @@ class AI2ThorEnv_cen(BaseEnv):
                             print("blocked by another agent")
                             if self.save_logs:
                                 self.logs.append("blocked by another agent")
-                            # TBD
                         else:
                             print("blocked by unknown object: ", blocked_obj)
                             if self.save_logs:

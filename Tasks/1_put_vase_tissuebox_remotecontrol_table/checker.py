@@ -53,7 +53,7 @@ def build_checker(env=None):
     else:  # FloorPlan203
         receptacle = ["DiningTable_1","SideTable_1"]
 
-    required = ["Vase", "RemoteControl", "Tissuebox"]
+    required = ["Vase", "RemoteControl", "TissueBox"]
 
     cfg = {
         "is_multiple": True,

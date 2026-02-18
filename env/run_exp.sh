@@ -5,14 +5,32 @@ METHOD="${1:-decen}"     # summary | log | decen
 TASKSET="${2:-ALL}"      # ALL | TASKS_1 | TASKS_2 | TASKS_3 | TASKS_4
 
 CHUNK=3
-START=1
-END=1
+
+case "$METHOD" in
+  summary) START=1 ;;
+  log)     START=11 ;;
+  decen)   START=21 ;;
+  *)       echo "Unknown METHOD: $METHOD"; exit 1 ;;
+esac
+case "$METHOD" in
+  summary) END=1 ;;
+  log)     END=11 ;;
+  decen)   END=21 ;;
+  *)       echo "Unknown METHOD: $METHOD"; exit 1 ;;
+esac
+
 TIMEOUT=300
 SLEEP_AFTER=5
 MAX_RETRIES=3
 IDLE_LIMIT=60     #  90 sec沒有任何輸出就重啟（自行調整）
 POLL_INTERVAL=15  # 每 15 秒檢查一次 log 是否有更新
 KILL_GRACE=10     # 先 TERM，等 10 秒不退就 KILL
+kill_ai2thor() {
+  echo "=== Cleanup: killing AI2-THOR ===" | tee -a "$LOG"
+  pkill -f "/MacOS/AI2-THOR" 2>/dev/null || true
+  sleep 2
+  pkill -9 -f "/MacOS/AI2-THOR" 2>/dev/null || true
+}
 
 mkdir -p exp_logs
 
@@ -22,23 +40,23 @@ while true; do
 
   echo "=== RUN chunk: method=${METHOD}, taskset=${TASKSET} ===" | tee -a "$LOG"
 
-  # 啟動 python（放背景），stdout/stderr 同時寫 log + 螢幕
   python -u env/run_exp.py \
-    --method "$METHOD" \
-    --taskset "$TASKSET" \
-    --chunk "$CHUNK" \
-    --start "$START" \
-    --end "$END" \
-    --timeout "$TIMEOUT" \
-    --sleep_after "$SLEEP_AFTER" \
-    --delete_frames \
-    --max_retries "$MAX_RETRIES" \
-    2>&1 | tee -a "$LOG" &
+  --method "$METHOD" \
+  --taskset "$TASKSET" \
+  --chunk "$CHUNK" \
+  --start "$START" \
+  --end "$END" \
+  --timeout "$TIMEOUT" \
+  --sleep_after "$SLEEP_AFTER" \
+  --delete_frames \
+  --max_retries "$MAX_RETRIES" \
+  >> "$LOG" 2>&1 &
   PID=$!
 
   # 監控：如果 log 在 IDLE_LIMIT 秒內沒有更新 -> 重啟
   while kill -0 "$PID" 2>/dev/null; do
     sleep "$POLL_INTERVAL"
+
 
     # macOS: stat -f %m 取最後修改時間（epoch seconds）
     LAST_MOD=$(stat -f %m "$LOG" 2>/dev/null || echo 0)
@@ -47,17 +65,13 @@ while true; do
 
     if [ "$DIFF" -ge "$IDLE_LIMIT" ]; then
       echo "=== IDLE WATCHDOG: no output for ${DIFF}s (>= ${IDLE_LIMIT}s). Restarting chunk. ===" | tee -a "$LOG"
-
-      # 先嘗試優雅結束
-      kill -TERM "$PID" 2>/dev/null || true
-      sleep "$KILL_GRACE"
-
-      # 還活著就強制 kill
+      
+      kill -INT "$PID" 2>/dev/null || true
+      sleep 5
       if kill -0 "$PID" 2>/dev/null; then
-        echo "=== Force kill PID $PID ===" | tee -a "$LOG"
         kill -KILL "$PID" 2>/dev/null || true
       fi
-
+      kill_ai2thor
       break
     fi
   done

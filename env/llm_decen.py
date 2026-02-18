@@ -20,6 +20,7 @@ from pathlib import Path
 import time
 import base64
 import difflib
+import ai2thor.controller
 import numpy as np
 
 from openai import OpenAI
@@ -69,32 +70,6 @@ def convert_dict_to_string(input_dict) -> str:
     """
     return "{" + "\n".join(f"{k}: {v}, " for k, v in input_dict.items()) + "}"
 
-
-def set_env_with_config(config_file: str):
-    ''''
-    config example:{
-            "num_agents": 2,
-            "scene": "FloorPlan1",
-            "task": "bring a tomato, lettuce, and bread to the countertop to make a sandwich",
-            "timeout": 120,
-            "model": "gpt-4o-mini",
-            "use_obs_summariser": false,
-            "use_act_summariser": false,
-            "use_action_failure": true,
-            "use_shared_subtask": true,
-            "use_separate_subtask": false,
-            "use_shared_memory": true,
-            "use_separate_memory": false,
-            "use_plan": true,
-            "force_action": false,
-            "temperature": 0.7,
-            "overhead": true
-        }
-    '''
-    env = AI2ThorEnv(config_file)
-    with open(config_file, "r") as f:
-        config = json.load(f)
-    return env, config
 
 def get_llm_response(payload, model="gpt-4.1", temperature=0.7, max_tokens=2048, max_retries=5) -> str:
     attempt = 0
@@ -390,8 +365,7 @@ def verify_subtask_completion(env, info, similarity_cutoff: float = 0.62):
     return open_subtasks, closed_subtasks
 
 
-    
-def set_env_with_config(config_file: str):
+def set_env_with_config(controller,config_file: str):
     ''''
     config example:{
             "num_agents": 2,
@@ -412,10 +386,10 @@ def set_env_with_config(config_file: str):
             "overhead": true
         }
     '''
-    env = AI2ThorEnv(config_file)
+    env = AI2ThorEnv(controller,config_file)
     with open(config_file, "r") as f:
         config = json.load(f)
-    return env, config
+    return env,config
 
 
 def decen_subtask_planning(env, config, agent_id, is_initial=False, info=""):
@@ -502,9 +476,9 @@ def get_agent_subtask(env: AI2ThorEnv, config, agent_id, is_initial=False, info=
     # return a subtask and a list of actions of this subtask
     return subtask, actions, msg
 
-def run_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250, timeout_step=200):
+def run_main(controller, test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250, timeout_step=200):
     # Init. Env & config
-    env, config = set_env_with_config(config_path)
+    env, config = set_env_with_config(controller, config_path)
     if test_id > 0:
         _ = env.reset(test_case_id=test_id)
     else:
@@ -652,26 +626,28 @@ def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delet
     repeat: how many times each config runs
     sleep_after: seconds to sleep between runs
     """
-    script_dir = Path(__file__).parent  # /mas/utils
-    base_path = (script_dir / ".." / base_dir).resolve()
+    with ai2thor.controller.Controller(width=1000, height=1000, gridSize=0.25) as controller:
+        
+        script_dir = Path(__file__).parent  # /mas/utils
+        base_path = (script_dir / ".." / base_dir).resolve()
 
-    for task in tasks:
-        task_folder = task["task_folder"]
-        for scene in task["scenes"]:
-            cfg_path = base_path / task_folder / scene / "config.json"
+        for task in tasks:
+            task_folder = task["task_folder"]
+            for scene in task["scenes"]:
+                cfg_path = base_path / task_folder / scene / "config.json"
 
-            if not cfg_path.exists():
-                print(f"[WARN] Config not found: {cfg_path}")
-                continue
+                if not cfg_path.exists():
+                    print(f"[WARN] Config not found: {cfg_path}")
+                    continue
 
-            print(f"==== Using config: {cfg_path} ====")
+                print(f"==== Using config: {cfg_path} ====")
 
-            for r in range(start, end + 1):
-                print(f"---- Run {r}/{end} for {cfg_path} ----")
-                run_main(test_id = r, config_path=str(cfg_path), delete_frames=delete_frames, timeout=timeout)
-                time.sleep(sleep_after)
+                for r in range(start, end + 1):
+                    print(f"---- Run {r}/{end} for {cfg_path} ----")
+                    run_main(controller,test_id = r, config_path=str(cfg_path), delete_frames=delete_frames, timeout=timeout)
+                    time.sleep(sleep_after)
 
-            print(f"==== Finished {cfg_path} ====")
+                print(f"==== Finished {cfg_path} ====")
 
 
 if __name__ == "__main__":

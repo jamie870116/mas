@@ -2,7 +2,7 @@
 import json
 import os
 from pathlib import Path
-from random import random
+import random
 import cv2
 import ai2thor.controller
 from typing import Dict, List, Tuple, Any, Optional, Callable
@@ -86,7 +86,7 @@ def build_blocked_xz_set(other_agent_position: list[dict],
 
 class AI2ThorEnv_cen(BaseEnv):
     """Main AI2THOR environment for multi-agent tasks with global timer and frame saving."""
-    def __init__(self, config_path: str = "config.json"):
+    def __init__(self, controller,config_path: str = "config.json"):
         super().__init__()
         with open(config_path, "r") as f:
             self.config = json.load(f)
@@ -109,7 +109,8 @@ class AI2ThorEnv_cen(BaseEnv):
         self.save_logs = self.config["save_logs"]
         self.logs = []
         
-        self.controller = ai2thor.controller.Controller(width=1000, height=1000, gridSize=0.25)
+        # self.controller = ai2thor.controller.Controller(width=1000, height=1000, gridSize=0.25)
+        self.controller = controller
         self.controller.reset(self.scene)
         
         self.subtasks = ["Initial subtask"] if self.use_shared_subtask else ["Initial subtask"] * self.num_agents

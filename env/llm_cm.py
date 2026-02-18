@@ -21,7 +21,7 @@ from pathlib import Path
 import time
 import base64
 from openai import OpenAI
-
+import ai2thor.controller
 from env_cen import AI2ThorEnv_cen as AI2ThorEnv
 import difflib
 from prompt_template import *
@@ -59,32 +59,6 @@ def convert_dict_to_string(input_dict) -> str:
     """
     return "{" + "\n".join(f"{k}: {v}, " for k, v in input_dict.items()) + "}"
 
-
-def set_env_with_config(config_file: str):
-    ''''
-    config example:{
-            "num_agents": 2,
-            "scene": "FloorPlan1",
-            "task": "bring a tomato, lettuce, and bread to the countertop to make a sandwich",
-            "timeout": 120,
-            "model": "gpt-4o-mini",
-            "use_obs_summariser": false,
-            "use_act_summariser": false,
-            "use_action_failure": true,
-            "use_shared_subtask": true,
-            "use_separate_subtask": false,
-            "use_shared_memory": true,
-            "use_separate_memory": false,
-            "use_plan": true,
-            "force_action": false,
-            "temperature": 0.7,
-            "overhead": true
-        }
-    '''
-    env = AI2ThorEnv(config_file)
-    with open(config_file, "r") as f:
-        config = json.load(f)
-    return env, config
 
 
 # def get_llm_response(payload, model = "gpt-4o", temperature= 0.7, max_tokens=1024) -> str:
@@ -562,7 +536,7 @@ def bundle_task_plan(subtasks, actions, decomp_actions):
         })
     return bundled
 
-def set_env_with_config(config_file: str):
+def set_env_with_config(controller,config_file: str):
     ''''
     config example:{
             "num_agents": 2,
@@ -583,14 +557,14 @@ def set_env_with_config(config_file: str):
             "overhead": true
         }
     '''
-    env = AI2ThorEnv(config_file)
+    env = AI2ThorEnv(controller, config_file)
     with open(config_file, "r") as f:
         config = json.load(f)
-    return env, config
+    return env,config
 
-def run_main(test_id = 0, config_path="config/config.json", delete_frames=False, timeout=350):
+def run_main(controller, test_id = 0, config_path="config/config.json", delete_frames=False, timeout=350):
     # --- Init.
-    env, config = set_env_with_config(config_path)
+    env, config = set_env_with_config(controller, config_path)
     if test_id > 0:
         obs = env.reset(test_case_id=test_id)
     else:
@@ -709,7 +683,7 @@ def run_main(test_id = 0, config_path="config/config.json", delete_frames=False,
         for obj_id, status in obj_status.items():
             f.write(f"{obj_id}: {status}\n")
     env.save_to_video(delete_frames=delete_frames)
-    env.close()
+    # env.close()
 
 # def batch_run(tasks, base_dir="config", repeat=5, sleep_after=2.0):
 #     """
@@ -747,26 +721,27 @@ def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delet
     repeat: how many times each config runs
     sleep_after: seconds to sleep between runs
     """
-    script_dir = Path(__file__).parent  # /mas/utils
-    base_path = (script_dir / ".." / base_dir).resolve()
+    with ai2thor.controller.Controller(width=1000, height=1000, gridSize=0.25) as controller:
+        script_dir = Path(__file__).parent  # /mas/utils
+        base_path = (script_dir / ".." / base_dir).resolve()
 
-    for task in tasks:
-        task_folder = task["task_folder"]
-        for scene in task["scenes"]:
-            cfg_path = base_path / task_folder / scene / "config.json"
+        for task in tasks:
+            task_folder = task["task_folder"]
+            for scene in task["scenes"]:
+                cfg_path = base_path / task_folder / scene / "config.json"
 
-            if not cfg_path.exists():
-                print(f"[WARN] Config not found: {cfg_path}")
-                continue
+                if not cfg_path.exists():
+                    print(f"[WARN] Config not found: {cfg_path}")
+                    continue
 
-            print(f"==== Using config: {cfg_path} ====")
+                print(f"==== Using config: {cfg_path} ====")
 
-            for r in range(start, end + 1):
-                print(f"---- Run {r}/{end} for {cfg_path} ----")
-                run_main(test_id = r, config_path=str(cfg_path), delete_frames=delete_frames, timeout=timeout)
-                time.sleep(sleep_after)
+                for r in range(start, end + 1):
+                    print(f"---- Run {r}/{end} for {cfg_path} ----")
+                    run_main(controller, test_id = r, config_path=str(cfg_path), delete_frames=delete_frames, timeout=timeout)
+                    time.sleep(sleep_after)
 
-            print(f"==== Finished {cfg_path} ====")
+                print(f"==== Finished {cfg_path} ====")
 
 
 if __name__ == "__main__":
@@ -982,26 +957,26 @@ if __name__ == "__main__":
     #     "task": "Clear the floor by placing items at their appropriate positions",
     #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
     # },
-    {
-        "task_folder": "4_clear_table_kitchen",
-        "task": "Clear the table by placing the items in their appropriate positions",
-        "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
-    },
     # {
-    #     "task_folder": "4_make_livingroom_dark",
-    #     "task": "Make the living room dark",
-    #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"]
+    #     "task_folder": "4_clear_table_kitchen",
+    #     "task": "Clear the table by placing the items in their appropriate positions",
+    #     "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
     # },
     {
-        "task_folder": "4_put_appropriate_storage",
-        "task": "Place all utensils into their appropriate positions",
-        "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
-    },  
+        "task_folder": "4_make_livingroom_dark",
+        "task": "Make the living room dark",
+        "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"]
+    },
+    # {
+    #     "task_folder": "4_put_appropriate_storage",
+    #     "task": "Place all utensils into their appropriate positions",
+    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+    # },  
 ]
 
     # batch_run(TASKS_1, base_dir="config", start=0, end=0, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=10, end=10, sleep_after=50, delete_frames=True)
 
-    # batch_run(TASKS_4, base_dir="config", start=10, end=10, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_4, base_dir="config", start=1, end=1, sleep_after=50, delete_frames=True)
 
-    run_main(test_id = 4, config_path="config/1_put_bread_lettuce_tomato_fridge/FloorPlan5/config.json", delete_frames=True)
+    # run_main(test_id = 2, config_path="config/1_put_plate_mug_bowl_fridge/FloorPlan2/config.json", delete_frames=True)
