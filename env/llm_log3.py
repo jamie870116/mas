@@ -682,7 +682,7 @@ def run_main(controller, test_id = 0, config_path="config/config.json", delete_f
             f.write(f"{obj_id}: {status}\n")
 
     env.save_to_video(delete_frames=delete_frames)
-    env.close()
+    # env.close()
 
 
 

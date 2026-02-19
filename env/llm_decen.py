@@ -616,7 +616,7 @@ def run_main(controller, test_id = 0, config_path="config/config.json", delete_f
             f.write(f"{obj_id}: {status}\n")
 
     env.save_to_video(delete_frames=delete_frames)
-    env.close()
+    # env.close()
   
 
 def batch_run(tasks, base_dir="config", start = 1, end=5, sleep_after=2.0, delete_frames=False, timeout=350):

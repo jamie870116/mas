@@ -526,5 +526,6 @@ if __name__ == "__main__":
     # results_3 = evaluate_tasks(TASKS_3)
     # save_results_to_csv(results_3, 'cen_summary_r_task3.csv')
     # results_4 = evaluate_tasks(TASKS_4)
-    # save_results_to_csv(results_4, 'cen_summary_r_task4.csv')
+    # save_results_to_csv(results_4, 'cen_log_r_task4.csv')
+    # sum4 = summarize_results(results_4)
    
