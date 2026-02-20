@@ -1,3 +1,4 @@
+import argparse
 import json
 from pathlib import Path
 import re
@@ -509,18 +510,31 @@ def save_results_to_csv(results, csv_path):
 
     print(f"Saved CSV to: {csv_path}")
 
+def main():
+    args = argparse.ArgumentParser()
+    args.add_argument("--method_dir", default="", choices=["", "summary", "log", "decen"])
+    args.add_argument("--taskset", default="ALL", choices=["ALL","TASKS_1","TASKS_2","TASKS_3","TASKS_4"])
+    args.add_argument("--output_csv", default="results.csv")
+    args.add_argument("--sum", action="store_true")
+    args = args.parse_args()
+    if args.taskset == "ALL":
+        selected = []
+        for k in ["TASKS_1","TASKS_2","TASKS_3","TASKS_4"]:
+            selected.extend(globals()[k])
+    else:
+        selected = globals()[args.taskset]
+    res = evaluate_tasks(selected, method=args.method_dir)
+    if args.sum:
+        summarize_results(res)
+    save_results_to_csv(res, args.output_csv)
+
 
 if __name__ == "__main__":
-    # log_path = "logs/clean_the_bowl,_mug,_pot,_and_pan/floorplan1/test_61/logs_llm.txt"
-    # final_report, success, steps, objects = parse_log_file(log_path)
-
-    # print("Success:", success)
-    # print("Steps:", steps)
-    # print("Num objects:", len(objects))
+    main()
     
-    results_1 = evaluate_tasks(TASKS_1)
-    sum1 = summarize_results(results_1)
-    save_results_to_csv(results_1, 'cen_log_r_task1.csv')
+    # results_1 = evaluate_tasks(TASKS_1)
+    # sum1 = summarize_results(results_1)
+    # save_results_to_csv(results_1, 'cen_log_r_task1.csv')
     # results_2 = evaluate_tasks(TASKS_2)
     # save_results_to_csv(results_2, 'cen_summary_r_task2.csv')
     # results_3 = evaluate_tasks(TASKS_3)
