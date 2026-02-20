@@ -41,7 +41,7 @@ Other dependecies are shown in `requirements.txt`
 - LLM api key file: `api_ley.txt` in root folder. 
 - You can get an api key on [OpenAI Website](https://platform.openai.com/api-keys). The *gpt-4.1* model is used for all experiments.
 
-## Test
+## Usage
 - config file path: `config/config.json`
 - Before testing, change the content in config file
 ```python 
@@ -93,7 +93,23 @@ For testing, change the content in config file and run:
 python env/llm_decen.py
 ```
 
-
+## Output
+Generate a CSV file summarizing experiment results.
+```bash
+python utils/create_csv.py [OPTIONS]
+```
+#### Options
+> •	--method_dir {summary, log_cen, decen}: 
+> Specify the method directory to parse.
+> 
+> •	--taskset {ALL, TASKS_1, TASKS_2, TASKS_3, TASKS_4}: 
+> Select the task group.
+> 
+> •	--output_csv OUTPUT_CSV: 
+> Path/name of the output CSV file.
+> 
+> •	--sum: 
+> Generate aggregated summary statistics.
 
 
 <!-- # MS project

@@ -387,7 +387,7 @@ def compute_transport_rate(final_report: dict) -> float:
 
     return 0.0
 
-def evaluate_tasks(tasks: List[Dict[str, Any]], method=""):
+def evaluate_tasks(tasks: List[Dict[str, Any]], method="", taskset="") -> List[Dict[str, Any]]:
 
     all_results = []
 
@@ -410,7 +410,11 @@ def evaluate_tasks(tasks: List[Dict[str, Any]], method=""):
 
             # 2. logs/{task_log_file}/{scene}/test_*/log_llm.txt
             if method:
-                logs_root = BASE_DIR / "logs" / method / task_log_file / scene
+                if taskset:
+                    logs_root = BASE_DIR / "logs" / method / taskset / task_log_file / scene
+                else:
+                    logs_root = BASE_DIR / "logs" / method / task_log_file / scene
+
             else:                
                 logs_root = BASE_DIR / "logs" / task_log_file / scene
             
@@ -499,7 +503,7 @@ def save_results_to_csv(results, csv_path):
 
     # CSV 欄位名稱來自 result dict 的 keys
     fieldnames = list(results[0].keys())
-
+    csv_path = csv_path if csv_path.endswith(".csv") else f"{csv_path}.csv"
     csv_path = Path(BASE_DIR/ "logs" / csv_path)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -512,7 +516,7 @@ def save_results_to_csv(results, csv_path):
 
 def main():
     args = argparse.ArgumentParser()
-    args.add_argument("--method_dir", default="", choices=["", "summary", "log", "decen"])
+    args.add_argument("--method_dir", default="", choices=["", "summary", "log_cen", "decen"])
     args.add_argument("--taskset", default="ALL", choices=["ALL","TASKS_1","TASKS_2","TASKS_3","TASKS_4"])
     args.add_argument("--output_csv", default="results.csv")
     args.add_argument("--sum", action="store_true")
@@ -523,7 +527,8 @@ def main():
             selected.extend(globals()[k])
     else:
         selected = globals()[args.taskset]
-    res = evaluate_tasks(selected, method=args.method_dir)
+    taskset_name = args.taskset if args.taskset != "ALL" else ""
+    res = evaluate_tasks(selected, method=args.method_dir, taskset=taskset_name)
     if args.sum:
         summarize_results(res)
     save_results_to_csv(res, args.output_csv)

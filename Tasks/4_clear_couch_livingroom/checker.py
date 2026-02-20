@@ -48,21 +48,40 @@ def make_drawers(n: int):
 
 def build_checker(env=None):
     current_scene = env.scene if env else "FloorPlan1"
+    required = []
     if current_scene == "FloorPlan201":
         receptacle = make_drawers(2)  # 2 drawers in FloorPlan201
+        receptacle.append("SideTable_1")
+        receptacle.append("SideTable_2")
+        receptacle.append("SideTable_3")
+        receptacle.append("Shelf_1") 
+        receptacle.append("Shelf_2")
+        receptacle.append("Shelf_3")   
     elif current_scene == "FloorPlan202":
         receptacle = make_drawers(1)  # 0 drawers in FloorPlan202
+        required = ["KeyChain_1", "Watch_1"]
+        receptacle.append("CoffeeTable_1")
+        receptacle.append("Shelf_1") 
+        receptacle.append("SideTable_1")
     elif current_scene == "FloorPlan203":
         receptacle = make_drawers(7)  # 7 drawers in FloorPlan203
+        receptacle.append("SideTable_1")
+        required = ["KeyChain_1", "Pencil_1", "Watch_1"]
     elif current_scene == "FloorPlan209":
         receptacle = make_drawers(4)  # 4 drawers in FloorPlan209
+        required = ["KeyChain_1", "Pen_1", "Watch_1", "Book_1"]
+        receptacle.append("SideTable_1")
+        receptacle.append("SideTable_2")
+        receptacle.append("CoffeeTable_1")
+        receptacle.append("Shelf_1") 
     elif current_scene == "FloorPlan212":
         receptacle = make_drawers(1) # 1 drawers in FloorPlan212
     else:   
         receptacle = make_drawers(1) 
-    receptacle.append("Shelf_1")  
-    required = ["KeyChain_1", "Pencil_1", "Pen_1"]
-
+    
+    receptacle.append("TVStand_1")  
+    if not required:
+        required = ["KeyChain_1", "Pencil_1", "Pen_1"]
     cfg = {
         "is_multiple": True,
         "receptacle": receptacle,
