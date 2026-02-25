@@ -43,22 +43,40 @@ if str(ROOT) not in sys.path:
 from env.task_config_checker import TaskConfigChecker
 def make_drawers(n: int):
     return [f"Drawer_{i}" for i in range(1, n + 1)]
+def make_cabinet(n: int):
+    return [f"Cabinet_{i}" for i in range(1, n + 1)]
 
 def build_checker(env=None):
     current_scene = env.scene if env else "FloorPlan1"
+    required = []
     if current_scene == "FloorPlan4":
         receptacle = make_drawers(6)  # 6 drawers in FloorPlan4
+        cabinets = make_cabinet(2) # 2 cabinets in FloorPlan15
+        receptacle.extend(cabinets)
+        required = ['Mug_1', 'Lettuce_1', 'Tomato_1', 'Spoon_1', 'Fork_1']
     elif current_scene == "FloorPlan11":
         receptacle = make_drawers(6)  # 6 drawers in FloorPlan11
+        cabinets = make_cabinet(9) # 9 cabinets in FloorPlan15
+        receptacle.extend(cabinets)
+        required = ['Lettuce_1', 'Tomato_1', 'Spoon_1', 'Bowl_1']
     elif current_scene == "FloorPlan15":
         receptacle = make_drawers(12) # 12 drawers in FloorPlan15
+        cabinets = make_cabinet(9) # 9 cabinets in FloorPlan15
+        receptacle.extend(cabinets)
+        required = ['Spoon_1', 'Tomato_1', 'Fork_1', 'Lettuce_1']
     elif current_scene == "FloorPlan16":
         receptacle = make_drawers(5) # 5 drawers in FloorPlan16
-    else:   
+        cabinets = make_cabinet(20) # 20 cabinets in FloorPlan15
+        receptacle.extend(cabinets) 
+        required = ['Bowl_1', 'Tomato_1', 'Fork_1', 'ButterKnife_1', 'Lettuce_1']
+    else:
+        cabinets = make_cabinet(20) # 20 cabinets in FloorPlan15
+        receptacle.extend(cabinets)   
         receptacle = make_drawers(6) # 5 drawers in FloorPlan17
+        required = ['Bread_1', 'CellPhone_1', 'Kettle_1', 'Bottle_1', 'WineBottle_1', 'Potato_1', 'Spoon_1', 'Fork_1', 'Apple_1', 'Lettuce_1', 'Tomato_1']
     receptacle.append("Fridge_1")  # Add fridge as a receptacle
-    required = ["ButterKnife_1", "Spoon_1", "Fork_1", "Tomato_1", "Lettuce_1"]
-
+    if not required:
+        required = ["ButterKnife_1", "Spoon_1", "Fork_1", "Tomato_1", "Lettuce_1"]
     cfg = {
         "is_multiple": True,
         "receptacle": receptacle,

@@ -893,11 +893,11 @@ if __name__ == "__main__":
         #     "task": "Put all readable objects on the sofa",
         #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"]
         # },
-        {
-            "task_folder": "3_put_all_food_countertop",
-            "task": "Put all food on the countertop",
-            "scenes": [ "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3",
-        },
+        # {
+        #     "task_folder": "3_put_all_food_countertop",
+        #     "task": "Put all food on the countertop",
+        #     "scenes": ["FloorPlan2" ] # "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan5"
+        # },
         # {
         #     "task_folder": "3_put_all_groceries_fridge",
         #     "task": "Put all groceries in the fridge",
@@ -918,11 +918,11 @@ if __name__ == "__main__":
         #     "task": "Put all shakers in the fridge",
         #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
         # },  
-        # {
-        #     "task_folder": "3_put_all_shakers_tomato", # on countertop
-        #     "task": "put all shakers and tomato on the counter top",
-        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
-        # },  
+        {
+            "task_folder": "3_put_all_shakers_tomato", # on countertop
+            "task": "put all shakers and tomato on the counter top",
+            "scenes": ["FloorPlan3",  "FloorPlan5"] #"FloorPlan2","FloorPlan4",
+        },  
         # {
         #     "task_folder": "3_put_all_silverware_drawer",
         #     "task": "Put all silverware in the drawer",
@@ -940,6 +940,7 @@ if __name__ == "__main__":
         # },  
         
     ]
+
 
     TASKS_4 = [
     # {
@@ -977,6 +978,6 @@ if __name__ == "__main__":
     # batch_run(TASKS_1, base_dir="config", start=0, end=0, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=10, end=10, sleep_after=50, delete_frames=True)
 
-    batch_run(TASKS_4, base_dir="config", start=1, end=1, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_3, base_dir="config", start=2, end=2, sleep_after=50, delete_frames=True)
 
     # run_main(test_id = 2, config_path="config/1_put_plate_mug_bowl_fridge/FloorPlan2/config.json", delete_frames=True)

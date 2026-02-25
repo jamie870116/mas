@@ -1569,19 +1569,26 @@ class AI2ThorEnv_cen(BaseEnv):
         return res
     
     def get_pitch_reset_command(self, cur_deg):
+        '''
+        Negative camera horizon (cur_deg) values correspond to the agent looking up, 
+        whereas positive horizon values correspond to the agent looking down.
+        '''
+
         p_degree = closest_angles(V_ANGLES, abs(cur_deg))
         if self.save_logs:
             self.logs.append(f'Need to change pitch to {p_degree}')
-        # print(f'Need to change pitch to {p_degree}')
-        
-        if p_degree > 0:
+        print(f'Need to change pitch to {p_degree}')
+        if p_degree == 0:
+            return "", p_degree
+        if cur_deg > 0:
             # Currently looking down → need to look up
             return "LookUp(" + str(p_degree) + ")", p_degree
-        elif p_degree < 0:
+        elif cur_deg < 0:
             # Currently looking up → need to look down
             return "LookDown(" + str(p_degree) + ")", p_degree
         else:
             return "", p_degree
+
 
         
     def add_reset_pitch_subtask(self, agent_id):

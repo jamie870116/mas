@@ -738,17 +738,17 @@ if __name__ == "__main__":
         # {
         #     "task_folder": "3_clear_table_to_sofa",
         #     "task": "Put all readable objects on the sofa",
-        #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"] #"FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"
+        #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"]
         # },
-        # {
-        #     "task_folder": "3_put_all_food_countertop",
-        #     "task": "Put all food on the countertop",
-        #     "scenes": [ "FloorPlan2", "FloorPlan3","FloorPlan4","FloorPlan5"] #  "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4","FloorPlan5"
-        # },
+        {
+            "task_folder": "3_put_all_food_countertop",
+            "task": "Put all food on the countertop",
+            "scenes": ["FloorPlan2" ] # "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan5"
+        },
         # {
         #     "task_folder": "3_put_all_groceries_fridge",
         #     "task": "Put all groceries in the fridge",
-        #     "scenes": [  "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
         # },
         # {
         #     "task_folder": "3_put_all_kitchenware_box",
@@ -758,31 +758,36 @@ if __name__ == "__main__":
         # {
         #     "task_folder": "3_put_all_school_supplies_sofa",
         #     "task": "Put all school supplies on the sofa",
-        #     "scenes": [ "FloorPlan203","FloorPlan209", "FloorPlan212"] #"FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"
+        #     "scenes": ["FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"]
         # },
         # {
         #     "task_folder": "3_put_all_shakers_fridge",
         #     "task": "Put all shakers in the fridge",
-        #     "scenes": [ "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
         # },  
-        # {
-        #     "task_folder": "3_put_all_shakers_tomato", # on countertop
-        #     "task": "put all shakers and tomato on the counter top",
-        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-        # },  
+        {
+            "task_folder": "3_put_all_shakers_tomato", # on countertop
+            "task": "put all shakers and tomato on the counter top",
+            "scenes": ["FloorPlan1",  "FloorPlan3",  "FloorPlan5"] #"FloorPlan2","FloorPlan4",
+        },  
         # {
         #     "task_folder": "3_put_all_silverware_drawer",
         #     "task": "Put all silverware in the drawer",
-        #     "scenes": [ "FloorPlan5", "FloorPlan6"]  #"FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+        #     "scenes": [ "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
         # },  
-        {
-            "task_folder": "3_put_all_tableware_countertop",
-            "task": "Put all tableware on the countertop",
-            "scenes": ["FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-        },  
-        
+        # {
+        #     "task_folder": "3_put_all_tableware_countertop",
+        #     "task": "Put all tableware on the countertop",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        # },  
+        # {-
+        #     "task_folder": "3_transport_groceries",
+        #     "task": "put_all_food_countertops",
+        #     "scenes": ["FloorPlan1"]
+        # },  
         
     ]
+
 
     TASKS_4 = [
     # {
@@ -820,10 +825,10 @@ if __name__ == "__main__":
     
     # batch_run(TASKS_1, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_3, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_3, base_dir="config", start=21, end=21, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_4, base_dir="config", start=62, end=62, sleep_after=50, delete_frames=True)
 
-    run_main(test_id = 102, config_path="config/config.json", delete_frames=False, timeout=250, timeout_step=200)
+    # run_main(test_id = 102, config_path="config/config.json", delete_frames=False, timeout=250, timeout_step=200)
     # run_main(test_id = 100, config_path="config/config.json", delete_frames=True, timeout=250)
     # env, config = set_env_with_config("config/config.json")
     # _ = env.reset(test_case_id=100)

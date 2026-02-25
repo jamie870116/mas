@@ -81,51 +81,51 @@ TASKS_2 = [
     ]
 
 TASKS_3 = [
-        {
-            "task_folder": "3_clear_table_to_sofa",
-            "task": "Put all readable objects on the sofa",
-            "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"] #"FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"
-        },
-        {
-            "task_folder": "3_put_all_food_countertop",
-            "task": "Put all food on the countertop",
-            "scenes": [ "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4","FloorPlan5"] #  "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4","FloorPlan5"
-        },
-        {
-            "task_folder": "3_put_all_groceries_fridge",
-            "task": "Put all groceries in the fridge",
-            "scenes": [  "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-        },
-        {
-            "task_folder": "3_put_all_kitchenware_box",
-            "task": "Put all kitchenware in the cardboard box",
-            "scenes": ["FloorPlan201"]
-        },
-        {
-            "task_folder": "3_put_all_school_supplies_sofa",
-            "task": "Put all school supplies on the sofa",
-            "scenes": [ "FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"] #"FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"
-        },
+        # {
+        #     "task_folder": "3_clear_table_to_sofa",
+        #     "task": "Put all readable objects on the sofa",
+        #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"] #"FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"
+        # },
+        # {
+        #     "task_folder": "3_put_all_food_countertop",
+        #     "task": "Put all food on the countertop",
+        #     "scenes": [ "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4","FloorPlan5"] #  "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan4","FloorPlan5"
+        # },
+        # {
+        #     "task_folder": "3_put_all_groceries_fridge",
+        #     "task": "Put all groceries in the fridge",
+        #     "scenes": [  "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+        # },
+        # {
+        #     "task_folder": "3_put_all_kitchenware_box",
+        #     "task": "Put all kitchenware in the cardboard box",
+        #     "scenes": ["FloorPlan201"]
+        # },
+        # {
+        #     "task_folder": "3_put_all_school_supplies_sofa",
+        #     "task": "Put all school supplies on the sofa",
+        #     "scenes": [ "FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"] #"FloorPlan201", "FloorPlan202", "FloorPlan203","FloorPlan209", "FloorPlan212"
+        # },
         {
             "task_folder": "3_put_all_shakers_fridge",
             "task": "Put all shakers in the fridge",
-            "scenes": [ "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+            "scenes": [ "FloorPlan1", "FloorPlan2"] #"FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
         },  
-        {
-            "task_folder": "3_put_all_shakers_tomato", # on countertop
-            "task": "put all shakers and tomato on the counter top",
-            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-        },  
-        {
-            "task_folder": "3_put_all_silverware_drawer",
-            "task": "Put all silverware in the drawer",
-            "scenes": [  "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5","FloorPlan6",]  #"FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
-        },  
-        {
-            "task_folder": "3_put_all_tableware_countertop",
-            "task": "Put all tableware on the countertop",
-            "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-        },  
+        # {
+        #     "task_folder": "3_put_all_shakers_tomato", # on countertop
+        #     "task": "put all shakers and tomato on the counter top",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+        # },  
+        # {
+        #     "task_folder": "3_put_all_silverware_drawer",
+        #     "task": "Put all silverware in the drawer",
+        #     "scenes": [  "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5","FloorPlan6",]  #"FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+        # },  
+        # {
+        #     "task_folder": "3_put_all_tableware_countertop",
+        #     "task": "Put all tableware on the countertop",
+        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"] # "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+        # },  
         
         
     ]

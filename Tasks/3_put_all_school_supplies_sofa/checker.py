@@ -41,9 +41,18 @@ def build_checker(env=None):
    
     receptacle = "Sofa_1"
     
-
-    required = ["Pen", "Pencil", "Laptop", "Book", "CellPhone"]
-
+    
+    current_scene = env.scene if env else "FloorPlan201"
+    if current_scene == "FloorPlan201":
+        required = ["Pen", "Pencil", "Laptop", "Book"]
+    elif current_scene == "FloorPlan202":
+        required = [ "Laptop", "Book"]
+    elif current_scene == "FloorPlan203":
+        required = ["Pencil", "Laptop", "Book", "CellPhone"]
+    elif current_scene == "FloorPlan209":
+        required = ["Pen", "Laptop", "Book"]
+    else:  # 212
+        required = ["Pen", "Pencil", "Laptop"]
     cfg = {
         "receptacle": receptacle,
         "recept_require_items": required,

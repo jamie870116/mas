@@ -44,10 +44,13 @@ if str(ROOT) not in sys.path:
 from env.task_config_checker import TaskConfigChecker
 
 def build_checker(env=None):
+    current_scene = env.scene if env else "FloorPlan1"
     receptacle = ["CounterTop_1", "CounterTop_2", "CounterTop_3"]
+    if current_scene == "FloorPlan5":
+        required = ["Bread_1", "Tomato_1", "Apple_1", "Potato_1", "Lettuce_1"]
+    else:
+        required = ["Bread_1", "Tomato_1", "Apple_1", "Potato_1", "Lettuce_1", "Egg_1"]
     
-    required = ["Bread_1", "Tomato_1", "Apple_1", "Potato_1", "Lettuce_1", "Egg_1"]
-
     cfg = {
         "is_multiple": True,
         "receptacle": receptacle,

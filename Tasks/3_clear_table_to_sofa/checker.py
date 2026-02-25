@@ -43,20 +43,20 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from env.task_config_checker import TaskConfigChecker
 
+
 def build_checker(env=None):
    
     receptacle = "Sofa_1"
     
     current_scene = env.scene if env else "FloorPlan201"
     if current_scene == "FloorPlan201":
-        required = ["Book", "Laptop",  "Newspaper"]
+        required = ["Book_1", "Laptop_1",  "Newspaper_1"]
     elif current_scene == "FloorPlan203":
-        required = ["CellPhone", "Laptop", "Book", "Newspaper"]
+        required = ["CellPhone_1", "Laptop_1", "Book_1", "Newspaper_1"]
     elif current_scene == "FloorPlan204":
-        required = ["CellPhone", "Laptop",]
-    elif current_scene == "FloorPlan208" or current_scene == "FloorPlan223":
-        required = ["Laptop"]
-    # CellPhone in 203
+        required = ["CellPhone_1", "Laptop_1",]
+    else:  # 223 208
+        required = [ "Laptop_1"]
 
 
     cfg = {

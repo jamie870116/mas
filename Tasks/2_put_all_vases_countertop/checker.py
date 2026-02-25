@@ -30,7 +30,7 @@ def build_checker(env=None):
     receptacle = ["CounterTop_1", "CounterTop_2", "CounterTop_3"]
     
     current_scene = env.scene if env else "FloorPlan5"
-    if current_scene == "FloorPlan2":
+    if current_scene == "FloorPlan5":
         required = ["Vase_1", "Vase_2", "Vase_3"]
     else:
         required = ["Vase_1", "Vase_2"]

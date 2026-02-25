@@ -17,12 +17,17 @@ class SceneInitializer:
         """
     
             
+        # event=controller.step(
+        # action='PlaceObjectAtPoint',
+        # objectId='KeyChain|-04.21|+00.32|-03.65',
+        # position={'x': -4.004233360290527, 'y': 0.3297809660434723, 'z': -2.7201120853424072}
+        # )
         event=controller.step(
         action='PlaceObjectAtPoint',
         objectId='KeyChain|-04.21|+00.32|-03.65',
-        position={'x': -4.004233360290527, 'y': 0.3297809660434723, 'z': -2.7201120853424072}
+        position={'x': -4.21444034576416, 'y': 0.33011940121650696, 'z': -2.4087307453155518}
         )
-        
+
         event=controller.step(
         action='PlaceObjectAtPoint',
         objectId='RemoteControl|-04.29|+00.33|-02.66',

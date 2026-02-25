@@ -1,7 +1,7 @@
 {
   "num_agents": 2,
-  "scene": "FloorPlan1",
-  "task": "test",
+  "scene": "FloorPlan11",
+  "task": "Clear the table by placing small items in their appropriate positions",
   "timeout": 350,
   "model": "gpt-4.1-2025-04-14",
   "use_obs_summariser": false,
@@ -17,5 +17,5 @@
   "overhead": true,
   "test_id": 3,
   "save_logs": true,
-  "task_folder": "2_open_all_drawers"
+  "task_folder": "4_clear_table_kitchen"
 }

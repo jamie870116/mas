@@ -18,7 +18,25 @@ class SceneInitializer:
         Returns:
             event: env.event object
         """
-
+        event=controller.step(
+        action='PlaceObjectAtPoint',
+        objectId='Bread|+00.26|+00.99|-00.08',
+        position={'x': 0.9810914993286133, 'y': 0.07248250395059586, 'z': -0.07602769881486893}
+        )
+        
+        event=controller.step(
+        action='PlaceObjectAtPoint',
+        objectId='Tomato|+00.17|+00.97|-00.28',
+        position={'x': -0.8465949296951294, 'y': 0.059502068907022476, 'z': -0.28159183263778687}
+        )
+        
+        event=controller.step(
+        action='PlaceObjectAtPoint',
+        objectId='Egg|+00.13|+00.95|-00.17',
+        position={'x': 0.13456331193447113, 'y': 0.03997550532221794, 'z': 2.9809014797210693}
+        )
+     
+       
         event=controller.step(
         action='PlaceObjectAtPoint',
         objectId='Apple|-01.65|+00.81|+00.07',

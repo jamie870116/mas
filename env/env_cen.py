@@ -221,16 +221,36 @@ class AI2ThorEnv_cen(BaseEnv):
         if not self.skip_save_dir:
             self.create_save_dirs(test_case_id, self.scene)
         
-        for agent_id in range(self.num_agents):
-            self.event = self.controller.step(
-                dict(
-                    action="Teleport",
-                    position=dict(x=1.5 + agent_id * 0.5, y=0.9, z=-1.5),
-                    rotation=dict(x=0, y=270, z=0),
-                    agentId=agent_id
+        if self.scene == "FloorPlan6":
+            for agent_id in range(self.num_agents):
+                if agent_id == 1:
+                    self.event = self.controller.step(
+                        dict(
+                            action="Teleport",
+                            position=dict(x=3.0 + agent_id * 0.5, y=0.9, z=-1.5),
+                            rotation=dict(x=0, y=270, z=0),
+                            agentId=agent_id
+                        )
+                    )
+                else:
+                    self.event = self.controller.step(
+                        dict(
+                            action="Teleport",
+                            position=dict(x=1.5 + agent_id * 0.5, y=0.9, z=-1.5),
+                            rotation=dict(x=0, y=270, z=0),
+                            agentId=agent_id
+                        )
+                    )
+        else:
+            for agent_id in range(self.num_agents):
+                self.event = self.controller.step(
+                    dict(
+                        action="Teleport",
+                        position=dict(x=1.5 + agent_id * 0.5, y=0.9, z=-1.5),
+                        rotation=dict(x=0, y=270, z=0),
+                        agentId=agent_id
+                    )
                 )
-            )
-
         self.update_object_dict()
         if not self.skip_save_dir:
             self.save_frame()
@@ -1028,6 +1048,7 @@ class AI2ThorEnv_cen(BaseEnv):
             self.logs.append("-------------------------")
         # history = []
         start_time = time.time()
+        succ = [False] * self.num_agents
         while True:
             for aid in range(self.num_agents):
                 if not self.current_hl[aid] and self.pending_high_level[aid]:
@@ -1387,15 +1408,21 @@ class AI2ThorEnv_cen(BaseEnv):
         return res
     
     def get_pitch_reset_command(self, cur_deg):
+        '''
+        Negative camera horizon (cur_deg) values correspond to the agent looking up, 
+        whereas positive horizon values correspond to the agent looking down.
+        '''
+
         p_degree = closest_angles(V_ANGLES, abs(cur_deg))
         if self.save_logs:
             self.logs.append(f'Need to change pitch to {p_degree}')
-        # print(f'Need to change pitch to {p_degree}')
-        
-        if p_degree > 0:
+        print(f'Need to change pitch to {p_degree}')
+        if p_degree == 0:
+            return "", p_degree
+        if cur_deg > 0:
             # Currently looking down → need to look up
             return "LookUp(" + str(p_degree) + ")", p_degree
-        elif p_degree < 0:
+        elif cur_deg < 0:
             # Currently looking up → need to look down
             return "LookDown(" + str(p_degree) + ")", p_degree
         else:
@@ -1407,7 +1434,7 @@ class AI2ThorEnv_cen(BaseEnv):
         command, _ = self.get_pitch_reset_command(cur_pitch)
         if self.save_logs:
             self.logs.append(f'Reset command: {command}')
-        # print('Reset command:', command)
+        print('Reset command:', command, "current pitch: ", cur_pitch)
         if command:
             self.pending_high_level[agent_id].appendleft(command)
 
