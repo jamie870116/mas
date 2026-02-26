@@ -1015,6 +1015,9 @@ class AI2ThorEnv_cen(BaseEnv):
             res.append(res_agent)
         return res
     
+    def get_cur_ts(self):
+        return self.step_num[0]
+    
     def stepwise_action_loop(self, cur_plan):
         """
         cur_plan: list of dicts, each with:

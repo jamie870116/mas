@@ -7,21 +7,21 @@ TASKSET="${2:-ALL}"      # ALL | TASKS_1 | TASKS_2 | TASKS_3 | TASKS_4
 CHUNK=3
 
 case "$METHOD" in
-  summary) START=1 ;;
-  log)     START=11 ;;
-  decen)   START=21 ;;
+  summary) START=3 ;;
+  log)     START=13 ;;
+  decen)   START=23 ;;
   *)       echo "Unknown METHOD: $METHOD"; exit 1 ;;
 esac
 case "$METHOD" in
-  summary) END=1 ;;
-  log)     END=11 ;;
-  decen)   END=21 ;;
+  summary) END=3 ;;
+  log)     END=13 ;;
+  decen)   END=23 ;;
   *)       echo "Unknown METHOD: $METHOD"; exit 1 ;;
 esac
 
-TIMEOUT=300
+TIMEOUT=600
 SLEEP_AFTER=5
-MAX_RETRIES=3
+MAX_RETRIES=1
 IDLE_LIMIT=60     #  90 sec沒有任何輸出就重啟（自行調整）
 POLL_INTERVAL=15  # 每 15 秒檢查一次 log 是否有更新
 KILL_GRACE=10     # 先 TERM，等 10 秒不退就 KILL

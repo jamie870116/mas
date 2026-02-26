@@ -221,7 +221,7 @@ def generate_configs(task_list, base_dir="config"):
 
 
 
-def parse_log_file(log_path: str) -> Tuple[dict, bool, List[int], Dict[str, dict]]:
+def parse_log_file(log_path: str) -> Tuple[dict, bool, List[int], Dict[str, dict], bool]:
     """
     讀取單一 log_llm.txt，回傳：
     - final_report: dict
@@ -233,6 +233,8 @@ def parse_log_file(log_path: str) -> Tuple[dict, bool, List[int], Dict[str, dict
     print(script_dir)
     text = Path(script_dir / log_path).read_text(encoding="utf-8")
 
+    timeout = re.search(r"Timeout\s*\(\s*\d+\s*second[s]?\s*\)\s*reached,\s*ending\s*loop\.", text, flags=re.IGNORECASE) is not None
+    
     # 1. Final Report
     m_report = re.search(r"Final Report:\s*(\{.*?\})\s*Success:", text, re.DOTALL)
     if not m_report:
@@ -245,6 +247,10 @@ def parse_log_file(log_path: str) -> Tuple[dict, bool, List[int], Dict[str, dict
     if not m_success:
         raise ValueError(f"Cannot find Success in {log_path}")
     success = m_success.group(1) == "True"
+    if not success and timeout:
+        print(f"Test ended with timeout.{log_path}")
+    else:
+        timeout = False
 
     # 3. Total steps: [32, 32]
     m_steps = re.search(r"Total steps:\s*(\[[^\]]*\])", text)
@@ -283,7 +289,7 @@ def parse_log_file(log_path: str) -> Tuple[dict, bool, List[int], Dict[str, dict
             continue
         objects[obj_key] = obj_dict
 
-    return final_report, success, steps, objects
+    return final_report, success, steps, objects, timeout
 
 BASE_DIR = Path(__file__).parent.parent  # 專案根目錄可以依需要調整
 
@@ -392,8 +398,6 @@ def evaluate_tasks(tasks: List[Dict[str, Any]], method="", taskset="") -> List[D
         task_folder = task_cfg["task_folder"]
         scenes = task_cfg["scenes"]
 
-  
-
         for scene in scenes:
             # 1. 讀 config/{task_folder}/{scene}/config.json
             config_path = BASE_DIR / "config" / task_folder / scene / "config.json"
@@ -434,7 +438,7 @@ def evaluate_tasks(tasks: List[Dict[str, Any]], method="", taskset="") -> List[D
                         continue
 
                 try:
-                    final_report, success, steps, objects = parse_log_file(str(log_file))
+                    final_report, success, steps, objects, timeout = parse_log_file(str(log_file))
                 except Exception as e:
                     print(f"[ERROR] Failed to parse {log_file}: {e}")
                     continue
@@ -449,13 +453,14 @@ def evaluate_tasks(tasks: List[Dict[str, Any]], method="", taskset="") -> List[D
                     "steps": steps[0],
                     "max_step": max(steps) if steps else None,
                     "transport_rate": tr,
+                    "timeout": timeout
                 }
                 all_results.append(result)
 
                 # 簡單印一下，也方便 debug
                 print(
                     f"[RESULT] {task_folder} | {scene} | {test_dir.name} | "
-                    f"success={success} | TR={tr}  | Steps={steps[0]}"
+                    f"success={success} | TR={tr}  | Steps={steps[0]}" 
                 )
 
     return all_results
@@ -472,12 +477,13 @@ def summarize_results(results: List[Dict[str, Any]]) -> Dict[str, float]:
     avg_success = sum(1 if r["success"] else 0 for r in results) / n
     avg_tr = sum(r["transport_rate"] for r in results) / n
     avg_steps = sum(r["steps"] for r in results if r["steps"] is not None) / n
-
+    sum_timeout = sum(1 if r["timeout"] else 0 for r in results)
     summary = {
         "num_tasks": n,
         "avg_success_rate": avg_success,
         "avg_transport_rate": avg_tr,
         "avg_steps": avg_steps,
+        "timeout_count": sum_timeout
     }
 
     print("\n===== OVERALL SUMMARY =====")
@@ -485,6 +491,7 @@ def summarize_results(results: List[Dict[str, Any]]) -> Dict[str, float]:
     print(f"Avg Success Rate   : {avg_success:.4f}")
     print(f"Avg Transport Rate : {avg_tr:.4f}")
     print(f"Avg Steps          : {avg_steps:.2f}")
+    print(f"Timeout Count      : {sum_timeout}")
     print("===========================\n")
 
     return summary
@@ -510,6 +517,61 @@ def save_results_to_csv(results, csv_path):
         writer.writerows(results)
 
     print(f"Saved CSV to: {csv_path}")
+
+# def evaluate_tasks(tasks: List[Dict[str, Any]], method="", taskset="") -> List[Dict[str, Any]]:
+
+#     all_results = []
+
+#     for task_cfg in tasks:
+#         task_folder = task_cfg["task_folder"]
+#         scenes = task_cfg["scenes"]
+
+#         for scene in scenes:
+#             # 1. 讀 config/{task_folder}/{scene}/config.json
+#             config_path = BASE_DIR / "config" / task_folder / scene / "config.json"
+#             if not config_path.exists():
+#                 print(f"[WARN] config not found: {config_path}")
+#                 continue
+
+#             config = json.loads(config_path.read_text(encoding="utf-8"))
+#             task_str = config["task"]  # e.g. "Clear the couch by placing ..."
+#             task_log_file = task_str.replace(" ", "_")  # e.g. "Clear_the_couch_by_..."
+
+#             # 2. logs/{task_log_file}/{scene}/test_*/log_llm.txt
+#             if method:
+#                 if taskset:
+#                     logs_root = BASE_DIR / "logs" / method / taskset / task_log_file / scene
+#                 else:
+#                     logs_root = BASE_DIR / "logs" / method / task_log_file / scene
+
+#             else:                
+#                 logs_root = BASE_DIR / "logs" / task_log_file / scene
+            
+#             if not logs_root.exists():
+#                 print(f"[WARN] logs root not found: {logs_root}")
+#                 continue
+
+#             # 找出所有 test_* 目錄
+#             for test_dir in sorted(logs_root.glob("test_*")):
+#                 if not test_dir.is_dir():
+#                     continue
+
+#                 log_file = test_dir / "logs_llm.txt"
+#                 if not log_file.exists():
+#                     alt_log_file = test_dir / "log_llm.txt"
+#                     if alt_log_file.exists():
+#                         log_file = alt_log_file
+#                     else:
+#                         print(f"[WARN] log file not found in {test_dir}")
+#                         continue
+
+#                 try:
+#                     final_report, success, steps, objects = parse_log_file(str(log_file))
+#                 except Exception as e:
+#                     print(f"[ERROR] Failed to parse {log_file}: {e}")
+#                     continue
+        
+
 
 def main():
     args = argparse.ArgumentParser()

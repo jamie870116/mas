@@ -567,12 +567,17 @@ def run_main(controller, test_id = 0, config_path="config/config.json", delete_f
     cnt = 0
     start_time = time.time()
     logs = []
+    timeout_step = 200
     filename = env.base_path / "logs_llm.txt"
     while open_subtasks:
-        if time.time() - start_time > timeout:
-            print("Timeout reached, ending loop.")
-            logs.append(f"""Timeout ({timeout} second) reached, ending loop.""")
+        if env.get_cur_ts() > timeout_step:
+            print("Timeout max. step reached, ending loop.")
+            logs.append(f"""Timeout max ({timeout_step} step) reached, ending loop.""")
             break
+        # if time.time() - start_time > 300:
+        #     print("Timeout reached, ending loop.")
+        #     logs.append(f"""Timeout ({300} second) reached, ending loop.""")
+        #     break
         print(f"\n--- Loop {cnt + 1} ---")
         logs.append(f"\n--- Loop {cnt + 1} ---")
 

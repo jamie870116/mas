@@ -476,7 +476,7 @@ def get_agent_subtask(env: AI2ThorEnv, config, agent_id, is_initial=False, info=
     # return a subtask and a list of actions of this subtask
     return subtask, actions, msg
 
-def run_main(controller, test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250, timeout_step=200):
+def run_main(controller, test_id = 0, config_path="config/config.json", delete_frames=False, timeout=250, timeout_step=300):
     # Init. Env & config
     env, config = set_env_with_config(controller, config_path)
     if test_id > 0:
@@ -518,13 +518,14 @@ def run_main(controller, test_id = 0, config_path="config/config.json", delete_f
     while True:
         need_replan_arr = [True] * num_agent
 
-        if time.time() - start_time > timeout:
-            print("Timeout reached, ending loop.")
-            logs_llm.append(f"""Timeout ({timeout} second) reached, ending loop.""")
-            break
+        # if time.time() - start_time > timeout:
+        #     print("Timeout reached, ending loop.")
+        #     logs_llm.append(f"""Timeout ({timeout} second) reached, ending loop.""")
+        #     break
+        
         if env.get_cur_ts() > timeout_step:
-            print("max. step reached, ending loop.")
-            logs_llm.append(f"""max ({timeout_step} step) reached, ending loop.""")
+            print("Timeout max. step reached, ending loop.")
+            logs_llm.append(f"""Timeout max ({timeout_step} step) reached, ending loop.""")
             break
 
         print(f"\n--- Loop {cnt + 1} ---")

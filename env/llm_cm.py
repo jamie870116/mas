@@ -562,7 +562,7 @@ def set_env_with_config(controller,config_file: str):
         config = json.load(f)
     return env,config
 
-def run_main(controller, test_id = 0, config_path="config/config.json", delete_frames=False, timeout=350):
+def run_main(controller, test_id = 0, config_path="config/config.json", delete_frames=False, timeout=600):
     # --- Init.
     env, config = set_env_with_config(controller, config_path)
     if test_id > 0:
@@ -576,8 +576,17 @@ def run_main(controller, test_id = 0, config_path="config/config.json", delete_f
     cnt = 0
     start_time = time.time()
     logs = []
+    timeout_step = 300
     filename = env.base_path / "logs_llm.txt"
-    while open_subtasks and (time.time() - start_time < timeout):
+    while open_subtasks:
+        if env.get_cur_ts() > timeout_step:
+            print("Timeout max. step reached, ending loop.")
+            logs.append(f"""Timeout max ({timeout_step} step) reached, ending loop.""")
+            break
+        # if time.time() - start_time > timeout and env.get_cur_ts() > 200:
+        #     print("Timeout reached, ending loop.")
+        #     logs.append(f"""Timeout ({timeout} second) reached, ending loop.""")
+        #     break
         print(f"\n--- Loop {cnt + 1} ---")
         logs.append(f"\n--- Loop {cnt + 1} ---")
 
