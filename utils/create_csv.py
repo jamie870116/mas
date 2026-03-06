@@ -195,6 +195,110 @@ TASKS_4 = [
     }, 
 ]
 
+def scan_event_sizes(tasks: List[Dict[str, Any]], method="", taskset="",
+                     event_filename="event.jsonl") -> List[Dict[str, Any]]:
+    """
+    沿用 evaluate_tasks 的路徑規則：
+      logs/{method}/{taskset?}/{task_log_file}/{scene}/test_*/event.jsonl
+
+    回傳每個 (task_folder, scene) 的加總大小。
+    """
+    rows = []
+
+    for task_cfg in tasks:
+        task_folder = task_cfg["task_folder"]
+        scenes = task_cfg["scenes"]
+
+        for scene in scenes:
+            # 1) 仍然透過 config.json 找 task_log_file（跟你原本一致）
+            config_path = BASE_DIR / "config" / task_folder / scene / "config.json"
+            if not config_path.exists():
+                print(f"[WARN] config not found: {config_path}")
+                continue
+
+            try:
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+                task_str = config["task"]
+            except Exception as e:
+                print(f"[WARN] failed to read config: {config_path} | {e}")
+                continue
+
+            task_log_file = task_str.replace(" ", "_")
+
+            # 2) logs root（跟你原本一致）
+            if method:
+                if taskset:
+                    logs_root = BASE_DIR / "logs" / method / taskset / task_log_file / scene
+                else:
+                    logs_root = BASE_DIR / "logs" / method / task_log_file / scene
+            else:
+                logs_root = BASE_DIR / "logs" / task_log_file / scene
+
+            if not logs_root.exists():
+                print(f"[WARN] logs root not found: {logs_root}")
+                continue
+
+            # 3) 掃 test_* / event.jsonl 並加總
+            total_bytes = 0
+            num_files = 0
+            for test_dir in sorted(logs_root.glob("test_*")):
+                if not test_dir.is_dir():
+                    continue
+                if method == "log_cen":
+                    event_path = test_dir / event_filename
+                    if not event_path.exists():
+                        # 你也可以選擇 warn
+                        continue
+                    total_bytes += event_path.stat().st_size
+                    num_files += 1
+                else:
+                    # decen
+                    for aid in range(2):
+                        event_path = test_dir / f"event_{aid}.jsonl"  
+                        if not event_path.exists():
+                        # 你也可以選擇 warn
+                            continue
+                        total_bytes += event_path.stat().st_size
+                        num_files += 1
+
+            if num_files == 0:
+                print(f"[WARN] no {event_filename} found under: {logs_root}")
+                continue
+
+            rows.append({
+                "method": method if method else "",
+                "taskset": taskset if taskset else "",
+                "task_folder": task_folder,
+                "scene": scene,
+                "task_log_file": task_log_file,
+                "event_total_bytes": total_bytes,
+                "num_event_files": num_files,
+            })
+
+            print(f"[EVENT] {task_folder} | {scene} | files={num_files} | bytes={total_bytes}")
+
+    return rows
+
+
+def save_event_sizes_to_csv(rows: List[Dict[str, Any]], csv_path: str):
+    if not rows:
+        print("No rows to save.")
+        return
+
+    csv_path = csv_path if csv_path.endswith(".csv") else f"{csv_path}.csv"
+    out_path = Path(BASE_DIR / "logs" / csv_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fieldnames = ["method", "taskset", "task_folder", "scene", "task_log_file",
+                  "num_event_files", "event_total_bytes"]
+
+    with out_path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(rows)
+
+    print(f"Saved CSV to: {out_path}")
+
 
 def generate_configs(task_list, base_dir="config"):
     for task_id, task in enumerate(task_list, start=1):
@@ -594,7 +698,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    METHOD = "decen"     # "summary" / "log_cen" / "decen"
+    TASKSET = "TASKS_4"    # "" / "TASKS_1" / "TASKS_2" / ...
+    OUTCSV = "event_sizes_decen_tasks4.csv"
+
+    # 你也可以改成 ALL
+    selected = []
+    for k in ["TASKS_1", "TASKS_2", "TASKS_3", "TASKS_4"]:
+        selected.extend(globals()[k])
+
+    rows = scan_event_sizes(selected, method=METHOD, taskset=TASKSET, event_filename="event.jsonl")
+    save_event_sizes_to_csv(rows, OUTCSV)
     
     # results_1 = evaluate_tasks(TASKS_1)
     # sum1 = summarize_results(results_1)

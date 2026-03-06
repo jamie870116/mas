@@ -583,10 +583,11 @@ def run_main(controller, test_id = 0, config_path="config/config.json", delete_f
             print("Timeout max. step reached, ending loop.")
             logs.append(f"""Timeout max ({timeout_step} step) reached, ending loop.""")
             break
-        # if time.time() - start_time > timeout and env.get_cur_ts() > 200:
-        #     print("Timeout reached, ending loop.")
-        #     logs.append(f"""Timeout ({timeout} second) reached, ending loop.""")
-        #     break
+
+        if env.check_if_task_complete():
+            print("Task Completed --- End")
+            logs.append("Task Completed --- End")
+            break
         print(f"\n--- Loop {cnt + 1} ---")
         logs.append(f"\n--- Loop {cnt + 1} ---")
 
@@ -812,21 +813,21 @@ if __name__ == "__main__":
 # ]
 
     TASKS_1 = [
-    {
-        "task_folder": "1_put_bread_lettuce_tomato_fridge",
-        "task": "put bread, lettuce, and tomato in the fridge",
-        "scenes": ["FloorPlan1"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    },
+    # {
+    #     "task_folder": "1_put_bread_lettuce_tomato_fridge",
+    #     "task": "put bread, lettuce, and tomato in the fridge",
+    #     "scenes": ["FloorPlan1"] # "FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    # },
     # {
     #     "task_folder": "1_put_computer_book_remotecontrol_sofa",
     #     "task": "put laptop, book and remote control on the sofa",
     #     "scenes": ["FloorPlan203", "FloorPlan209"] #,"FloorPlan201", "FloorPlan202""FloorPlan203", "FloorPlan209", "FloorPlan224"
     # },
-    # {
-    #     "task_folder": "1_put_knife_bowl_mug_countertop",
-    #     "task": "put knife, bowl, and mug on the counter top",
-    #     "scenes": [ "FloorPlan5"] #"FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    # },
+    {
+        "task_folder": "1_put_knife_bowl_mug_countertop",
+        "task": "put knife, bowl, and mug on the counter top",
+        "scenes": [ "FloorPlan4"] #"FloorPlan1","FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    },
     # {
     #     "task_folder": "1_put_plate_mug_bowl_fridge",
     #     "task": "put plate, mug, and bowl in the fridge",
@@ -957,11 +958,7 @@ if __name__ == "__main__":
     #     "task": "Clear the couch by placing the items in other appropriate positions ",
     #     "scenes": [ "FloorPlan202" ] #"FloorPlan212" hen"FloorPlan201","FloorPlan203","FloorPlan209",
     # },
-    # {
-    #     "task_folder": "4_clear_countertop_kitchen",
-    #     "task": "Clear the countertop by placing items in their appropriate positions",
-    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"]
-    # },
+    
     # {
     #     "task_folder": "4_clear_floor_kitchen",
     #     "task": "Clear the floor by placing items at their appropriate positions",
@@ -972,21 +969,26 @@ if __name__ == "__main__":
     #     "task": "Clear the table by placing the items in their appropriate positions",
     #     "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"]
     # },
-    {
-        "task_folder": "4_make_livingroom_dark",
-        "task": "Make the living room dark",
-        "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"]
-    },
+    # {
+    #     "task_folder": "4_make_livingroom_dark",
+    #     "task": "Make the living room dark",
+    #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204", "FloorPlan205"]
+    # },
     # {
     #     "task_folder": "4_put_appropriate_storage",
     #     "task": "Place all utensils into their appropriate positions",
-    #     "scenes": ["FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+    #     "scenes": ["FloorPlan2", "FloorPlan3"]
     # },  
+    {
+        "task_folder": "4_clear_countertop_kitchen",
+        "task": "Clear the countertop by placing items in their appropriate positions",
+        "scenes": [ "FloorPlan6"] #"FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10",
+    },
 ]
 
-    # batch_run(TASKS_1, base_dir="config", start=0, end=0, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_1, base_dir="config", start=3, end=3, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=10, end=10, sleep_after=50, delete_frames=True)
 
-    batch_run(TASKS_3, base_dir="config", start=2, end=2, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_4, base_dir="config", start=4, end=4, sleep_after=50, delete_frames=True)
 
     # run_main(test_id = 2, config_path="config/1_put_plate_mug_bowl_fridge/FloorPlan2/config.json", delete_frames=True)

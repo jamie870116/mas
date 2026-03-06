@@ -622,6 +622,10 @@ class AI2ThorEnv_cen(BaseEnv):
             and all(not self.action_queue[aid] for aid in range(self.num_agents)):
                 return True
         return False
+    
+    def check_if_task_complete(self):
+        ok, _ = self.checker.check(self) if self.checker else (False, "No checker provided")
+        return ok
 
     def check_if_done_byagent(self, aid):
         done_all = (
@@ -635,7 +639,7 @@ class AI2ThorEnv_cen(BaseEnv):
         return self.step_num[0]
 
     def stepwise_decen_loop(self):
-        
+        msg_status = [True] * self.num_agents
         succ = [True] * self.num_agents
         start_time = time.time()
         while True:
@@ -663,6 +667,7 @@ class AI2ThorEnv_cen(BaseEnv):
                 self.logs.append(f"current action queue: {self.action_queue}")
             
             # execute actions
+            
             obs, succ, msg_status = self.exe_step_decen()
 
             if self.save_logs:
@@ -847,11 +852,16 @@ class AI2ThorEnv_cen(BaseEnv):
             evt = self.controller.step(action="Teleport", agentId=aid, position=pos)
             if not evt.events[aid].metadata["lastActionSuccess"]:
                 continue
-
+            print(f"Agent {self.agent_names[aid]} teleported to {pos} to unblock.")
+            if self.save_logs:
+                self.logs.append(f"Agent {self.agent_names[aid]} teleported to {pos} to unblock.")
             # retry previous action
             evt2 = self.controller.step(prev_action_dict)
             if evt2.events[aid].metadata["lastActionSuccess"]:
+                if self.save_logs:
+                    self.logs.append(f"Agent {self.agent_names[aid]} re-executed previous action after teleporting (action: {prev_action_dict}) and succeeded.")
                 return True
+
 
         return False
 

@@ -5,7 +5,7 @@ if str(ROOT) not in sys.path:
 from env.task_config_checker import TaskConfigChecker
 
 def build_checker(env=None):
-    receptacle = ["CounterTop_1", "CounterTop_2", "CounterTop_3", "Fridge_1"]
+    receptacle = ["CounterTop_1", "CounterTop_2", "CounterTop_3", "Fridge_1", "DiningTable_1"]
     
     required = ["Tomato_1", "Apple_1"]
 

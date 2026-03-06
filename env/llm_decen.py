@@ -514,15 +514,9 @@ def run_main(controller, test_id = 0, config_path="config/config.json", delete_f
     cnt = 0
     start_time = time.time()
     
-    # TBD: (more test) 
     while True:
         need_replan_arr = [True] * num_agent
 
-        # if time.time() - start_time > timeout:
-        #     print("Timeout reached, ending loop.")
-        #     logs_llm.append(f"""Timeout ({timeout} second) reached, ending loop.""")
-        #     break
-        
         if env.get_cur_ts() > timeout_step:
             print("Timeout max. step reached, ending loop.")
             logs_llm.append(f"""Timeout max ({timeout_step} step) reached, ending loop.""")
@@ -540,12 +534,15 @@ def run_main(controller, test_id = 0, config_path="config/config.json", delete_f
             print("All agent remain Idle --- End")
             logs_llm.append("All agent remain Idle--- End")
             break
-
+        if env.check_if_task_complete():
+            print("Task Completed --- End")
+            logs_llm.append("Task Completed --- End")
+            break
         # execute
         isSuccess, info, succ, old_msg = env.stepwise_decen_loop()
-        print('info', info)
-        print('old_msg', old_msg)
-        print('succ', succ)
+        # print('info', info)
+        # print('old_msg', old_msg)
+        # print('succ', succ)
         logs_llm.append(f"info: {info}")
         logs_llm.append(f"action exe status: {succ}")
         logs_llm.append(f"message status: {old_msg}")
@@ -562,19 +559,19 @@ def run_main(controller, test_id = 0, config_path="config/config.json", delete_f
                 need_replan_arr[aid] = True
             else:
                 need_replan_arr[aid] = False
-            print(f"check if replan is needed for agent {aid}: need_replan: {need_replan_arr[aid]} ;failed {failed}, new_msg {new_msg}, done_all {done_all}")
+            # print(f"check if replan is needed for agent {aid}: need_replan: {need_replan_arr[aid]} ;failed {failed}, new_msg {new_msg}, done_all {done_all}")
             logs_llm.append(f"check if replan is needed for agent {aid}: need_replan: {need_replan_arr[aid]} ;failed {failed}, new_msg {new_msg}, done_all {done_all}")
             #  verify & replan
             if need_replan_arr[aid]:
                 verify_res = verify_actions(env, agent_id=aid)
-                print(verify_res)
+                # print(verify_res)
                 logs_llm.append(f"verified res for agent {aid}: {verify_res}")
                 need_replan_arr[aid] = verify_res["need_replan"]
                 if need_replan_arr[aid]:
                     subtask, actions, msg = get_agent_subtask(env, config, agent_id=aid, is_initial=False, info=verify_res['suggestion'])
-                    print(f"new subtasks for  agent {aid}: {subtask}")
-                    print(f"new actions for  agent {aid}: {actions}")
-                    print(f"new message from agent {aid}: {msg}")
+                    # print(f"new subtasks for  agent {aid}: {subtask}")
+                    # print(f"new actions for  agent {aid}: {actions}")
+                    # print(f"new message from agent {aid}: {msg}")
                     logs_llm.append(f"new subtasks for  agent {aid}: {subtask}")
                     logs_llm.append(f"new actions for  agent {aid}: {actions}")
                     logs_llm.append(f"new message from agent {aid}: {msg}")
@@ -741,16 +738,16 @@ if __name__ == "__main__":
         #     "task": "Put all readable objects on the sofa",
         #     "scenes": ["FloorPlan201", "FloorPlan203", "FloorPlan204", "FloorPlan208", "FloorPlan223"]
         # },
-        {
-            "task_folder": "3_put_all_food_countertop",
-            "task": "Put all food on the countertop",
-            "scenes": ["FloorPlan2" ] # "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan5"
-        },
         # {
-        #     "task_folder": "3_put_all_groceries_fridge",
-        #     "task": "Put all groceries in the fridge",
-        #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        #     "task_folder": "3_put_all_food_countertop",
+        #     "task": "Put all food on the countertop",
+        #     "scenes": ["FloorPlan2" ] # "FloorPlan1", "FloorPlan2", "FloorPlan3","FloorPlan5"
         # },
+        {
+            "task_folder": "3_put_all_groceries_fridge",
+            "task": "Put all groceries in the fridge",
+            "scenes": ["FloorPlan3", "FloorPlan4", "FloorPlan5"]
+        },
         # {
         #     "task_folder": "3_put_all_kitchenware_box",
         #     "task": "Put all kitchenware in the cardboard box",
@@ -766,16 +763,16 @@ if __name__ == "__main__":
         #     "task": "Put all shakers in the fridge",
         #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]
         # },  
-        {
-            "task_folder": "3_put_all_shakers_tomato", # on countertop
-            "task": "put all shakers and tomato on the counter top",
-            "scenes": ["FloorPlan1",  "FloorPlan3",  "FloorPlan5"] #"FloorPlan2","FloorPlan4",
-        },  
         # {
-        #     "task_folder": "3_put_all_silverware_drawer",
-        #     "task": "Put all silverware in the drawer",
-        #     "scenes": [ "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+        #     "task_folder": "3_put_all_shakers_tomato", # on countertop
+        #     "task": "put all shakers and tomato on the counter top",
+        #     "scenes": ["FloorPlan1",  "FloorPlan3",  "FloorPlan5"] #"FloorPlan2","FloorPlan4",
         # },  
+        {
+            "task_folder": "3_put_all_silverware_drawer",
+            "task": "Put all silverware in the drawer",
+            "scenes": [ "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"]
+        },  
         # {
         #     "task_folder": "3_put_all_tableware_countertop",
         #     "task": "Put all tableware on the countertop",
@@ -789,45 +786,45 @@ if __name__ == "__main__":
         
     ]
 
-
     TASKS_4 = [
     # {
     #     "task_folder": "4_clear_couch_livingroom",
     #     "task": "Clear the couch by placing the items in other appropriate positions ",
-    #     "scenes": ["FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209" ] #"FloorPlan212" hen "FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
+    #     "scenes": ["FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209" ] #"FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
     # },
-    # {
-    #     "task_folder": "4_clear_countertop_kitchen",
-    #     "task": "Clear the countertop by placing items in their appropriate positions",
-    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"] # "FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"
-    # },
-    # {
-    #     "task_folder": "4_clear_floor_kitchen",
-    #     "task": "Clear the floor by placing items at their appropriate positions",
-    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"]# "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
-    # },
+    {
+        "task_folder": "4_clear_countertop_kitchen",
+        "task": "Clear the countertop by placing items in their appropriate positions",
+        "scenes": ["FloorPlan6"] # "FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"
+    },
+    {
+        "task_folder": "4_clear_floor_kitchen",
+        "task": "Clear the floor by placing items at their appropriate positions",
+        "scenes": [ "FloorPlan4"]# "FloorPlan1", "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5"
+    },
     {
         "task_folder": "4_clear_table_kitchen",
         "task": "Clear the table by placing the items in their appropriate positions",
-        "scenes": ["FloorPlan16", "FloorPlan17"] #"FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"
+        "scenes": ["FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"] #"FloorPlan4", "FloorPlan11", "FloorPlan15", "FloorPlan16", "FloorPlan17"
     },
     
     {
         "task_folder": "4_put_appropriate_storage",
         "task": "Place all utensils into their appropriate positions",
-        "scenes": [  "FloorPlan2", "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6"] # "FloorPlan2",  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6
+        "scenes": [  "FloorPlan2", "FloorPlan3", "FloorPlan5", "FloorPlan6"] # "FloorPlan2",  "FloorPlan3", "FloorPlan4", "FloorPlan5", "FloorPlan6
     }, 
     # {
     #     "task_folder": "4_make_livingroom_dark",
     #     "task": "Make the living room dark",
-    #     "scenes": ["FloorPlan204","FloorPlan205"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204","FloorPlan205"
+    #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204","FloorPlan205"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204","FloorPlan205"
     # }, 
-]
-    
+    ]
+
+
     # batch_run(TASKS_1, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
     # batch_run(TASKS_2, base_dir="config", start=61, end=61, sleep_after=50, delete_frames=True)
-    batch_run(TASKS_3, base_dir="config", start=21, end=21, sleep_after=50, delete_frames=True)
-    # batch_run(TASKS_4, base_dir="config", start=62, end=62, sleep_after=50, delete_frames=True)
+    batch_run(TASKS_3, base_dir="config", start=24, end=24, sleep_after=50, delete_frames=True)
+    # batch_run(TASKS_4, base_dir="config", start=24, end=24, sleep_after=50, delete_frames=True)
 
     # run_main(test_id = 102, config_path="config/config.json", delete_frames=False, timeout=250, timeout_step=200)
     # run_main(test_id = 100, config_path="config/config.json", delete_frames=True, timeout=250)

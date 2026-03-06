@@ -136,11 +136,11 @@ TASKS_4 = [
     #     "task": "Clear the couch by placing the items in other appropriate positions ",
     #     "scenes": ["FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209" ] #"FloorPlan201",  "FloorPlan202","FloorPlan203","FloorPlan209", 
     # },
-    # {
-    #     "task_folder": "4_clear_countertop_kitchen",
-    #     "task": "Clear the countertop by placing items in their appropriate positions",
-    #     "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"] # "FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"
-    # },
+    {
+        "task_folder": "4_clear_countertop_kitchen",
+        "task": "Clear the countertop by placing items in their appropriate positions",
+        "scenes": ["FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"] # "FloorPlan1", "FloorPlan2", "FloorPlan30", "FloorPlan10", "FloorPlan6"
+    },
     {
         "task_folder": "4_clear_floor_kitchen",
         "task": "Clear the floor by placing items at their appropriate positions",
@@ -163,6 +163,7 @@ TASKS_4 = [
     #     "scenes": ["FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204","FloorPlan205"] #"FloorPlan201", "FloorPlan202","FloorPlan203","FloorPlan204","FloorPlan205"
     # }, 
 ]
+
 
 TASKS_ALL = {
     "TASKS_1": TASKS_1,

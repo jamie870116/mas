@@ -605,7 +605,11 @@ class AI2ThorEnv_cen(BaseEnv):
         filtered = [p for p in candidates if not (p["x"] == bx and p["z"] == bz)]
         filtered.sort(key=dist2)
         return filtered[:k]
-
+    
+    def check_if_task_complete(self):
+        ok, _ = self.checker.check(self) if self.checker else (False, "No checker provided")
+        return ok
+    
     # New
     def try_unblock_with_random_nearest_teleports(self, aid: int,
                                                 prev_action_dict: dict,

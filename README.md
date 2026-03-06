@@ -1,11 +1,24 @@
-#  LLM Agents for Multi-Robot Task Planning: Centralized and Decentralized Systems
+#  The Impact of State Representation and Decentralization in LLM-Based Multi-Robot Planning
 
-The Impact of State Representation and Decentralization in LLM-Based Multi-Robot Coordination
+<!-- *Chieh-Ying (Jamie) Lai and James A. Preiss* -->
 
-*Chieh-Ying (Jamie) Lai*
-
-
-This project explores how large language models (LLMs) can act as planners and coordinators in a multi-robot system guided by a natural-language task specification. We build an agentic system using text representations and LLM reasoning for for task breakdown/allocation, state tracking, and action generation, and evaluate it in the AI2-THOR simulator for multi-robot housekeeping tasks. Our inquiry focuses on how environment state and robots’ memory should be represented to support reliable LLM planning. We compare summary-based and structured log-based representations, and find that log-based memory better preserves fine-grained events and contextual details, resulting in improved task success. Log-based memory is more easily decentralized, so we also examine decentralized planning under unreliable communication, where each robot must make decisions with partial and delayed information. We find that task success is mostly preserved except for the most complex tasks. Our work demonstrates that a careful study of design choices in text-based state representation can have a large impact on the performance of LLM-based robotic reasoning systems.
+We study design choices for representing memory
+as text in a multi-robot system coordinated via Large Language
+Models (LLMs). Our agentic system takes an open-ended
+natural-language command and uses LLM reasoning to break
+it down, allocate subtasks, track state, and generate actions.
+Whereas previous work used summary-based memory to repre-
+sent the system’s belief about world state, we introduce a log-
+based memory that guards against accidental forgetting while
+keeping the log compact. Our log is easily distributed, so we also
+examine its behavior under messaging delays and decentralized
+planning. We evaluate each method for housekeeping tasks in
+the AI2-THOR simulator. We find that centralized log-based
+memory leads in task completion rate, while the decentralized
+log remains competitive with the centralized summary despite
+the extra challenges of decentralization. Our results show that a
+careful choice of textual memory representation in LLM-based
+robotic reasoning can have a substantial performance impact.
 
 
 
@@ -13,7 +26,7 @@ This project explores how large language models (LLMs) can act as planners and c
 
 ### Centralized Architecture  
 
-![Centralized Pipeline](img/cen_workflow.png)
+![Centralized Pipeline](img/cen_workflow_overview_wExp.png)
 
 ### Decentralized Architecture  
 
@@ -92,6 +105,22 @@ For testing, change the content in config file and run:
 ```python
 python env/llm_decen.py
 ```
+
+### Run All Experiments
+Use the bash wrapper to run experiments with automatic restart and logging.
+
+```bash
+bash run.sh [METHOD] [TASKSET]
+```
+> Arguments
+> - METHOD (default: decen)
+> - summary – centralized summary memory
+> - log – centralized log memory
+> - decen – decentralized log memory
+> - TASKSET (default: ALL)
+> - ALL, TASKS_1, TASKS_2, TASKS_3, TASKS_4
+
+
 
 ## Output
 Generate a CSV file summarizing experiment results.

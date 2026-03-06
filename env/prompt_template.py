@@ -49,22 +49,35 @@ Example input:
 }}
 """
 
+# VERIFY_EXAMPLE = f"""
+# # Error and Faulures handling
+# - Navigation: "no-path", "object-not-in-view", "distance-too-far": Use micro-movements (MoveAhead, RotateRight, etc.) to get in view/reach, using current/target positions and available observations. For example, you can have subtasks like "look down and navigate to potato" if previous failure reason of "pick up potato" was "object-not-in-view". Or you can have subtask like "use micro-movements to navigate to potato" if previous subtask "navigate to potato" was failured.
+# ** If the input reports "no-path" to <Obj> while <Obj> exists and the images/observations indicate a physical occluder (e.g., an open fridge door between the agent and the target or blocked by other agent), issue a short detour macro before retrying. For example: RotateRight twice, then MoveAhead once, then retry NavigateTo(<Obj>).This decision must use multiple signals—images/2D detections, object states (e.g., isOpen for doors), recent actions, and visible objects—not just the Reachable positions list. Or navigate to somewhere far away to clean the path.
+# ** When the input shows "no-path" and a likely cause is another agent blocking the aisle or target approach (same narrow corridor, same target, or the other agent is on the planned route), assign a yield/wait behavior to avoid deadlock: have the blocked agent Idle for 1 or 2 steps or take a small lateral/back step (MoveRight/MoveLeft/MoveBack) to clear space, or temporarily reassign the blocking agent to a different subtask/movement. After the yielding action, retry NavigateTo(<Obj>).
+# ** when given input shows "object-not-in-view" for subtask "navigate to tomato", and based on other input information, that the distance between the agent and the tomato is already close enough, then you can have subtask "Lookdown" or "Lookup" to find the tomato or "RotateRight" or "RotateLetf".
+# ** when when given input shows "object-not-in-view" for subtask "navigate to tomato and pick up tomato", but you can still see a tomato based on the given point of view image, then try directly pick up the tomato without navigation.
+# ** when given input shows "a held item: <object_id> with something if agent <navigation related action: e.g., rotates Left 30 degrees>", it means that the agent is currently in a narrow space and cannot do certain navigation(often happen when rotation), you can suggest the agent to do "MoveBack" or "MoveAhead" first to get out of the narrow space.
+# ** for any other unknown reason or repeating failures, you can suggest assigning subtasks to other agents.
+
+# - Object-related: "object-not-found", "object-not-reachable", "object-not-in-inventory", "object(<OBJ>)-not-picked-up", "object cannot be interacted":
+# ** when given input shows "object-not-found" and based on given object list of environment, that there's no target object, you can skipped the related subtask.
+# ** when given input shows "object-not-in-inventory", means that the current agent didn't not pick up any object to perform the next step, you should have the subtask "pick up xxx, and do xxx". xxx depends on what is the subtask.
+# ** when given input shows "object cannot be interacted", means that the target object maybe  broken/disabled/locked, you should skip the related subtask, or try replan/choose an alternative..
+# ** when given error shows "NullReferenceException: Target object not found within the specified visibility.", means that the target object may be inside the container and is not visiable to the agent, you should try open the container to find the target object.
+
+# - Ensure necessary object prerequisites.
+# """
 VERIFY_EXAMPLE = f"""
 # Error and Faulures handling
-- Navigation: "no-path", "object-not-in-view", "distance-too-far": Use micro-movements (MoveAhead, RotateRight, etc.) to get in view/reach, using current/target positions and available observations. For example, you can have subtasks like "look down and navigate to potato" if previous failure reason of "pick up potato" was "object-not-in-view". Or you can have subtask like "use micro-movements to navigate to potato" if previous subtask "navigate to potato" was failured.
-** If the input reports "no-path" to <Obj> while <Obj> exists and the images/observations indicate a physical occluder (e.g., an open fridge door between the agent and the target or blocked by other agent), issue a short detour macro before retrying. For example: RotateRight twice, then MoveAhead once, then retry NavigateTo(<Obj>).This decision must use multiple signals—images/2D detections, object states (e.g., isOpen for doors), recent actions, and visible objects—not just the Reachable positions list. Or navigate to somewhere far away to clean the path.
-** When the input shows "no-path" and a likely cause is another agent blocking the aisle or target approach (same narrow corridor, same target, or the other agent is on the planned route), assign a yield/wait behavior to avoid deadlock: have the blocked agent Idle for 1 or 2 steps or take a small lateral/back step (MoveRight/MoveLeft/MoveBack) to clear space, or temporarily reassign the blocking agent to a different subtask/movement. After the yielding action, retry NavigateTo(<Obj>).
-** when given input shows "object-not-in-view" for subtask "navigate to tomato", and based on other input information, that the distance between the agent and the tomato is already close enough, then you can have subtask "Lookdown" or "Lookup" to find the tomato or "RotateRight" or "RotateLetf".
-** when when given input shows "object-not-in-view" for subtask "navigate to tomato and pick up tomato", but you can still see a tomato based on the given point of view image, then try directly pick up the tomato without navigation.
-** when given input shows "a held item: <object_id> with something if agent <navigation related action: e.g., rotates Left 30 degrees>", it means that the agent is currently in a narrow space and cannot do certain navigation(often happen when rotation), you can suggest the agent to do "MoveBack" or "MoveAhead" first to get out of the narrow space.
+- Navigation: If the input reports "no-path" to <Obj> while <obj> exists, try to assign the subtesk to other agent first or skip it for one round to avoid potential deadlock. 
 ** for any other unknown reason or repeating failures, you can suggest assigning subtasks to other agents.
 
 - Object-related: "object-not-found", "object-not-reachable", "object-not-in-inventory", "object(<OBJ>)-not-picked-up", "object cannot be interacted":
 ** when given input shows "object-not-found" and based on given object list of environment, that there's no target object, you can skipped the related subtask.
 ** when given input shows "object-not-in-inventory", means that the current agent didn't not pick up any object to perform the next step, you should have the subtask "pick up xxx, and do xxx". xxx depends on what is the subtask.
 ** when given input shows "object cannot be interacted", means that the target object maybe  broken/disabled/locked, you should skip the related subtask, or try replan/choose an alternative..
+** when given input shows "missalignment" when putting an object, it means that the target receptacle may not be suitable for the object, you should try to put the object in other suitable receptacles based on the object size and context. For example, if you are putting an apple into a Bowl and the input shows "missalignment" when putting it in the Bowl, you can try to put it in the fridge or cabinet if they are available.
 ** when given error shows "NullReferenceException: Target object not found within the specified visibility.", means that the target object may be inside the container and is not visiable to the agent, you should try open the container to find the target object.
-
 - Ensure necessary object prerequisites.
 """
 
@@ -173,21 +186,24 @@ COMMON_GUIDELINES = """**Simulation note:** Agents operate in a simulator that m
   - Open before use and always Close after use.
   - To place an object inside: navigate to the target object → pick up the object → navigate to the container → open the contatiner →  deposit it inside → close.
 - To place on a receptacle: pick up → navigate/approach → place.
-- Cooking: item in a pan/pot → pan/pot on a stove burner → turn on the stove knob (turn off if the task requires).
 - Slicing: the robot can slice either with or without a knife, and do **not** pick up the item being sliced.
 - After Slicing: When an object is sliced, it becomes multiple pieces that keep the same base name but receive new indices/unique IDs. E.g., slicing Apple_1 yields Apple_1, Apple_2, …
 - Each robot can hold only one object at a time. When holding an item, the robot **cannot** perform interactions that require a free hand (e.g., OpenObject, CloseObject, ToggleObjectOn/Off); empty the hand first (put on a surface or drop) before such actions.
 - When cleaning is required, you must only use the CleanObject action. Do not use any other methods (e.g., placing under faucet, using soap, or sponge). No need to pick up the dirty object first; clean it in place.
 - Do not assume default receptacles (e.g., CounterTop, Table) unless explicitly mentioned/present.
-- Close any opened object before leaving when appropriate.
-- Avoid agents blocking each other where possible.
-- Object cannot be given to other agent.
 - Unless otherwise specified, assume robots start with empty hands.
 - For electronic items (e.g., television, laptop, phone), toggle power directly on the device; **do not use remote controls** unless explicitly required.
 - For storage selection: use appropriate receptacles based on the item size and context.
-  - Small items (e.g., utensils, tools, food ingredients) can be stored in drawers or cabinets.
-  - Larger items (e.g., books, vases, boxes) can be placed on shelves, tables, or other stable surfaces.
-  - Use common sense when determining suitable storage.
+  - Small items (e.g., utensils, tools, food ingredients) can be stored in drawers or cabinets or fridge or countertops(if avaliable). 
+  - Larger items (e.g., books, vases) can be placed on shelves, tables, or other stable surfaces.
+- Move ONLY pickupable small handheld objects. Examples: food items, utensils, books, keys, tools.
+- DO NOT move:
+   - Appliances (coffee machine, toaster, microwave, kettle)
+   - Large kitchenware (pan, pot)
+   - Plants
+   - Sink items (SoapBottle, DishSponge)
+   - Any object typically fixed on countertop or sink
+- When clearing a surface: Move only the small clutter objects. Leave functional appliances and decorations untouched.
 - **Irreversible actions (non-repeatable per object):** `BreakObject(<object_name>)`, `CookObject(<object_name>)`, and `SliceObject(<object_name>)` are irreversible; each can be performed **at most once** on the same object. If the object is already broken/cooked/sliced, **skip** the related subtask and, if applicable, replan with an alternative instance.
 """
 
@@ -376,7 +392,7 @@ First, think carefully step by step about the **plan correction** per the rules,
 # for SUMMARY
 MEMORY_PROMPT = f"""
 # Role and Objective
-You are a lightweight memory gate for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
+You are a memory aggregator for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
 Your sole job is to decide whether the **current memory and recent history** should be **carried into the next planning round**, and if so, to output a concise shared memory string plus compact success/failure highlights. 
 You do **not** plan actions.
 
@@ -444,7 +460,7 @@ def get_memory_prompt():
 # for LOG
 OLD_LOG_PROMPT = f"""
 # Role and Objective
-You are the Memory Aggregator within a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
+You are a Memory Aggregator within a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots named {", ".join(AGENT_NAMES[:-1]) + f", and {AGENT_NAMES[-1]}"}. 
 Your task is to condense the full execution histories of all agents into a concise, structured summary that captures only facts relevant to future planning.
 
 You will receive:
@@ -506,8 +522,8 @@ Then output ONLY the specified JSON object with the three fields and their lengt
 
 LOG_PROMPT = f""" 
 # Role
-You are the Memory Aggregator for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots ({", ".join(AGENT_NAMES)}).
-Condense all execution logs into a factual summary that supports future planning.
+You are a Memory Aggregator for a multi-robot AI2-THOR system with {len(AGENT_NAMES)} robots ({", ".join(AGENT_NAMES)}).
+Generate an updated log entry that records only the new factual changes relative to the previous state.
 
 # Input
 You will receive:
@@ -544,16 +560,16 @@ Return ONLY one JSON object:
 #     }}
 # }}
 LOG_DECEN_PROMPT = f""" 
-# Role
-You are the Memory Aggregator and Messenger for a multi-robot AI2-THOR system.
-You operate **for one agent at a time** (“current agent”) and condense its execution logs into a factual summary that supports future replanning, and optionally produce a short message for other agents.
+# Role and Objective
+You are a Memory Aggregator and Messenger for a multi-robot AI2-THOR system.
+You operate **for one agent at a time** (“current agent”) and generate an updated log entry that records only the new factual changes relative to the previous state., and optionally produce a short message for other agents.
 
 # Input
 You will receive:
 - Task description
 - Objects in the environment
 - This agent's past memory entries: a list of JSON objects, each with:
-  {{ "timestamp": <int>, "history": "<previous factual summary>" }} or {{"timestamp": <int: the original timestamp when the message sent from other>, "received_at": <int: the timestamp received the message, it may have delay> , "history": "<message from other agent>" }}
+  {{ "timestamp": <int>, "history": "<previous factual changes>" }} or {{"timestamp": <int: the original timestamp when the message sent from other>, "received_at": <int: the timestamp received the message, it may have delay> , "history": "<message from other agent>" }}
 - This agent's new execution log: a single JSON object in the action-log format:
   {{
     "timestamp": <int>,
@@ -649,7 +665,7 @@ def get_decen_planner_prompt(agent_id=0):
     - "Objects in containers": A dictionary where each key is a container object (e.g., Fridge, Drawer), and its value is a list of objects currently inside that container.
     - "Agent's state": current agent's position, facing, and inventory, and observation.
     - "Agent's log": (OPTIONAL)  a time-ordered log of this agent's action and observation history, and message from other agents in the same environment.
-      - format will be either  {{ "timestamp": <int>, "history": "<previous factual summary>" }} or {{"sent_at": <int: the original timestamp when the message sent from other>, "received_at": <int: the timestamp received the message, it may have delay> , "msg": "<message from other agent>" }}
+      - format will be either  {{ "timestamp": <int>, "history": "<previous factual changes>" }} or {{"sent_at": <int: the original timestamp when the message sent from other>, "received_at": <int: the timestamp received the message, it may have delay> , "msg": "<message from other agent>" }}
     - "Suggestion": (OPTIONAL) natural language hint about what to do next (e.g., after a failure or delayed message).
 
 

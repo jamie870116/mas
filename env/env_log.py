@@ -635,7 +635,10 @@ class AI2ThorEnv_cen(BaseEnv):
                 return True
 
         return False
-
+    
+    def check_if_task_complete(self):
+        ok, _ = self.checker.check(self) if self.checker else (False, "No checker provided")
+        return ok
 
     def exe_step(self, actions:List[str]):
         """execute one step, each agent per step (can be IDLE)"""
