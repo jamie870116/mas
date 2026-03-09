@@ -20,7 +20,9 @@ the extra challenges of decentralization. Our results show that a
 careful choice of textual memory representation in LLM-based
 robotic reasoning can have a substantial performance impact.
 
-
+**Overview of the system and results:** [▶️ Watch the video
+](https://youtu.be/5qofjIJFmqY)
+<!-- [![Demo Video](https://img.youtube.com/vi/5qofjIJFmqY/0.jpg)](https://youtu.be/5qofjIJFmqY) -->
 
 ## System Overview
 
@@ -36,7 +38,6 @@ robotic reasoning can have a substantial performance impact.
 Here are demo videos for each method on the task "Put the remote control, key, and watch in the box."
 
 ### Centralized Summary
-
 
 [![Demo Video](https://img.youtube.com/vi/VLYmGB1zoug/0.jpg)](https://youtu.be/VLYmGB1zoug)
 ### Centralized Log
